@@ -437,7 +437,7 @@ func TestDeployHostBadHomeFile(t *testing.T) {
 func TestDeployHostChecksTheMachine(t *testing.T) {
 	homeOf(t)
 	root := shopApp(t)
-	newSetupServer(t, "", factsOf("shop", 9531, ""))
+	newSetupServer(t, "", factsOf("shop", 80, ""))
 	if _, err := rememberServer("old-99999999", "vps", at(root, "shop")); err != nil {
 		t.Fatal(err)
 	}

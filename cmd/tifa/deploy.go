@@ -5,14 +5,18 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +61,9 @@ type deployTarget struct {
 	dest deployHost
 	// domain is the host of site.url when deploy.front is cloudflare, else empty.
 	domain string
+	// front is deploy.front. own is the domain the app serves HTTPS for itself with front none:
+	// the host of site.url when that is a domain, else empty, and the app serves plain HTTP.
+	front, own string
 	// connectMode is how ssh reaches the server: direct, cloudflare or tailscale. github says
 	// the block deploy.auto is there: the GitHub Actions of the repository deploy the app, as auto says.
 	connectMode string
@@ -88,6 +95,27 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 		return "", errors.New("deploy.connect is tailscale, which is how GitHub Actions reaches the server: add the block deploy.auto (auto: {}), or set deploy.connect to direct")
 	}
 	return domain, nil
+}
+
+// ownDomain is the domain an app with deploy.front none serves HTTPS for itself: the host of site.url,
+// unless that is missing, an IP address or localhost, and then the app serves plain HTTP. The app
+// serves ports 80 and 443, so a site.url with another port cannot be its address.
+func ownDomain(d config.Deploy, siteURL string) (string, error) {
+	if d.Front != "none" || siteURL == "" {
+		return "", nil
+	}
+	u, err := url.Parse(siteURL)
+	if err != nil {
+		return "", fmt.Errorf("site.url: %w", err)
+	}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	if host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") || net.ParseIP(host) != nil {
+		return "", nil
+	}
+	if p := u.Port(); p != "" && p != "443" && p != "80" {
+		return "", fmt.Errorf("site.url has the port %s, and with deploy.front none the app serves visitors on ports 80 and 443 itself: write https://%s, or set deploy.front to cloudflare", p, host)
+	}
+	return host, nil
 }
 
 // checkDeploySettings runs the checks of the deploy settings that need no network, which tifa
@@ -139,6 +167,10 @@ func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, err
 	if err != nil {
 		return deployTarget{}, err
 	}
+	own, err := ownDomain(settings.Deploy, settings.Site.URL)
+	if err != nil {
+		return deployTarget{}, err
+	}
 	if err := checkUnknownInputNames(root); err != nil {
 		return deployTarget{}, err
 	}
@@ -146,7 +178,8 @@ func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, err
 	if err != nil {
 		return deployTarget{}, err
 	}
-	return deployTarget{root: root, app: app, host: h.raw, dest: h, domain: domain, connectMode: settings.Deploy.Connect, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
+	return deployTarget{root: root, app: app, host: h.raw, dest: h, domain: domain, front: settings.Deploy.Front, own: own,
+		connectMode: settings.Deploy.Connect, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
 }
 
 // sshWaitDelay is how long ssh may leave its output open once it has ended.
@@ -213,21 +246,85 @@ func (t deployTarget) checkMachine(got string) error {
 		t.host, t.dest.from, t.host, got, t.dest.knownID, deployHostEnv)
 }
 
+// visitorPort is the port the app on s listens on: with front none 80, or 443 with a domain, and
+// else its loopback port behind the tunnel, which it keeps, or the first one free.
+func (t deployTarget) visitorPort(s serverState) (int, error) {
+	switch {
+	case t.front != "cloudflare" && t.own != "":
+		return httpsPort, nil
+	case t.front != "cloudflare":
+		return httpPort, nil
+	case s.Port >= firstPort && s.Port <= lastPort:
+		return s.Port, nil
+	}
+	return pickPort(s.Used)
+}
+
+// portsFree checks that nothing but the app listens on the ports an app that serves visitors
+// itself needs, and that the deploy user may open them. It names what is in the way and says what to
+// do. programs names the programs of a port when s could not, as only root can: nil when it cannot.
+func (t deployTarget) portsFree(s serverState, port int, programs func() []listener) error {
+	if !servesVisitors(port) {
+		return nil
+	}
+	ports := []int{httpPort}
+	if port == httpsPort {
+		ports = append(ports, httpsPort)
+	}
+	instead := fmt.Sprintf("or put %s behind Cloudflare with deploy.front: cloudflare in tifa.yaml", t.app)
+	for _, p := range ports {
+		other, names, taken := s.holder(t.app, p)
+		switch {
+		case !taken:
+			continue
+		case other != "":
+			return fmt.Errorf("port %d of %s is taken by %s, an app Tifa set up there. Only one app on a server can serve visitors on ports 80 and 443 itself: remove %s from the server (go tool tifa deploy remove in its folder), %s. Nothing was changed", p, t.host, other, other, instead)
+		}
+		if len(names) == 0 && programs != nil {
+			for _, l := range programs() {
+				if l.Port == p {
+					names = append(names, l.Programs...)
+				}
+			}
+		}
+		if len(names) == 0 {
+			return fmt.Errorf("port %d of %s is taken by a program that is not a Tifa app, and Tifa cannot see which without root: run sudo ss -ltnp on the server. Only one program can listen on a port: stop that one and keep it from starting at boot, %s. Nothing was changed", p, t.host, instead)
+		}
+		return fmt.Errorf("port %d of %s is taken by %s. Only one program can listen on a port: stop it on the server and keep it from starting at boot, %s. Nothing was changed", p, t.host, strings.Join(names, ", "), instead)
+	}
+	return nil
+}
+
 // createApp makes the folder, port and units of the app on a server that is prepared, as the
-// deploy user: no root. A server that is not prepared needs deploy setup.
+// deploy user: no root. A server that is not prepared needs deploy setup, and so does an app
+// that serves visitors on ports 80 and 443 when the deploy user may not open them yet.
 func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stderr io.Writer) (serverState, error) {
 	if !s.Prepared() {
 		return s, fmt.Errorf("%s is not prepared for tifa apps: run go tool tifa deploy setup", t.host)
 	}
-	port, err := pickPort(s.Used)
+	port, err := t.visitorPort(s)
 	if err != nil {
 		return s, err
 	}
-	if err := t.ssh(ctx, deployUser, appScript(t.app, port), nil, io.Discard, stderr); err != nil {
+	if err := t.portsFree(s, port, nil); err != nil {
 		return s, err
 	}
-	fmt.Fprintf(stdout, "created %s on %s: %s/%s, port %d, empty shared/.env\n", t.app, t.host, s.Home, t.app, port)
+	if servesVisitors(port) && s.LowPort > httpPort {
+		return s, fmt.Errorf("%s serves visitors on %s itself, which only root may open on %s yet: run go tool tifa deploy setup", t.app, portsText(port), t.host)
+	}
+	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), false, false), nil, io.Discard, stderr); err != nil {
+		return s, err
+	}
+	fmt.Fprintf(stdout, "created %s on %s: %s/%s, %s, empty shared/.env\n", t.app, t.host, s.Home, t.app, portsText(port))
 	return t.state(ctx, stderr)
+}
+
+// ownFor is the domain of HTTPS on port: own on 443, else none.
+func (t deployTarget) ownFor(port int) string {
+	if port == httpsPort {
+		return t.own
+	}
+	return ""
 }
 
 func newDeployCmd() *cobra.Command {
@@ -266,7 +363,10 @@ setup cannot. When something is left for you, setup does the rest and then exits
 When all is right it prints one line and asks nothing. It can run again at any time.
 
   server    the user tifa and its systemd at boot, the first time as root
-  app       the folder, port and systemd units of this app, as tifa
+  app       the folder, port and systemd units of this app, as tifa. With deploy.front none
+            the app serves visitors itself on port 80, and with a domain in site.url on 443
+            with HTTPS: setup stops when another program has them, and lets the systemd of
+            tifa open them, as root once. Tifa never changes the firewall
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
             the host of site.url (needs cf), and on the server a token that can only clear
             its cache, which every deploy reads
@@ -364,7 +464,101 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err 
 	fmt.Fprintf(stdout, "deployed %s release %s (commit %s) in %s\n", t.app, id, a.Commit, time.Since(started).Round(100*time.Millisecond))
 	sum.Cache = clearCache(ctx, t, stderr)
 	printCache(stdout, sum.Cache)
+	t.printVisitors(ctx, stdout, s)
 	return nil
+}
+
+// portAnswers says whether the app answers this machine on port of host within a few seconds:
+// GET healthPath over HTTP on 80 and over HTTPS on 443, with a status below 500 and no redirect
+// followed. A connection alone proves nothing: a proxy on this machine, such as one that takes
+// all traffic, accepts it and then fails. The certificate is not checked, since the question is
+// whether the port is open. Tests replace it.
+var portAnswers = func(ctx context.Context, host string, port int) bool {
+	return askPort(ctx, pick(port == httpsPort, "https", "http"), host, port)
+}
+
+// askPort is portAnswers with the scheme given.
+func askPort(ctx context.Context, scheme, host string, port int) bool {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+net.JoinHostPort(host, strconv.Itoa(port))+healthPath, nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{
+		Transport:     &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: host}},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	defer client.CloseIdleConnections()
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 500
+}
+
+// serverAddress is the name or address this machine reaches the server at, as ssh resolves its
+// host, for a URL of the app: an alias of ~/.ssh/config is no address. The host as given when ssh
+// does not say.
+func (t deployTarget) serverAddress(ctx context.Context) string {
+	out, err := exec.CommandContext(ctx, sshProgram, "-G", "--", t.host).Output()
+	if err != nil {
+		return t.dest.name
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if word, value, _ := strings.Cut(strings.TrimSpace(line), " "); strings.EqualFold(word, "hostname") {
+			return value
+		}
+	}
+	return t.dest.name
+}
+
+// printVisitors says, after the health check passed on the server, where visitors reach the app of
+// s. An app that serves them itself is also asked for from this machine, on each of its ports:
+// one that does not answer is closed somewhere between, and Tifa does not open firewalls.
+func (t deployTarget) printVisitors(ctx context.Context, w io.Writer, s serverState) {
+	switch {
+	case t.front == "cloudflare" && t.domain != "":
+		fmt.Fprintf(w, "visitors: https://%s, through the Cloudflare Tunnel\n", t.domain)
+		return
+	case !servesVisitors(s.Port):
+		fmt.Fprintf(w, "visitors: none yet. %s listens on 127.0.0.1:%d, which only the server reaches: run go tool tifa deploy setup, and it serves visitors on port 80 itself\n", t.app, s.Port)
+		return
+	}
+	host := t.serverAddress(ctx)
+	site := "http://" + host
+	if strings.Contains(host, ":") {
+		site = "http://[" + host + "]"
+	}
+	if s.HTTPS != "" {
+		site, host = "https://"+s.HTTPS, s.HTTPS
+	}
+	ports := []int{httpPort}
+	if s.Port == httpsPort {
+		ports = append(ports, httpsPort)
+	}
+	var closed []string
+	for _, p := range ports {
+		if !portAnswers(ctx, host, p) {
+			closed = append(closed, strconv.Itoa(p))
+		}
+	}
+	many := len(ports) > 1
+	if len(closed) == 0 {
+		fmt.Fprintf(w, "visitors: %s (%s %s from this machine)\n", site, portsText(s.Port), pick(many, "answer", "answers"))
+		return
+	}
+	fmt.Fprintf(w, "visitors: %s, once %s %s open to them. %s %s did not answer from this machine within 3 seconds, and Tifa does not change the firewall: allow %s in ufw, or in the firewall of your provider\n",
+		site, portsText(s.Port), pick(many, "are", "is"), pick(len(closed) > 1, "Ports", "Port"), strings.Join(closed, " and "), portsText(s.Port))
+}
+
+// pick is a when cond holds, else b.
+func pick(cond bool, a, b string) string {
+	if cond {
+		return a
+	}
+	return b
 }
 
 func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err error) {

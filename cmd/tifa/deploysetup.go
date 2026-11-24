@@ -61,6 +61,8 @@ type setupPlan struct {
 	notes []planNote
 	// then says what setup does once the steps ran, when it plans again after them.
 	then string
+	// firewall says which ports visitors need open, for an app that serves them itself.
+	firewall string
 	// who is the command that makes the plan, setup when empty.
 	who string
 	// machine is the ID of the server the plan read, which ~/.tifa knows it by. Remove sets it.
@@ -146,6 +148,9 @@ func (p setupPlan) print(w io.Writer, title string, all bool) {
 	}
 	if p.then != "" {
 		fmt.Fprintf(w, "\n%s\n", p.then)
+	}
+	if p.firewall != "" && p.todo() > 0 {
+		fmt.Fprintf(w, "\n%s\n", p.firewall)
 	}
 	if !all && p.count(opOK) > 0 {
 		fmt.Fprintf(w, "\nAlready right: %s (--all lists them)\n", p.alreadyRight())
@@ -337,13 +342,6 @@ func (r *setupRun) readState(ctx context.Context) (serverState, error) {
 // stays silent looks hung.
 func (r *setupRun) progress(what string) { fmt.Fprintf(r.stderr, "Reading %s...\n", what) }
 
-func (r *setupRun) appPort() (int, error) {
-	if r.st.Port != 0 {
-		return r.st.Port, nil
-	}
-	return pickPort(r.st.Used)
-}
-
 func sha(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
@@ -386,7 +384,7 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 	if err := r.serverSteps(ctx, &p); err != nil {
 		return p, r, err
 	}
-	if err := r.appSteps(&p); err != nil {
+	if err := r.appSteps(ctx, &p); err != nil {
 		return p, r, err
 	}
 	if t.domain != "" {
@@ -464,6 +462,9 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 		if merr := r.t.checkMachine(s.Machine); merr != nil {
 			return merr
 		}
+		// What the app needs to know of a server without the user: who listens on the ports of
+		// the visitors, and whether its user may open them.
+		r.st.LowPort, r.st.Listen = s.LowPort, s.Listen
 		p.add(opAdd, fmt.Sprintf("server: the user %s does not exist yet (ssh cannot log in as it), so setup creates it (home %s) with the keys of root, and starts its systemd at boot", deployUser, deployHome), r.serverApply)
 		return nil
 	default:
@@ -491,14 +492,48 @@ func (r *setupRun) serverApply(ctx context.Context) (string, error) {
 	return strings.TrimSpace(strings.ReplaceAll(out.String(), "\n", ", ")), nil
 }
 
-func (r *setupRun) appSteps(p *setupPlan) error {
-	port, err := r.appPort()
+// appSteps plans the folder, port and units of the app. With deploy.front none the app serves
+// visitors itself on port 80, and with a domain on 443 too: setup stops before it changes anything
+// when something else listens there, and lets the systemd of the deploy user open them, as root.
+func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
+	t := r.t
+	port, err := t.visitorPort(r.st)
 	if err != nil {
 		return err
 	}
 	r.port = port
-	app := r.t.app
-	desc := fmt.Sprintf("app: %s/%s with an empty shared/.env, port %d, the systemd socket and service tifa-%s", deployHome, app, port, app)
+	if err := t.portsFree(r.st, port, func() []listener { return r.rootListeners(ctx) }); err != nil {
+		return err
+	}
+	app, domain := t.app, t.ownFor(port)
+	serves := portsText(port)
+	switch {
+	case port == httpsPort:
+		serves = fmt.Sprintf("serving visitors itself on ports 80 and 443, with HTTPS for %s and its certificate from Let's Encrypt kept in %s/%s/certs", domain, deployHome, app)
+	case port == httpPort:
+		serves = "serving visitors itself on port 80, over plain HTTP since site.url names no domain"
+	}
+	if servesVisitors(port) {
+		p.firewall = fmt.Sprintf("Visitors need %s of the server open. Tifa does not change the firewall: if ufw or the firewall of your provider blocks %s, open %s there.",
+			portsText(port), pick(port == httpsPort, "them", "it"), pick(port == httpsPort, "them", "it"))
+		if r.st.LowPort > httpPort {
+			p.add(opChange, fmt.Sprintf("server: let the systemd of %s open ports 80 and 443, with net.ipv4.ip_unprivileged_port_start = 80 (now %d) in %s, as root. Ports from 80 to 1023 are then open to every user of the server, not only root", deployUser, r.st.LowPort, portsConf), func(ctx context.Context) (string, error) {
+				var out strings.Builder
+				if err := t.ssh(ctx, "root", script(portsBody, "lowport_file", lowPortFile), nil, &out, r.stderr); err != nil {
+					return "", err
+				}
+				return strings.TrimSpace(out.String()), nil
+			})
+		}
+	}
+	u := unitsOf(app, port, domain)
+	httpSum := ""
+	if u.http != "" {
+		httpSum = sha(u.http)
+	}
+	had := r.st.SocketSum != ""
+	move := had && (r.st.SocketSum != sha(u.socket) || r.st.HTTPSum != httpSum)
+	restart := had && (move || r.st.ServiceSum != sha(u.service))
 	apply := func(ctx context.Context) (string, error) {
 		if !r.haveServer {
 			if err := r.refresh(ctx); err != nil {
@@ -506,27 +541,76 @@ func (r *setupRun) appSteps(p *setupPlan) error {
 			}
 		}
 		if !r.st.Prepared() {
-			return "", fmt.Errorf("the systemd of %s does not run on %s", deployUser, r.t.host)
+			return "", fmt.Errorf("the systemd of %s does not run on %s", deployUser, t.host)
 		}
-		port, err := r.appPort()
+		port, err := t.visitorPort(r.st)
 		if err != nil {
 			return "", err
 		}
 		r.port = port
-		if err := r.t.ssh(ctx, deployUser, appScript(app, port), nil, io.Discard, r.stderr); err != nil {
-			return "", err
+		var out strings.Builder
+		if err := t.ssh(ctx, deployUser, appScript(app, port, t.ownFor(port), move, restart), nil, &out, r.stderr); err != nil {
+			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
 		}
-		return "", r.refresh(ctx)
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+		return lines[len(lines)-1], r.refresh(ctx)
 	}
 	switch {
 	case r.st.Port == 0:
-		p.add(opAdd, desc, apply)
-	case r.st.SocketSum != sha(socketUnit(app, port)) || r.st.ServiceSum != sha(serviceUnit(app)):
+		p.add(opAdd, fmt.Sprintf("app: %s/%s with an empty shared/.env, %s, the systemd %s and service tifa-%s", deployHome, app, serves, pick(u.http != "", "sockets", "socket"), app), apply)
+	case port != r.st.Port:
+		was := portsText(r.st.Port)
+		if !servesVisitors(r.st.Port) {
+			was = fmt.Sprintf("127.0.0.1:%d, which only the server reaches,", r.st.Port)
+		}
+		p.add(opChange, fmt.Sprintf("app: move %s from %s to %s. New systemd %s, and the app restarts on %s", app, was, serves, pick(u.http != "", "sockets", "socket"), pick(u.http != "", "them", "it")), apply)
+	case restart || !had:
 		p.add(opChange, fmt.Sprintf("app: write the systemd units of %s again", app), apply)
 	default:
-		p.ok(fmt.Sprintf("app: %s/%s, port %d, systemd units", deployHome, app, port))
+		p.ok(fmt.Sprintf("app: %s/%s, %s, systemd units", deployHome, app, portsText(port)))
 	}
 	return nil
+}
+
+// rootListeners asks the server as root which programs listen on which ports, which the deploy
+// user cannot see. Nil when root cannot log in: the caller says so.
+func (r *setupRun) rootListeners(ctx context.Context) []listener {
+	var out strings.Builder
+	if err := r.t.ssh(ctx, "root", listenersBody, nil, &out, io.Discard); err != nil {
+		return nil
+	}
+	st, err := parseServerState(out.String())
+	if err != nil {
+		return nil
+	}
+	return st.Listen
+}
+
+// printVisitors ends a setup of an app that serves visitors itself: which ports they need, and
+// that Tifa does not open them. Once a release runs, this machine asks each port.
+func (r *setupRun) printVisitors(ctx context.Context, w io.Writer) {
+	if !r.haveServer || !servesVisitors(r.port) {
+		return
+	}
+	line := fmt.Sprintf("%s serves visitors itself on %s of the server. Tifa does not change the firewall: %s must be open to them, in ufw and at your provider.", r.t.app, portsText(r.port), portsText(r.port))
+	if r.st.Current != "" {
+		host := r.t.serverAddress(ctx)
+		if r.st.HTTPS != "" {
+			host = r.st.HTTPS
+		}
+		var closed []string
+		for _, p := range []int{httpPort, httpsPort} {
+			if (p == httpPort || r.port == httpsPort) && !portAnswers(ctx, host, p) {
+				closed = append(closed, strconv.Itoa(p))
+			}
+		}
+		if len(closed) == 0 {
+			line += " " + pick(r.port == httpsPort, "Both answer", "It answers") + " from this machine."
+		} else {
+			line += fmt.Sprintf(" %s %s did not answer from this machine within 3 seconds.", pick(len(closed) > 1, "Ports", "Port"), strings.Join(closed, " and "))
+		}
+	}
+	fmt.Fprintln(w, line)
 }
 
 func (r *setupRun) service() string { return "http://127.0.0.1:" + strconv.Itoa(r.port) }
@@ -1390,6 +1474,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	cannot := plan.count(opCannot)
 	if plan.todo() == 0 && cannot == 0 && len(plan.notes) == 0 && !f.all {
 		fmt.Fprintf(stdout, "%s on %s matches tifa.yaml: %d things checked (--all lists them).\n", t.app, t.host, plan.count(opOK))
+		run.printVisitors(ctx, stdout)
 		run.remember(stdout, stderr)
 		return needsYou(toolWarnings)
 	}
@@ -1406,6 +1491,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 			fmt.Fprintln(stdout, run.hostAdvice)
 		}
 	}
+	run.printVisitors(ctx, stdout)
 	run.remember(stdout, stderr)
 	return needsYou(cannot + warnings + toolWarnings)
 }

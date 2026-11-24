@@ -10,7 +10,7 @@ import (
 func TestSetupRemembersTheServer(t *testing.T) {
 	homeOf(t)
 	root := setupApp(t, "deploy:\n", nil)
-	newSetupServer(t, "", factsOf("shop", 9531, "appdir yes\n"))
+	newSetupServer(t, "", factsOf("shop", 80, "appdir yes\n"))
 	t.Setenv(deployHostEnv, "ssh://203.0.113.7:22")
 	out, err := runSetup(t, root, false, "", "--yes")
 	if err != nil {
@@ -30,7 +30,7 @@ func TestSetupRemembersTheServer(t *testing.T) {
 	if err != nil || !strings.Contains(errOut, "shop is set up on vps") || strings.Contains(out, "Remembered") {
 		t.Fatalf("%v\nstdout:\n%s\nstderr:\n%s", err, out, errOut)
 	}
-	newSetupServer(t, "", strings.Replace(factsOf("shop", 9531, "appdir yes\n"), "unit-service "+sha(serviceUnit("shop")), "unit-service 00", 1))
+	newSetupServer(t, "", strings.Replace(factsOf("shop", 80, "appdir yes\n"), "unit-service "+sha(unitsOf("shop", 80, "").service), "unit-service 00", 1))
 	out, _ = runSetup(t, root, false, "")
 	if !strings.Contains(out, "Plan for shop on ssh://203.0.113.7:22 (from ") || !strings.Contains(out, "config.yaml)") {
 		t.Errorf("the plan does not say where the server came from:\n%s", out)
@@ -66,7 +66,7 @@ func TestSetupRememberedLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := setupApp(t, "deploy:\n", nil)
-	newSetupServer(t, "", factsOf("shop", 9531, "appdir yes\n"))
+	newSetupServer(t, "", factsOf("shop", 80, "appdir yes\n"))
 	t.Setenv(deployHostEnv, "ssh://203.0.113.7:22")
 	out, err := runSetup(t, root, false, "", "--yes")
 	if err != nil || !strings.Contains(out, "Remembered vps (ssh://203.0.113.7:22) in ") || strings.Contains(out, "needs no") {

@@ -4,6 +4,12 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- With `deploy.front: none`, `tifa deploy` makes the app serve visitors itself instead of listening on `127.0.0.1` only, where nothing outside the server reached it. With a domain as the host of `site.url`, systemd opens ports 443 and 80 for the app and the app runs its built-in HTTPS with a certificate from Let's Encrypt, kept in `/srv/tifa/<app>/certs`. Without a domain (no `site.url`, an IP address or `localhost`) it serves plain HTTP on port 80. Setup sets `net.ipv4.ip_unprivileged_port_start = 80` once per server as root so the app needs no root, stops before changing anything when another app or a program such as nginx or Caddy listens on those ports, and says which ports the firewall must let in. Tifa never changes the firewall. After a deploy it prints `visitors: <url>` and whether the ports answered from your machine. See [The app serves visitors itself](docs/build-and-deploy/deploy.md#the-app-serves-visitors-itself).
+
+  Upgrading: the next `go tool tifa deploy setup` moves an app with `front: none` from the loopback to ports 80 and 443. If your own proxy (Caddy, nginx) holds those ports in front of it, setup stops and names it: stop the proxy and keep it from starting at boot, or set `deploy.front: cloudflare`. With several apps of `front: none` on one server, only one can move, and the others need `front: cloudflare`. Open ports 80 and 443 (or 80 without a domain) in your firewall.
+
 ## [0.4.2] - 2026-11-24
 
 ### Added

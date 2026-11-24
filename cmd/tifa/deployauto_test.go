@@ -12,7 +12,7 @@ import (
 func autoSetup(t *testing.T, deploy string, files map[string]string, extra ...string) (string, error, string, *fakeGH) {
 	t.Helper()
 	root := setupApp(t, "deploy:\n"+deploy, files)
-	newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, ""))
+	newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 80, ""))
 	gh := newFakeGH()
 	gh.install(t)
 	out, err := runSetup(t, root, false, "", append([]string{"--yes"}, extra...)...)

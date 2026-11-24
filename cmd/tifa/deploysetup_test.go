@@ -134,7 +134,10 @@ script=$3
 case "$script" in
 true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF\nConnection closed by UNKNOWN port 65535\n' >&2; exit 255; }; [ -f "$d/checkfail" ] && { echo "Permission denied (publickey)." >&2; exit 255; }; true ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
-*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\nmachine vps-1234\n' ;;
+*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\nmachine vps-1234\n'; cat "$d/rootfacts" 2>/dev/null; true ;;
+*"tifa: who listens"*) echo "listeners $user" >> "$d/calls"; [ "$user" = root ] && [ -f "$d/rootdenied" ] && { echo "root@vps: Permission denied (publickey)." >&2; exit 255; }; cat "$d/rootfacts" 2>/dev/null; true ;;
+*"tifa: open ports"*) echo "ports $user" >> "$d/calls"; echo "net.ipv4.ip_unprivileged_port_start was 1024, now 80" ;;
+*"tifa: close ports"*) echo "unports $user" >> "$d/calls"; echo "net.ipv4.ip_unprivileged_port_start is 1024 again" ;;
 *'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
 *'disable --quiet $units'*) [ -f "$d/removefail" ] && { echo "tifa: cannot stop the units" >&2; exit 1; }; echo "removeapp $user" >> "$d/calls" ;;
 *useradd*) echo "server $user" >> "$d/calls"; rm -f "$d/denied"; printf 'bus yes\nlinger yes\n' >> "$d/facts" ;;
@@ -214,10 +217,19 @@ const fakeCloudflared = "/usr/local/bin/cloudflared"
 
 const hostKeysFact = "hostkey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\nhostkey ssh-rsa AAAAB3NzaC1yc2E=\n"
 
-// factsOf is the probe output of a prepared server with the app set up on port.
+// factsOf is the probe output of a prepared server with the app set up on port: 80 serves
+// visitors itself over plain HTTP, others are loopback ports behind the tunnel.
 func factsOf(app string, port int, extra string) string {
+	u := unitsOf(app, port, "")
 	return fmt.Sprintf("os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nport %d\nunit-socket %s\nunit-service %s\nmachine vps-1234\napt yes\n%s%s",
-		port, sha(socketUnit(app, port)), sha(serviceUnit(app)), hostKeysFact, extra)
+		port, sha(u.socket), sha(u.service), hostKeysFact, extra)
+}
+
+// factsHTTPS is the probe output of a prepared server with the app serving HTTPS for domain itself.
+func factsHTTPS(app, domain, extra string) string {
+	u := unitsOf(app, httpsPort, domain)
+	return fmt.Sprintf("os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nport 443\nhttps %s\nunit-socket %s\nunit-http %s\nunit-service %s\nmachine vps-1234\napt yes\n%s%s",
+		domain, sha(u.socket), sha(u.http), sha(u.service), hostKeysFact, extra)
 }
 
 const freshFacts = "os Linux\narch x86_64\nhome /srv/tifa\nmachine vps-1234\napt yes\n" + hostKeysFact
@@ -310,7 +322,7 @@ func TestSetupFreshServer(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("got %v", err)
 	}
-	for _, want := range []string{"Plan for shop on vps", "add     server: the user tifa", "add     app: /srv/tifa/shop with an empty shared/.env, port 9527"} {
+	for _, want := range []string{"Plan for shop on vps", "add     server: the user tifa", "add     app: /srv/tifa/shop with an empty shared/.env, serving visitors itself on port 80, over plain HTTP since site.url names no domain, the systemd socket and service tifa-shop", "Visitors need port 80 of the server open. Tifa does not change the firewall"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plan lacks %q:\n%s", want, out)
 		}
@@ -349,12 +361,12 @@ func TestSetupAsks(t *testing.T) {
 func TestSetupNothingToChange(t *testing.T) {
 	root := setupApp(t, "deploy:\n", nil)
 	t.Setenv(deployHostEnv, "ssh://203.0.113.7:2222")
-	srv := newSetupServer(t, "", factsOf("shop", 9531, ""))
+	srv := newSetupServer(t, "", factsOf("shop", 80, ""))
 	out, err := runSetup(t, root, false, "", "--all")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"ok      server:", "ok      app: /srv/tifa/shop, port 9531"} {
+	for _, want := range []string{"ok      server:", "ok      app: /srv/tifa/shop, port 80, systemd units", "shop serves visitors itself on port 80 of the server. Tifa does not change the firewall: port 80 must be open to them"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
@@ -367,7 +379,7 @@ func TestSetupNothingToChange(t *testing.T) {
 	}
 	// Units that differ are written again.
 	root = setupApp(t, "deploy:\n", nil)
-	newSetupServer(t, "", strings.Replace(factsOf("shop", 9531, ""), "unit-service "+sha(serviceUnit("shop")), "unit-service 00", 1))
+	newSetupServer(t, "", strings.Replace(factsOf("shop", 80, ""), "unit-service "+sha(unitsOf("shop", 80, "").service), "unit-service 00", 1))
 	out, _ = runSetup(t, root, false, "")
 	if strings.Contains(out, "alias") || !strings.Contains(out, "change  app: write the systemd units of shop again") {
 		t.Errorf("out:\n%s", out)
@@ -430,7 +442,7 @@ func setFacts(t *testing.T, srv *setupServer, facts string) {
 func TestSetupGitHub(t *testing.T) {
 	eachBackend(t, func(t *testing.T, rest bool) {
 		root := setupApp(t, "deploy:\n  auto: {}\n", nil)
-		srv := newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, ""))
+		srv := newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 80, ""))
 		gh := newFakeGH()
 		gh.installBackend(t, rest)
 
@@ -473,7 +485,7 @@ func TestSetupGitHub(t *testing.T) {
 		}
 
 		// Again: nothing to do.
-		setFacts(t, srv, factsOf("shop", 9531, "ghkey acme/shop\n"))
+		setFacts(t, srv, factsOf("shop", 80, "ghkey acme/shop\n"))
 		gh.calls = nil
 		out, err = runSetup(t, root, false, "")
 		if err != nil || !strings.Contains(out, "matches tifa.yaml") {
@@ -492,7 +504,7 @@ func TestSetupGitHub(t *testing.T) {
 		}
 
 		// A host that moved: the connection changes, the key stays.
-		newSetupServer(t, "hostname 198.51.100.9\nport 22\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
+		newSetupServer(t, "hostname 198.51.100.9\nport 22\n", factsOf("shop", 80, "ghkey acme/shop\n"))
 		out, _ = runSetup(t, root, false, "")
 		if !strings.Contains(out, "change  github: where CI logs in") || !strings.Contains(out, "Already right: server 1, app 1, GitHub 2") {
 			t.Errorf("moved host:\n%s", out)
@@ -500,7 +512,7 @@ func TestSetupGitHub(t *testing.T) {
 
 		// github: false takes it away.
 		writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
-		srv = newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\nghkey acme/other\n"))
+		srv = newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 80, "ghkey acme/shop\nghkey acme/other\n"))
 		out, err = runSetup(t, root, false, "", "--yes")
 		if err != nil {
 			t.Fatalf("%v\n%s", err, out)
@@ -523,7 +535,7 @@ func TestSetupGitHub(t *testing.T) {
 // variable of tifa is missing, stay.
 func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
 	root := setupApp(t, "deploy:\n", map[string]string{githubWorkflowPath: "name: mine\non: push\n"})
-	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, "ghkey acme/other\n"))
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 80, "ghkey acme/other\n"))
 	gh := newFakeGH()
 	gh.secrets = map[string]string{secretHost: "mine", secretSSHKey: "mine"}
 	gh.install(t)
@@ -548,7 +560,7 @@ func TestSetupGitHubCannot(t *testing.T) {
 	for name, why := range map[string]string{"not logged in": "gh is not logged in: run gh auth login", "not installed": "gh, the GitHub CLI, is not installed"} {
 		t.Run(name, func(t *testing.T) {
 			root := setupApp(t, "deploy:\n  auto: {}\n", nil)
-			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 80, ""))
 			gh := newFakeGH()
 			gh.loggedIn = false
 			gh.install(t)
@@ -1200,12 +1212,12 @@ func TestSetupAllInOrderOneLine(t *testing.T) {
 	if _, err := rememberServer("vps-1234", "vps", at(root, "shop")); err != nil {
 		t.Fatal(err)
 	}
-	newSetupServer(t, "", factsOf("shop", 9531, ""))
+	newSetupServer(t, "", factsOf("shop", 80, ""))
 	out, err := runSetup(t, root, true, "")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if out != "shop on vps matches tifa.yaml: 2 things checked (--all lists them).\n" {
+	if out != "shop on vps matches tifa.yaml: 2 things checked (--all lists them).\nshop serves visitors itself on port 80 of the server. Tifa does not change the firewall: port 80 must be open to them, in ufw and at your provider.\n" {
 		t.Errorf("out: %q", out)
 	}
 }
@@ -1218,7 +1230,7 @@ func TestSetupCannotListedLast(t *testing.T) {
 	if _, err := rememberServer("vps-1234", "vps", at(root, "shop")); err != nil {
 		t.Fatal(err)
 	}
-	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 80, ""))
 	gh := newFakeGH()
 	gh.loggedIn = false
 	gh.install(t)
@@ -1227,7 +1239,7 @@ func TestSetupCannotListedLast(t *testing.T) {
 		t.Fatalf("err %v\n%s", err, out)
 	}
 	want := "Plan for shop on vps\n\nAlready right: server 1, app 1 (--all lists them)\n\nYou need to do 1 thing that setup cannot:\n  1. github: deploys from GitHub Actions\n     gh is not logged in: run gh auth login (gh auth status: You are not logged into any GitHub hosts).\n     Or without gh: make a fine-grained personal access token.\n     Open https://github.com/settings/personal-access-tokens/new?"
-	if !strings.HasPrefix(out, want) || !strings.HasSuffix(out, "in the .env at the root of the app (git ignores it, and tifa only reads it)\n\n") || strings.Contains(out, "cannot  ") || strings.Contains(out, "Apply this plan") {
+	if !strings.HasPrefix(out, want) || !strings.HasSuffix(out, "in the .env at the root of the app (git ignores it, and tifa only reads it)\n\nshop serves visitors itself on port 80 of the server. Tifa does not change the firewall: port 80 must be open to them, in ufw and at your provider.\n") || strings.Contains(out, "cannot  ") || strings.Contains(out, "Apply this plan") {
 		t.Errorf("out:\n%s", out)
 	}
 }

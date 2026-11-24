@@ -416,7 +416,7 @@ func TestGitHubTokenLink(t *testing.T) {
 // With a token and no gh, setup works the same: the setup and remove tests also run on the REST backend.
 func TestSetupNoGHWithToken(t *testing.T) {
 	root := setupApp(t, "deploy:\n  auto: {}\n", nil)
-	newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 9531, ""))
+	newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 80, ""))
 	g := newFakeGH()
 	g.installREST(t)
 	out, err := runSetup(t, root, false, "", "--yes")
