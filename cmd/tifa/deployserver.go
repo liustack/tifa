@@ -4,12 +4,15 @@ package main
 //
 // The layout on the server, under the home of the deploy user (/srv/tifa when setup creates it):
 //
-//	<app>/port              the loopback port of the app, chosen once by setup
+//	<app>/port              the port visitors reach the app on: 80, or 443 with HTTPS, when it
+//	                        serves them itself, else the loopback port behind the Cloudflare Tunnel
+//	<app>/https             with HTTPS, the domain the app gets its certificate for
+//	<app>/certs/            with HTTPS, the certificates from Let's Encrypt (server.tls_cache)
 //	<app>/releases/<id>/<app>  each uploaded program, <id> the UTC time of the deploy
 //	<app>/current           link to releases/<id>, the program systemd starts
 //	<app>/shared/           the folder the app runs in: its .env and its data
 //	<app>/deploys.log       one line per deploy or rollback: time, id, commit, action, result
-//	.config/systemd/user/tifa-<app>.socket and .service
+//	.config/systemd/user/tifa-<app>.socket and .service, and tifa-<app>-http.socket with HTTPS
 //	.config/tifa/cloudflare-purge  the purge token of each zone, see deploypurge.go
 //
 // Every script runs under sh -c, so the login shell of the user does not matter.
@@ -19,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -39,7 +43,16 @@ const (
 	healthPath = "/healthz"
 	// healthTries is how many times, a second apart, it asks before the release counts as failed.
 	healthTries = 30
+	// httpPort and httpsPort are the ports of an app that serves visitors itself, with
+	// deploy.front none: plain HTTP on 80, and with a domain HTTPS on 443 as well.
+	httpPort, httpsPort = 80, 443
+	// portsConf lets the systemd of the deploy user open ports 80 and 443, see portsBody.
+	portsConf = "/etc/sysctl.d/60-tifa-ports.conf"
 )
+
+// lowPortFile holds the first port a user other than root may listen on. Tests point it at a
+// file of their own.
+var lowPortFile = "/proc/sys/net/ipv4/ip_unprivileged_port_start"
 
 // deployAppName names the app on the server after the last element of its module path that is not
 // a major version, the name tifa build gives the program. It names the folder, the program and the
@@ -157,6 +170,83 @@ type serverState struct {
 	// a token for. The probe prints the names only.
 	PurgeFile  bool
 	PurgeZones []string
+	// HTTPS is the domain the app serves HTTPS for itself, empty without. HTTPSum is the SHA-256
+	// of the unit of its port 80, tifa-<app>-http.socket, empty when missing.
+	HTTPS, HTTPSum string
+	// LowPort is the first port the deploy user may listen on, 0 when the server did not say.
+	// PortsConf says the server has portsConf, which setup wrote.
+	LowPort   int
+	PortsConf bool
+	// Listen are the TCP ports something listens on, with the programs ss names: all of them as
+	// root, only those of the deploy user as the deploy user. UserSockets are the sockets the
+	// systemd of the deploy user holds, with the service each one starts.
+	Listen      []listener
+	UserSockets []userSocket
+}
+
+// listener is a port something listens on, and the programs ss names for it, such as "nginx (pid 812)".
+type listener struct {
+	Port     int
+	Programs []string
+}
+
+// userSocket is a socket the systemd of the deploy user listens on, and the service it starts.
+type userSocket struct {
+	Port    int
+	Service string
+}
+
+// ssPrograms reads the programs of a line of ss -p: users:(("nginx",pid=812,fd=6),...).
+var ssPrograms = regexp.MustCompile(`\("([^"]+)",pid=([0-9]+)`)
+
+// parseListen reads a line of ss -Hltnp. It returns false for a line without a port.
+func parseListen(line string) (listener, bool) {
+	f := strings.Fields(line)
+	if len(f) < 4 {
+		return listener{}, false
+	}
+	p, err := strconv.Atoi(f[3][strings.LastIndexByte(f[3], ':')+1:])
+	if err != nil {
+		return listener{}, false
+	}
+	// One program often listens from several processes, such as nginx and its workers: the first
+	// pid names it.
+	l := listener{Port: p}
+	var seen []string
+	for _, m := range ssPrograms.FindAllStringSubmatch(line, -1) {
+		if !slices.Contains(seen, m[1]) {
+			seen = append(seen, m[1])
+			l.Programs = append(l.Programs, m[1]+" (pid "+m[2]+")")
+		}
+	}
+	return l, true
+}
+
+// holder says who listens on port of the server besides app: another app of the deploy user, a
+// program (programs names it when the probe could see it), or nobody.
+func (s serverState) holder(app string, port int) (otherApp string, programs []string, taken bool) {
+	for _, u := range s.UserSockets {
+		if u.Port != port || u.Service == unitName(app)+".service" {
+			continue
+		}
+		if name, ok := strings.CutPrefix(u.Service, "tifa-"); ok && strings.HasSuffix(name, ".service") {
+			return strings.TrimSuffix(name, ".service"), nil, true
+		}
+		return "", []string{u.Service + " of the user " + deployUser}, true
+	}
+	for _, l := range s.Listen {
+		if l.Port != port {
+			continue
+		}
+		for _, u := range s.UserSockets {
+			if u.Port == port {
+				// The socket of app itself, which ss also lists.
+				return "", nil, false
+			}
+		}
+		return "", l.Programs, true
+	}
+	return "", nil, false
 }
 
 // Prepared reports whether the server can hold an app: the systemd of the deploy user runs.
@@ -193,6 +283,30 @@ func parseServerState(out string) (serverState, error) {
 			}
 		case "listen":
 			s.Used = append(s.Used, listeningPorts(value)...)
+			if l, ok := parseListen(value); ok {
+				s.Listen = append(s.Listen, l)
+			}
+		case "usock":
+			// A line of systemctl --user list-sockets: the address, the socket unit, the service.
+			f := strings.Fields(value)
+			if len(f) < 3 {
+				continue
+			}
+			if p, err := strconv.Atoi(f[0][strings.LastIndexByte(f[0], ':')+1:]); err == nil {
+				s.UserSockets = append(s.UserSockets, userSocket{Port: p, Service: f[len(f)-1]})
+			}
+		case "https":
+			s.HTTPS = strings.TrimSpace(value)
+		case "unit-http":
+			s.HTTPSum = strings.TrimSpace(value)
+		case "lowport":
+			p, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil || p < 0 || p > 65535 {
+				return s, fmt.Errorf("the server gave the first port users may listen on as %q", value)
+			}
+			s.LowPort = p
+		case "ports-conf":
+			s.PortsConf = true
 		case "unit-socket":
 			s.SocketSum = strings.TrimSpace(value)
 		case "unit-service":
@@ -322,39 +436,79 @@ func pruneReleases(releases []string, current, next string, keep int) []string {
 // unitName is the name of the systemd units of an app, without the suffix.
 func unitName(app string) string { return "tifa-" + app }
 
-// socketUnit holds the port of the app while the program restarts, see docs/build-and-deploy/deploy.md.
-func socketUnit(app string, port int) string {
-	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
+// appUnits are the systemd units of an app: the socket, the socket of port 80 with HTTPS (empty
+// without), and the service.
+type appUnits struct{ socket, http, service string }
+
+// unitsOf writes the units of app for its port: 80 or 443 when it serves visitors itself, else a
+// loopback port behind the Cloudflare Tunnel. domain is the domain it serves HTTPS for, on 443.
+//
+// The sockets hold the ports while the program restarts, see docs/build-and-deploy/deploy.md. With
+// HTTPS the program gets two, each named by the setting it serves, and the settings of the
+// built-in HTTPS in its environment: the certificates stay in certs, next to the releases.
+func unitsOf(app string, port int, domain string) appUnits {
+	unit := unitName(app)
+	listen := fmt.Sprintf("ListenStream=127.0.0.1:%d\n", port)
+	switch port {
+	case httpPort:
+		listen = "ListenStream=80\n"
+	case httpsPort:
+		listen = "ListenStream=443\nFileDescriptorName=server.addr\n"
+	}
+	u := appUnits{socket: fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
-Description=%[1]s socket (Tifa)
+Description=%s socket (Tifa)
 
 [Socket]
-ListenStream=127.0.0.1:%[2]d
+%s
+[Install]
+WantedBy=sockets.target
+`, app, listen)}
+	sockets, extra := unit+".socket", ""
+	if port == httpsPort {
+		u.http = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
+[Unit]
+Description=%s plain HTTP socket (Tifa): Let's Encrypt and the redirect to HTTPS
+
+[Socket]
+ListenStream=80
+FileDescriptorName=server.http_addr
+Service=%s.service
 
 [Install]
 WantedBy=sockets.target
-`, app, port)
-}
-
-// serviceUnit runs the program of the current release in the shared folder, which holds its .env
-// and its data. %h is the home of the deploy user.
-func serviceUnit(app string) string {
-	return fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
+`, app, unit)
+		sockets += " " + unit + "-http.socket"
+		extra = fmt.Sprintf("Sockets=%s\nEnvironment=SERVER_TLS_DOMAINS=%s SERVER_TLS_CACHE=%%h/%s/certs\n", sockets, domain, app)
+	}
+	u.service = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
 Description=%[1]s (Tifa)
-Requires=%[2]s.socket
-After=%[2]s.socket
+Requires=%[2]s
+After=%[2]s
 
 [Service]
 WorkingDirectory=%%h/%[1]s/shared
 ExecStart=%%h/%[1]s/current/%[1]s
-Restart=on-failure
+%[3]sRestart=on-failure
 RestartSec=1s
 
 [Install]
 WantedBy=default.target
-`, app, unitName(app))
+`, app, sockets, extra)
+	return u
 }
+
+// portsText names the ports visitors reach an app on.
+func portsText(port int) string {
+	if port == httpsPort {
+		return "ports 80 and 443"
+	}
+	return "port " + strconv.Itoa(port)
+}
+
+// servesVisitors says the app on port serves visitors itself, as deploy.front none makes it.
+func servesVisitors(port int) bool { return port == httpPort || port == httpsPort }
 
 // shellQuote quotes s for a POSIX shell.
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
@@ -378,10 +532,51 @@ done
 echo "os $(uname -s)"
 echo "arch $(uname -m)"
 echo "machine $(hostname -s)-$(head -c 8 /etc/machine-id 2>/dev/null)"
+if [ -r "$lowport_file" ]; then echo "lowport $(cat "$lowport_file")"; fi
+ss -Hltnp | sed 's/^/listen /'
 `
 
 // setupProbeScript is setupProbeBody.
-func setupProbeScript() string { return setupProbeBody }
+func setupProbeScript() string { return script(setupProbeBody, "lowport_file", lowPortFile) }
+
+// listenersBody runs as root and lists the TCP ports something listens on, with the programs, which
+// the deploy user cannot see.
+const listenersBody = `# tifa: who listens on the ports of the visitors
+ss -Hltnp | sed 's/^/listen /'
+`
+
+// portsBody runs as root. It lets users other than root listen on ports from 80, so the systemd
+// of the deploy user can open ports 80 and 443 for the app that serves visitors itself, with no
+// right given to the app. The value it found goes into the file, so remove can put it back.
+const portsBody = `set -eu
+# tifa: open ports 80 and 443 to the systemd of the deploy user
+f=` + portsConf + `
+before=$(cat "$lowport_file")
+if [ -f "$f" ]; then
+	kept=$(sed -n 's/^# before: \([0-9][0-9]*\)$/\1/p' "$f")
+	if [ -n "$kept" ]; then before=$kept; fi
+fi
+printf '%s\n' "# Written by tifa deploy setup: users other than root may listen on ports from 80, so the systemd" \
+	"# of the user tifa opens ports 80 and 443 for the app that serves visitors itself. tifa deploy remove" \
+	"# of that app deletes this file and puts back the value from before." \
+	"# before: $before" "net.ipv4.ip_unprivileged_port_start = 80" > "$f.part"
+mv "$f.part" "$f"
+sysctl -q -w net.ipv4.ip_unprivileged_port_start=80
+echo "net.ipv4.ip_unprivileged_port_start was $before, now 80, kept in $f"
+`
+
+// unportsBody runs as root and undoes portsBody.
+const unportsBody = `set -eu
+# tifa: close ports 80 and 443 to the systemd of the deploy user
+f=` + portsConf + `
+if [ ! -f "$f" ]; then exit 0; fi
+before=$(sed -n 's/^# before: \([0-9][0-9]*\)$/\1/p' "$f")
+rm -f "$f"
+if [ -n "$before" ]; then
+	sysctl -q -w net.ipv4.ip_unprivileged_port_start="$before"
+	echo "net.ipv4.ip_unprivileged_port_start is $before again"
+fi
+`
 
 // serverBody runs as root. Each step leaves what is already there, so it can run again. It makes
 // the deploy user, lets whoever logs in as root log in as it, and starts its systemd without a login.
@@ -422,27 +617,67 @@ func serverScript() string {
 }
 
 // appBody runs as the deploy user, on a server that serverBody prepared. It makes the folder of
-// the app, its settings file, its port and its systemd units, and opens the socket. Each step
+// the app, its settings file, its port and its systemd units, and opens the sockets. Each step
 // leaves what is already there, so it can run again.
+//
+// With $move the sockets listen elsewhere than before: the app and its old sockets stop first,
+// since a socket opens its new address only when it starts again. With $restart the units changed.
+// Either way an app that has a release runs again on the new units and must pass the health check
+// of a deploy, which exits with 3 and the end of its log.
 const appBody = `set -eu
 d="$HOME/$app"
+unit="tifa-$app"
 install -d -m 755 "$d" "$d/releases"
 install -d -m 750 "$d/shared"
 if [ ! -e "$d/shared/.env" ]; then (umask 077; : > "$d/shared/.env"); fi
 printf '%s\n' "$port" > "$d/port"
+if [ -n "$domain" ]; then
+	install -d -m 700 "$d/certs"
+	printf '%s\n' "$domain" > "$d/https"
+else
+	rm -f "$d/https"
+fi
 units="$HOME/.config/systemd/user"
 install -d -m 755 "$HOME/.config" "$HOME/.config/systemd" "$units"
-printf '%s' "$socket_unit" > "$units/tifa-$app.socket"
-printf '%s' "$service_unit" > "$units/tifa-$app.service"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [ -n "$move" ]; then
+	# All at once: a service stopped alone while its sockets stay gets a warning.
+	old=""
+	for u in "$unit.service" "$unit.socket" "$unit-http.socket"; do
+		if [ -f "$units/$u" ]; then old="$old $u"; fi
+	done
+	if [ -n "$old" ]; then systemctl --user stop $old; fi
+fi
+printf '%s' "$socket_unit" > "$units/tifa-$app.socket"
+printf '%s' "$service_unit" > "$units/$unit.service"
+if [ -n "$http_unit" ]; then
+	printf '%s' "$http_unit" > "$units/$unit-http.socket"
+elif [ -f "$units/$unit-http.socket" ]; then
+	systemctl --user disable --quiet "$unit-http.socket"
+	rm -f "$units/$unit-http.socket"
+fi
 systemctl --user daemon-reload
-systemctl --user enable --now "tifa-$app.socket"
+systemctl --user enable --now "$unit.socket"
+if [ -n "$http_unit" ]; then systemctl --user enable --now "$unit-http.socket"; fi
+if [ -z "$move$restart" ] || [ ! -L "$d/current" ]; then exit 0; fi
+set +e
+` + healthCheckFunc + `systemctl --user reset-failed "$unit.service" >/dev/null 2>&1
+systemctl --user restart "$unit.service" || exit 1
+if check; then exit 0; fi
+echo "--- last lines of the log of $app ---"
+journalctl --user -u "$unit.service" -n 30 --no-pager -o cat 2>/dev/null
+echo "---"
+exit 3
 `
 
-// appScript is appBody for app on port.
-func appScript(app string, port int) string {
-	return script(appBody, "app", app, "port", strconv.Itoa(port),
-		"socket_unit", socketUnit(app, port), "service_unit", serviceUnit(app))
+// appScript is appBody for app on port, with domain for HTTPS. move says its sockets listen
+// elsewhere than before, restart that its units changed.
+func appScript(app string, port int, domain string, move, restart bool) string {
+	u := unitsOf(app, port, domain)
+	flag := map[bool]string{true: "1"}
+	return script(appBody, "app", app, "port", strconv.Itoa(port), "domain", domain,
+		"move", flag[move], "restart", flag[restart], "health", healthPath, "tries", strconv.Itoa(healthTries),
+		"socket_unit", u.socket, "http_unit", u.http, "service_unit", u.service)
 }
 
 // probeBody runs as the deploy user and prints what parseServerState reads: the system, whether
@@ -450,7 +685,7 @@ func appScript(app string, port int) string {
 // ports taken, the tunnel of the server and the keys of its sshd. With $health set it also asks
 // the service for that path, when it runs. Every line is optional, and it never fails.
 const probeBody = `d="$HOME/$app"
-rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+` + askFunc + `rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 echo "os $(uname -s)"
 echo "arch $(uname -m)"
 echo "home $HOME"
@@ -482,15 +717,23 @@ if [ -e "$rt/bus" ] && [ -f "$d/port" ]; then
 $props
 EOF
 	if [ -n "$health" ] && [ "$state" = active ]; then
-		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$(cat "$d/port")$health") || code=000
-		echo "health $code"
+		port=$(cat "$d/port")
+		echo "health $(ask)"
 	fi
 fi
-ss -Hltn 2>/dev/null | sed 's/^/listen /'
+if [ -s "$d/https" ]; then echo "https $(cat "$d/https")"; fi
+if [ -r "$lowport_file" ]; then echo "lowport $(cat "$lowport_file")"; fi
+if [ -f ` + portsConf + ` ]; then echo "ports-conf yes"; fi
+# ss names only the programs of this user. systemd names the sockets it holds for this user.
+ss -Hltnp 2>/dev/null | sed 's/^/listen /'
+if [ -e "$rt/bus" ]; then
+	XDG_RUNTIME_DIR="$rt" systemctl --user list-sockets --no-legend --plain 2>/dev/null | sed 's/^/usock /'
+fi
 u="$HOME/.config/systemd/user"
 for n in socket service; do
 	if [ -f "$u/tifa-$app.$n" ]; then echo "unit-$n $(sha256sum < "$u/tifa-$app.$n" | cut -d' ' -f1)"; fi
 done
+if [ -f "$u/tifa-$app-http.socket" ]; then echo "unit-http $(sha256sum < "$u/tifa-$app-http.socket" | cut -d' ' -f1)"; fi
 if c=$(readlink "$d/current" 2>/dev/null); then echo "current ${c#releases/}"; fi
 for r in "$d"/releases/*/; do
 	if [ -d "$r" ]; then echo "release $(basename "$r")"; fi
@@ -521,10 +764,14 @@ exit 0
 `
 
 // probeScript is probeBody for app.
-func probeScript(app string) string { return script(probeBody, "app", app, "health", "") }
+func probeScript(app string) string {
+	return script(probeBody, "app", app, "health", "", "lowport_file", lowPortFile)
+}
 
 // statusScript is probeBody for app that also asks the service for healthPath.
-func statusScript(app string) string { return script(probeBody, "app", app, "health", healthPath) }
+func statusScript(app string) string {
+	return script(probeBody, "app", app, "health", healthPath, "lowport_file", lowPortFile)
+}
 
 // uploadBody runs as the deploy user with the program, gzipped, on its input. It writes the new
 // release, and removes it again unless the program arrived whole.
@@ -551,12 +798,26 @@ const (
 	activateFailed     = 4 // the release failed its check, and there was nothing to go back to, or that failed too
 )
 
+// askFunc is the shell function that asks the app on the server for $health and prints the
+// status, 000 for no answer. It needs $d and $port. An app with HTTPS is asked over HTTPS for its
+// domain on the loopback, as a visitor would ask it, without checking the certificate: the check
+// is about the app. Without, it is asked over plain HTTP on its port.
+const askFunc = `ask() {
+	if [ -s "$d/https" ]; then
+		h=$(cat "$d/https")
+		curl -s -k -o /dev/null -w '%{http_code}' --max-time 5 --resolve "$h:443:127.0.0.1" "https://$h$health" || true
+	else
+		curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port$health" || true
+	fi
+}
+`
+
 // healthCheckFunc is the shell function that asks the app for healthPath, shared by the scripts that
-// restart it. It needs $health, $port, $tries and $unit.
-const healthCheckFunc = `check() {
+// restart it. It needs $d, $health, $port, $tries and $unit.
+const healthCheckFunc = askFunc + `check() {
 	i=0
 	while [ "$i" -lt "$tries" ]; do
-		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port$health") || code=000
+		code=$(ask)
 		if [ "$code" -ge 100 ] && [ "$code" -lt 500 ] && systemctl --user is-active --quiet "$unit.service"; then
 			echo "health check: GET $health answered $code"
 			return 0
@@ -564,7 +825,14 @@ const healthCheckFunc = `check() {
 		i=$((i + 1))
 		sleep 1
 	done
-	if [ "$code" = 000 ]; then echo "health check: GET $health got no answer in $tries tries"; else echo "health check: GET $health answered $code"; fi
+	if [ "$code" != 000 ]; then
+		echo "health check: GET $health answered $code"
+	elif [ -s "$d/https" ]; then
+		h=$(cat "$d/https")
+		echo "health check: GET https://$h$health got no answer in $tries tries. Without a certificate for $h the program answers no HTTPS: Let's Encrypt must reach this server at $h on port 80 or 443, so DNS must point here and the firewall must let it in. The log says why"
+	else
+		echo "health check: GET $health got no answer in $tries tries"
+	fi
 	return 1
 }
 `

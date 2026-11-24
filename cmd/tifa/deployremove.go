@@ -38,14 +38,15 @@ if [ -d "$d" ]; then
 	if ! flock -n 9; then echo "tifa: a deploy of $app runs on the server" >&2; exit 1; fi
 fi
 units=""
-for n in socket service; do
-	if [ -f "$u/$unit.$n" ]; then units="$units $unit.$n"; fi
+for n in socket -http.socket service; do
+	case "$n" in -*) f="$unit$n" ;; *) f="$unit.$n" ;; esac
+	if [ -f "$u/$f" ]; then units="$units $f"; fi
 done
 if [ -n "$units" ]; then
-	# Stop both before disabling: a service whose socket is active gets a warning.
+	# Stop them all before disabling: a service whose socket is active gets a warning.
 	systemctl --user stop $units
 	systemctl --user disable --quiet $units
-	rm -f "$u/$unit.socket" "$u/$unit.service"
+	rm -f "$u/$unit.socket" "$u/$unit-http.socket" "$u/$unit.service"
 	systemctl --user daemon-reload
 fi
 rm -rf "$d"
@@ -143,9 +144,27 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 	}
 	app := t.app
 	if st.AppDir || st.SocketSum != "" || st.ServiceSum != "" {
-		text := fmt.Sprintf("server: stop and disable tifa-%[1]s.socket and tifa-%[1]s.service, delete their unit files and %[2]s/%[1]s with its releases, shared/.env, the data in shared/ and deploys.log", app, st.Home)
+		units := fmt.Sprintf("tifa-%[1]s.socket and tifa-%[1]s.service", app)
+		if st.HTTPSum != "" {
+			units = fmt.Sprintf("tifa-%[1]s.socket, tifa-%[1]s-http.socket and tifa-%[1]s.service", app)
+		}
+		text := fmt.Sprintf("server: stop and disable %[3]s, delete their unit files and %[2]s/%[1]s with its releases, shared/.env, the data in shared/ and deploys.log", app, st.Home, units)
+		if st.HTTPS != "" {
+			text += ", and its certificates in certs/"
+		}
 		p.add(opRemove, text, func(ctx context.Context) (string, error) {
 			return "", t.ssh(ctx, deployUser, script(removeAppBody, "app", app), nil, io.Discard, r.stderr)
+		})
+	}
+	// The app that served visitors itself is the one that needed ports 80 and 443 open to the
+	// systemd of the deploy user: what setup set for it goes with it.
+	if servesVisitors(st.Port) && st.PortsConf {
+		p.add(opRemove, fmt.Sprintf("server: %s, which let the systemd of %s open ports 80 and 443, and the value from before it, as root", portsConf, deployUser), func(ctx context.Context) (string, error) {
+			var out strings.Builder
+			if err := t.ssh(ctx, "root", unportsBody, nil, &out, r.stderr); err != nil {
+				return "", err
+			}
+			return strings.TrimSpace(out.String()), nil
 		})
 	}
 	// A step that fails does not stop the others: they do not depend on it, and the next run finds

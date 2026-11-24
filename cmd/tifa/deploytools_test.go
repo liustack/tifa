@@ -201,7 +201,7 @@ func TestSetupNoPNPM(t *testing.T) {
 // ci: github with TIFA_DEPLOY_GITHUB_TOKEN: the token does the work, and gh is not mentioned.
 func TestSetupTokenNeedsNoGH(t *testing.T) {
 	root := setupApp(t, "deploy:\n  auto: {}\n", nil)
-	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 80, ""))
 	g := newFakeGH()
 	g.installREST(t)
 	m := newFakeMachine("darwin", "brew", "pnpm")
@@ -226,7 +226,7 @@ func TestSetupInstallsGH(t *testing.T) {
 	} {
 		t.Run(c.os, func(t *testing.T) {
 			root := setupApp(t, "deploy:\n  auto: {}\n", nil)
-			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 80, ""))
 			gh := newFakeGH()
 			gh.loggedIn = false
 			gh.install(t)
@@ -264,7 +264,7 @@ func TestSetupInstallsGH(t *testing.T) {
 	}
 	t.Run("linux", func(t *testing.T) {
 		root := setupApp(t, "deploy:\n  auto: {}\n", nil)
-		newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+		newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 80, ""))
 		newFakeGH().install(t)
 		t.Setenv(githubTokenEnv, "")
 		m := newFakeMachine("linux", "pnpm")
@@ -286,7 +286,7 @@ func TestSetupGHChecksOnlyItsAccount(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := setupApp(t, "deploy:\n  auto: {}\n", nil)
-			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+			newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 80, ""))
 			gh := newFakeGH()
 			set(gh)
 			gh.install(t)
@@ -305,7 +305,7 @@ func TestSetupGHChecksOnlyItsAccount(t *testing.T) {
 // failure was printed, so the exit code says so too.
 func TestSetupToolWarningFailsTheRun(t *testing.T) {
 	root := setupApp(t, "deploy:\n  auto: {}\n", nil)
-	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 80, ""))
 	gh := newFakeGH()
 	gh.loggedIn = false
 	gh.install(t)
@@ -343,7 +343,7 @@ func (r *onRead) Read(p []byte) (int, error) {
 // that names it, and setup goes on.
 func TestSetupPackageManagerGoneBeforeApply(t *testing.T) {
 	root := setupApp(t, "deploy:\n  auto: {}\n", nil)
-	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 9531, ""))
+	newSetupServer(t, "hostname 203.0.113.7\n", factsOf("shop", 80, ""))
 	newFakeGH().install(t)
 	t.Setenv(githubTokenEnv, "")
 	m := newFakeMachine("darwin", "brew")

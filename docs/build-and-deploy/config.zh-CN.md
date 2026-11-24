@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的每一项设置和应用怎样定义自己的设置，以及每个响应都带的安全头，其中包括 server.csp 的 Content-Security-Policy：每一项可以在哪里设置（命令行参数、环境变量、.env、-c 指定的文件、tifa.yaml）、哪个来源优先、PORT 和 HOST 怎样读取、默认值、参数和环境变量的名字、值的格式和错误的值会给出什么错误、需要更久的处理函数怎样放宽读写超时、怎样用程序自己拿到的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从其他站点发来的写请求，和怎样放行指定的来源或路径'
 audience: app
 order: 4
-translatedFrom: 8ccf25480c30
+translatedFrom: f5ed262cf642
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -145,7 +145,7 @@ Cloud Run、Heroku、Render、Railway 和 Fly 这样的托管平台，通过 `PO
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`、`SESSION_COOKIE` | 会话 cookie 的名字。在 `tifa dev` 下会去掉 `__Host-` 前缀，见[会话](../pages-and-data/sessions.zh-CN.md) |
 | `session.max_age` | `720h` | `--session-max-age`、`SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建它的那一刻起能持续多久，至少一秒。它不会续期 |
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`、`SESSION_MEMORY_LIMIT` | 内存会话存储最多能保存的字节数，在 `OnStart` 没有用 `tifa.SetSessionStore` 设置存储时使用。存储满了会丢掉最先过期的会话 |
-| `deploy.front` | `none` | 仅项目文件 | 访客在到达服务器之前经过什么：`none` 或 `cloudflare`。选 `cloudflare` 时，`tifa deploy setup` 会用 `cf` 把应用放在 Cloudflare Tunnel 后面，主机是 `site.url` 的主机，`deploy` 和 `rollback` 会清除那个主机名的 CDN 缓存。需要不带端口的 `site.url`。见[按方案设置](deploy.zh-CN.md#set-up-with-a-plan) |
+| `deploy.front` | `none` | 仅项目文件 | 访客在到达服务器之前经过什么：`none` 或 `cloudflare`。选 `none` 时，应用自己在 80 端口上接待访客，`site.url` 里有域名时还在 443 端口上用自己的 HTTPS。选 `cloudflare` 时，`tifa deploy setup` 会用 `cf` 把应用放在 Cloudflare Tunnel 后面，主机是 `site.url` 的主机，`deploy` 和 `rollback` 会清除那个主机名的 CDN 缓存。需要不带端口的 `site.url`。见[按方案设置](deploy.zh-CN.md#set-up-with-a-plan) |
 | `deploy.connect` | `direct` | 仅项目文件 | 部署如何经 ssh 连到服务器，从你的机器和从 CI 都一样：`direct`、`cloudflare`（经 Cloudflare Tunnel）或 `tailscale`（CI 的 runner 加入你的 tailnet）。`cloudflare` 需要 `deploy.front: cloudflare`，`tailscale` 需要 `deploy.auto` 这个块 |
 | `deploy.auto.branch` | 仓库的默认分支 | 仅项目文件 | 有 `deploy.auto` 块时：从 GitHub Actions 部署的分支。见[从 GitHub Actions 部署](deploy.zh-CN.md#deploy-from-github-actions) |
 | `deploy.auto.needs` | `ci.yml` | 仅项目文件 | 有 `deploy.auto` 块时：`.github/workflows` 里必须先通过才会部署的那个文件，比如 `ci.yml`，写 `none` 就什么也不等 |
@@ -334,7 +334,7 @@ server:
 sudo setcap cap_net_bind_service=+ep ./bin/myapp
 ```
 
-复制或重新构建这个文件会丢掉它，所以每次部署之后都要做一次。在 systemd 下，unit 里的 `AmbientCapabilities=CAP_NET_BIND_SERVICE` 起同样的作用。在不以 root 运行的容器里，监听高端口，比如 `server.addr: :8443` 和 `server.http_addr: :8080`，再把 443 和 80 发布到它们上面（`-p 443:8443 -p 80:8080`）。没有这项权限时程序不会启动，错误里会说明该怎么做。在 macOS 上，任何用户都可以监听它们。
+复制或重新构建这个文件会丢掉它，所以每次部署之后都要做一次。在 systemd 下，unit 里的 `AmbientCapabilities=CAP_NET_BIND_SERVICE` 起同样的作用。在不以 root 运行的容器里，监听高端口，比如 `server.addr: :8443` 和 `server.http_addr: :8080`，再把 443 和 80 发布到它们上面（`-p 443:8443 -p 80:8080`）。没有这项权限时程序不会启动，错误里会说明该怎么做。在 macOS 上，任何用户都可以监听它们。用 socket 激活时，端口由 systemd 打开，程序不需要这项权限：`front: none` 的 [`tifa deploy`](deploy.zh-CN.md#the-app-serves-visitors-itself) 就是这样做的。
 
 ### HTTP/2 下有什么变化 {#what-changes-over-http2}
 

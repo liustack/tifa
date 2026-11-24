@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -169,7 +170,7 @@ func TestDeployPrune(t *testing.T) {
 // The units listen on the loopback port of the app and run the program of the current release
 // in the shared folder, which holds .env and the data.
 func TestDeployUnits(t *testing.T) {
-	socket, service := socketUnit("shop", 9531), serviceUnit("shop")
+	socket, service := unitsOf("shop", 9531, "").socket, unitsOf("shop", 9531, "").service
 	for _, want := range []string{"[Socket]\nListenStream=127.0.0.1:9531\n", "WantedBy=sockets.target"} {
 		if !strings.Contains(socket, want) {
 			t.Errorf("socket unit lacks %q:\n%s", want, socket)
@@ -303,14 +304,17 @@ func fakeServer(t *testing.T, home string, health map[string]string) (calls func
 		return string(data)
 	}
 	// Every argument of ssh is logged whole, so a test can tell no secret is on a command line.
-	tool("ssh", `printf '%s\n' "$*" >> `+shellQuote(argv)+`
+	// ssh -G says the alias vps is at 203.0.113.7.
+	tool("ssh", `if [ "$1" = -G ]; then echo "hostname 203.0.113.7"; exit 0; fi
+printf '%s\n' "$*" >> `+shellQuote(argv)+`
 while [ "$1" != "--" ]; do if [ "$1" = -l ]; then user=$2; fi; shift; done
 echo "ssh $user $2" >> `+shellQuote(log)+`
 HOME=`+shellQuote(home)+` XDG_RUNTIME_DIR=`+shellQuote(filepath.Join(home, ".run"))+` PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
 	// show answers with the file .run/show of the home, which a test writes.
 	tool("systemctl", `echo "systemctl $*" >> `+shellQuote(log)+`
 case " $* " in *" show "*) cat "$HOME/.run/show" 2>/dev/null ;; esac`)
-	tool("curl", `rel=$(basename "$(readlink "$HOME/shop/current")")
+	tool("curl", `echo "curl $*" >> `+shellQuote(log)+`
+rel=$(basename "$(readlink "$HOME/shop/current")")
 cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 	tool("loginctl", `cat `+shellQuote(filepath.Join(home, ".run", "linger"))+` 2>/dev/null || echo no`)
 	tool("flock", `echo "flock $*" >> `+shellQuote(log))
@@ -319,6 +323,23 @@ cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 	tool("journalctl", `echo "journalctl $*" >> `+shellQuote(log)+`
 case " $* " in *" -f "*) echo following; exec /bin/sleep 30 ;; esac
 echo the app said goodbye`)
+	// ss lists what a test writes in .run/ss, and the deploy user may open ports from what it writes in
+	// .run/lowport, 80 unless it writes another.
+	tool("ss", `cat "$HOME/.run/ss" 2>/dev/null; true`)
+	writeFile(t, filepath.Join(home, ".run", "lowport"), "80\n")
+	oldLow := lowPortFile
+	lowPortFile = filepath.Join(home, ".run", "lowport")
+	t.Cleanup(func() { lowPortFile = oldLow })
+	// This machine reaches a port of the server when the test wrote .run/open-<port>.
+	oldAnswers := portAnswers
+	portAnswers = func(_ context.Context, host string, port int) bool {
+		if host != "203.0.113.7" && !strings.HasSuffix(host, ".example.com") {
+			t.Errorf("asked %s for port %d", host, port)
+		}
+		_, err := os.Stat(filepath.Join(home, ".run", fmt.Sprintf("open-%d", port)))
+		return err == nil
+	}
+	t.Cleanup(func() { portAnswers = oldAnswers })
 	tool("uname", `case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac`)
 	if _, err := exec.LookPath("sha256sum"); err != nil {
 		tool("sha256sum", `shasum -a 256 "$@"`)
@@ -382,7 +403,11 @@ func TestDeployFlow(t *testing.T) {
 	if !strings.Contains(calls(), "systemctl --user restart tifa-shop.service") || !strings.Contains(calls(), "ssh tifa vps") {
 		t.Errorf("calls:\n%s", calls())
 	}
-	if !strings.Contains(out, "health check: GET /healthz answered 404") {
+	if !strings.Contains(out, "health check: GET /healthz answered 404") || !strings.Contains(calls(), "curl -s -o /dev/null -w %{http_code} --max-time 5 http://127.0.0.1:9531/healthz") {
+		t.Errorf("output:\n%s\ncalls:\n%s", out, calls())
+	}
+	// The app of an older setup listens on the loopback only, and deploy says what serves visitors.
+	if !strings.Contains(out, "visitors: none yet. shop listens on 127.0.0.1:9531, which only the server reaches: run go tool tifa deploy setup") {
 		t.Errorf("output:\n%s", out)
 	}
 
@@ -466,7 +491,8 @@ func prepareFakeServer(t *testing.T, home string) {
 }
 
 // On a prepared server that has no folder for the app yet, tifa deploy makes it as tifa, with no
-// root: the folder, an empty .env, a port that is free and the units. Its units name the port.
+// root: the folder, an empty .env, the port and the units. With deploy.front none the app serves
+// visitors itself on port 80, which the deploy user may open there.
 func TestDeployCreatesTheApp(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
@@ -485,14 +511,14 @@ func TestDeployCreatesTheApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if port, _ := os.ReadFile(filepath.Join(home, "shop", "port")); string(port) != "9528\n" {
+	if port, _ := os.ReadFile(filepath.Join(home, "shop", "port")); string(port) != "80\n" {
 		t.Errorf("port %q", port)
 	}
 	if st, err := os.Stat(filepath.Join(home, "shop", "shared", ".env")); err != nil || st.Size() != 0 {
 		t.Errorf(".env: %v", err)
 	}
 	socket, _ := os.ReadFile(filepath.Join(home, ".config", "systemd", "user", "tifa-shop.socket"))
-	if string(socket) != socketUnit("shop", 9528) {
+	if string(socket) != unitsOf("shop", 80, "").socket {
 		t.Errorf("socket unit %q", socket)
 	}
 	for _, want := range []string{"ssh tifa vps", "systemctl --user enable --now tifa-shop.socket"} {
@@ -515,23 +541,29 @@ func TestDeployParseProbeFacts(t *testing.T) {
 		"tunnel-active yes", "apt yes", "hostkey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA", "ghkey acme/shop",
 		"appdir yes", "other notes", "cloudflared-tifa yes",
 		"unit-active active", "unit-since Fri 2026-11-20 12:00:05 UTC", "unit-rss 38000", "health 200",
-		"purge-file yes", "purge-zone example.com", "purge-zone example.org", "",
+		"purge-file yes", "purge-zone example.com", "purge-zone example.org",
+		"https shop.example.com", "unit-http cc", "lowport 1024", "ports-conf yes",
+		`listen LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=812,fd=6),("nginx",pid=811,fd=6),("haproxy",pid=9,fd=3))`,
+		"usock [::]:80 tifa-shop-http.socket tifa-shop.service", "usock /run/user/1001/bus dbus.socket dbus.service", "",
 	}, "\n")
 	s, err := parseServerState(out)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := serverState{OS: "Linux", Arch: "aarch64", Home: "/srv/tifa", Bus: true, Linger: true, Port: 9528,
-		Used: []int{9527, 9600}, SocketSum: "aa", ServiceSum: "bb", TunnelID: "t-1", Machine: "vps-1234",
+		Used: []int{9527, 9600, 443}, SocketSum: "aa", ServiceSum: "bb", TunnelID: "t-1", Machine: "vps-1234",
 		Cloudflared: "/usr/bin/cloudflared", TunnelActive: true, Apt: true,
 		HostKeys: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"}, GitHubKeys: []string{"acme/shop"},
 		AppDir: true, Others: []string{"notes"}, CloudflaredByTifa: true,
 		Active: "active", ActiveSince: "Fri 2026-11-20 12:00:05 UTC", RSS: 38000, Health: "200",
-		PurgeFile: true, PurgeZones: []string{"example.com", "example.org"}}
+		PurgeFile: true, PurgeZones: []string{"example.com", "example.org"},
+		HTTPS: "shop.example.com", HTTPSum: "cc", LowPort: 1024, PortsConf: true,
+		Listen:      []listener{{Port: 9600}, {Port: 443, Programs: []string{"nginx (pid 812)", "haproxy (pid 9)"}}},
+		UserSockets: []userSocket{{Port: 80, Service: "tifa-shop.service"}}}
 	if !reflect.DeepEqual(s, want) || !s.Prepared() {
 		t.Errorf("got %+v", s)
 	}
-	for _, bad := range []string{"hostkey ssh-ed25519 !!!\n", "unit-rss many\n", "health x\n"} {
+	for _, bad := range []string{"hostkey ssh-ed25519 !!!\n", "unit-rss many\n", "health x\n", "lowport high\n"} {
 		if _, err := parseServerState(bad); err == nil {
 			t.Errorf("%q: no error", bad)
 		}

@@ -38,8 +38,8 @@ func removeApp(t *testing.T) (root, home string, calls func() string) {
 	writeFile(t, filepath.Join(home, "shop", "deploys.log"), "2026-11-20T10:00:05Z\tr1\tabc\tdeploy\tok\n")
 	units := filepath.Join(home, ".config", "systemd", "user")
 	for _, app := range []string{"shop", "notes"} {
-		writeFile(t, filepath.Join(units, "tifa-"+app+".socket"), socketUnit(app, 9531))
-		writeFile(t, filepath.Join(units, "tifa-"+app+".service"), serviceUnit(app))
+		writeFile(t, filepath.Join(units, "tifa-"+app+".socket"), unitsOf(app, 9531, "").socket)
+		writeFile(t, filepath.Join(units, "tifa-"+app+".service"), unitsOf(app, 9531, "").service)
 	}
 	writeFile(t, filepath.Join(home, "notes", "port"), "9532\n")
 	writeFile(t, filepath.Join(home, "notes", "shared", ".env"), "B=2\n")
@@ -263,7 +263,7 @@ func TestDeployRemoveCFNotLoggedIn(t *testing.T) {
 func TestDeployRemoveTailscaleSecrets(t *testing.T) {
 	eachBackend(t, func(t *testing.T, rest bool) {
 		root := setupApp(t, "deploy:\n  connect: tailscale\n  auto: {}\n", nil)
-		newSetupServer(t, "", factsOf("shop", 9531, "ghkey acme/shop\nappdir yes\n"))
+		newSetupServer(t, "", factsOf("shop", 80, "ghkey acme/shop\nappdir yes\n"))
 		gh := newFakeGH()
 		for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost} {
 			gh.secrets[n] = "set by setup"

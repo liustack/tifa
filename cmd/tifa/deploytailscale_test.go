@@ -18,7 +18,7 @@ type tsApp struct {
 func newTSApp(t *testing.T, ci bool) *tsApp {
 	t.Helper()
 	a := &tsApp{root: setupApp(t, "deploy:\n  connect: tailscale\n  auto: {}\n", nil)}
-	a.srv = newSetupServer(t, "hostname vps.tail1234.ts.net\nport 2222\n", factsOf("shop", 9531, "ghkey acme/shop\n"))
+	a.srv = newSetupServer(t, "hostname vps.tail1234.ts.net\nport 2222\n", factsOf("shop", 80, "ghkey acme/shop\n"))
 	a.gh = newFakeGH()
 	a.gh.install(t)
 	return a
@@ -128,7 +128,7 @@ func TestSetupTailscaleClientIDChecks(t *testing.T) {
 // Remove takes the identity variables away with the secrets setup set.
 func TestRemoveTailscaleIdentity(t *testing.T) {
 	root := setupApp(t, "deploy:\n  connect: tailscale\n  auto: {}\n", nil)
-	newSetupServer(t, "", factsOf("shop", 9531, "ghkey acme/shop\nappdir yes\n"))
+	newSetupServer(t, "", factsOf("shop", 80, "ghkey acme/shop\nappdir yes\n"))
 	gh := newFakeGH()
 	for _, n := range []string{secretSSHKey, secretKnownHosts, secretHost} {
 		gh.secrets[n] = "set by setup"
