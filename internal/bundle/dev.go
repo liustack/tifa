@@ -106,47 +106,19 @@ func (d *Dev) PlainStyles() func(rel string) bool {
 
 // Styles is what tifa dev runs in place of Build after an edit that PlainStyles names. It has Vite's
 // dev server transform the stylesheets the pages link, as the browser gets them, and returns the
-// error of the first that fails, as the SSR build would have. Then it writes inputs.json again for
-// the files as they are now.
-//
-// rebundle is true when the stylesheets now import other files than those the last Build recorded:
-// a file they import that the record lacks, or a stylesheet in the record that is no module of the
-// bundle and that they import no more. Only a Build records them right, and Styles writes nothing.
-// It needs a Build that worked before.
-func (d *Dev) Styles(ctx context.Context) (rebundle bool, err error) {
+// error of the first that fails, as the SSR build would have, since the SSR build leaves the text of
+// plain stylesheets out and only this check reads it. Then it writes inputs.json again for the files
+// as they are now. It needs a Build that worked before.
+func (d *Dev) Styles(ctx context.Context) error {
 	stop := context.AfterFunc(ctx, func() { d.Close() })
 	defer stop()
 	if d.modules == nil {
-		return false, errors.New("the stylesheets are checked after the SSR bundle is built")
+		return errors.New("the stylesheets are checked after the SSR bundle is built")
 	}
-	var result struct {
-		Deps []string `json:"deps"`
+	if err := d.node.call("styles", map[string]any{"files": d.stylesheets}, nil); err != nil {
+		return err
 	}
-	if err := d.node.call("styles", map[string]any{"files": d.stylesheets}, &result); err != nil {
-		return false, err
-	}
-	recorded, err := moduleFiles(d.root, d.modules)
-	if err != nil {
-		return false, err
-	}
-	deps, err := moduleFiles(d.root, result.Deps)
-	if err != nil {
-		return false, err
-	}
-	d.mu.Lock()
-	own := d.styleFiles
-	d.mu.Unlock()
-	for _, f := range deps {
-		if !slices.Contains(recorded, f) {
-			return true, nil
-		}
-	}
-	for _, f := range recorded {
-		if path.Ext(f) == ".css" && !own[f] && !slices.Contains(deps, f) {
-			return true, nil
-		}
-	}
-	return false, writeInputs(d.root, d.dist, d.public, d.modules, d.incomplete)
+	return writeInputs(d.root, d.dist, d.public, d.modules, d.incomplete)
 }
 
 // NewDev prepares the dev build of the application at root, with Vite's dev server on

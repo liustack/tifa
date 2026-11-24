@@ -384,13 +384,13 @@ func (p *devPipeline) PlainStyles() func(string) bool { return p.front.PlainStyl
 // Styles checks the stylesheets after such an edit, see bundle.Dev.Styles. Like Bundle, it looks
 // for the idioms of other frameworks and the public files the code names, which a stylesheet does
 // with url().
-func (p *devPipeline) Styles(ctx context.Context) (bool, error) {
+func (p *devPipeline) Styles(ctx context.Context) error {
 	settings, err := codegen.BuildSettings(p.root)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if err := p.checkForeignCode(settings.Public, hasPages(p.files)); err != nil {
-		return false, err
+		return err
 	}
 	return p.front.Styles(ctx)
 }

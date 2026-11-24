@@ -24,8 +24,6 @@ type fakePipeline struct {
 	// content is what HasContent returns. contents records the arguments of each Content.
 	content  bool
 	contents []string
-	// rebundle is what Styles returns: the stylesheets import other files than the bundle recorded.
-	rebundle bool
 }
 
 func (p *fakePipeline) step(name string) error {
@@ -92,6 +90,7 @@ func TestRebuildMatrix(t *testing.T) {
 		{"tsx", []change{{"app/orders/list/page.tsx", modified}}, "v1", []string{"Bundle"}},
 		{"ts", []change{{"app/orders/format.ts", modified}}, "v1", []string{"Bundle"}},
 		{"css", []change{{"app/app.css", created}}, "v1", []string{"Bundle"}},
+		{"css edited, which a stylesheet that is not plain takes to the bundle", []change{{"app/app.css", modified}}, "v1", []string{"Bundle"}},
 		{"new component", []change{{"app/orders/list/items.tsx", created}}, "v1", []string{"Bundle"}},
 		{"go body", []change{{"app/orders/store.go", modified}}, "v1", []string{"Analyze", "GoBuild"}},
 		{"go.mod", []change{{"go.mod", modified}}, "v1", []string{"Analyze", "GoBuild"}},
@@ -442,7 +441,7 @@ func TestPlanLocaleFiles(t *testing.T) {
 
 func (p *fakePipeline) Reads() func(string) bool { return func(string) bool { return false } }
 
-func (p *fakePipeline) Styles(context.Context) (bool, error) { return p.rebundle, p.step("Styles") }
+func (p *fakePipeline) Styles(context.Context) error { return p.step("Styles") }
 
 func (p *fakePipeline) PlainStyles() func(string) bool { return func(string) bool { return false } }
 
@@ -516,15 +515,6 @@ func TestStylesStep(t *testing.T) {
 	}
 	if want := []string{"Bundle"}; !slices.Equal(p.calls, want) {
 		t.Fatalf("with the bundle ran %v, want %v", p.calls, want)
-	}
-	// Stylesheets that now import other files than the bundle recorded take the bundle after all.
-	p.calls, p.rebundle = nil, true
-	ran, err = b.build(context.Background(), steps{styles: true}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"Styles", "Bundle"}; !slices.Equal(p.calls, want) || ran != (steps{bundle: true}) {
-		t.Fatalf("ran %v, returned %+v, want %v", p.calls, ran, want)
 	}
 }
 

@@ -2,7 +2,7 @@
 summary: '怎样使用 `tifa dev`：每种改动之后页面怎样更新、运行哪些步骤、Vite 怎样配合、怎样读日志、构建失败时页面和应用怎么办、浏览器的错误怎样显示、`tifa errors` 怎样打印上次构建以来的错误、agent 或脚本怎样在后台启动 `tifa dev` 并读取它的状态、日志和停止它（`--background`、`status`、`logs`、`stop`）、Windows 上有什么不同、dev 的输出放在哪里，以及大型应用怎样监视'
 audience: app
 order: 1
-translatedFrom: dc6686ef5539
+translatedFrom: 214e35341c48
 read_when:
   - '第一次在本地运行 Tifa 应用'
   - '修改 internal/devserver、cmd/tifa 里的 dev 命令，或者 internal/bundle 里的 dev 构建'
@@ -42,7 +42,7 @@ tifa dev [--dir app-root] [--addr 127.0.0.1:9527] [--background]
 | 改了什么 | 运行的步骤 | 已打开的页面 |
 | --- | --- | --- |
 | `content/` 之外的 `.ts`、`.tsx`、`.js`、`.css`、`.json`，比如一个组件，或者只导出组件和 `ErrorBoundary` 的 `page.tsx` | bundle（SSR 包） | 通过 Vite 原地更新 |
-| SSR 包里某个模块导入的 `.css` 文件，在 `content/` 和 public 目录之外，编辑时没有错误在显示，并且 SSR 包导入每个样式表都只为了它的副作用（没有 CSS modules，也没有用 `?inline`、`?url` 或 `?raw` 导入的） | styles：Vite 开发服务器编译页面链接的样式表，失败时显示为构建错误。SSR 包里没有 CSS，所以保持不变。如果样式表现在导入的文件和上一个包记录的不同，bundle 也会跑 | 通过 Vite 原地更新 |
+| SSR 包里某个模块导入的 `.css` 文件，在 `content/` 和 public 目录之外，编辑时没有错误在显示，并且 SSR 包导入每个样式表都只为了它的副作用（没有 CSS modules，也没有用 `?inline`、`?url` 或 `?raw` 导入的） | styles：Vite 开发服务器编译页面链接的样式表，失败时显示为构建错误。SSR 包里没有 CSS，所以保持不变 | 通过 Vite 原地更新 |
 | 导出内容不止组件的模块，比如导出 `head` 的 `page.tsx` 或 `layout.tsx`，或者带 `documentHead` 的根 `layout.tsx` | bundle（SSR 包） | 重新加载，由 Vite 触发 |
 | 应用根目录里上一个 SSR 包读过的文件，任何类型，比如用 `?raw` 导入的 Markdown 或 YAML 文件：被编辑或删除 | bundle（SSR 包） | 通过 Vite，和任何前端改动一样 |
 | 在 public 文件夹里增加或删除一个文件 | bundle（先重新生成代码） | 通过 Vite，和任何前端改动一样 |
@@ -71,7 +71,7 @@ tifa dev [--dir app-root] [--addr 127.0.0.1:9527] [--background]
 - content 不需要 go build：开发程序从 `.tifa/dist` 读 `content.json` 和正文（见[内容](../pages-and-data/content.zh-CN.md)）。content 步骤会用 Go 重新扫描 `content/`，在 Vite 开发服务器的 Node 进程里转换变过的条目，并写出 `.tifa/dist/content/` 和 `content.json`。每次转换都把正文写进 `.tifa/dist/content/` 下它自己的文件夹，所以应用正在显示的正文不会在它底下被改掉。然后运行中的应用重新加载内容，对每个条目运行 `Validate`，换上新的数据和正文，此后你加载的页面显示的就是新内容。应用不会重启，`OnStart` 也不会再运行。第一次启动会把所有条目转换一遍。在有集合的应用里，Go 改动之后 content 步骤也会跑，因为集合或它们的 schema 类型可能变了，变了的话就转换所有条目。
 - 在 `tifa dev` 下，内容里包含草稿（`Draft` 为 true）和日期还没到的条目（带它们的 `Date`），所以你写一篇文章时能在列表和它自己的页面上看到它。页面可以给它们打上标记。
 - front matter 不符合 schema，`content/` 下有没有任何集合声明的文件夹，或者插件出错，都会显示带有 `tifa build` 那条消息的覆盖层，应用保留它已有的内容。条目没通过 `Validate` 时，会显示标题为 `The app did not load the content` 的覆盖层，应用同样保留已有内容，正文也还是旧的。
-- 样式表通过 Vite 的开发服务器，所以 `@tailwindcss/vite` 编译 Tailwind CSS 的方式和在任何 Vite 应用里一样。
+- 样式表通过 Vite 的开发服务器，所以 `@tailwindcss/vite` 编译 Tailwind CSS 的方式和在任何 Vite 应用里一样。SSR 包里没有 CSS。它构建的同时，开发服务器会编译页面链接的样式表，所以编译不过的样式表会让 bundle 这一步失败，和它让 `tifa build` 失败一样。
 - 页面的 head 里链接着服务端渲染导入的样式表，来自 Vite 的开发服务器，所以页面在脚本运行之前就有样式，和构建出来的页面一样。样式表变化时，Vite 会更新这些链接。只有 `.client` 模块导入的样式表会随它们的脚本一起到达。
 - 页面的 head 里带有 Vite 客户端和 React refresh 运行时，没有 Vite 插件用 `transformIndexHtml` 添加的任何其他标签（统计代码、manifest 链接、favicon 之类）。`tifa build` 没有 `index.html`，也从不运行这个 hook，所以这些标签在 `tifa dev` 下会出现在页面里，在生产环境里却没有。请把这样的标签放进根 `layout.tsx` 的 `head` 导出里。`tifa dev` 每省略一个，启动时都会打印一次警告，写出这个标签。
 - 模块按 URL 导入的图片或其他文件，在服务端渲染里也拿到 Vite 开发服务器的 URL，和浏览器模块用的是同一个，所以 hydration 能对上。`tifa build` 会给它 `/assets/` 下一个带哈希的文件。

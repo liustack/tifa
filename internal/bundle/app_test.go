@@ -311,6 +311,38 @@ func TestAppCopiesFilesThatStylesheetsReference(t *testing.T) {
 	}
 }
 
+// The SSR build needs no CSS, and Vite makes a plain stylesheet an empty module there, so neither
+// Vite's CSS step nor a plugin gets its text: a plugin of the config that fails on it sees none in
+// the SSR build, while the browser build compiles it. A stylesheet imported with ?inline still
+// reaches the SSR bundle with its text, and a CSS module with its class names.
+func TestSSRBuildLeavesPlainStylesheetsUnread(t *testing.T) {
+	root := fakeApp(t, "undefined")
+	writeTree(t, root, map[string]string{
+		"vite.config.ts": "import tifa from './.tifa/vite.js'\n" +
+			"const seen = { name: 'seen', transform(code, id) { if (this.environment.name === 'ssr' && /page\\.css$/.test(id) && code !== '') throw new Error('the SSR build read ' + id) } }\n" +
+			"export default { plugins: [tifa(), seen] }\n",
+		"app/page/page.tsx": "import { page } from './route.gen'\nimport './page.css'\nimport inline from './inline.css?inline'\nimport card from './card.module.css'\n" +
+			"export default page + ' ' + inline.replace(/\\s/g, '') + ' ' + Object.keys(card).join()\n",
+		"app/page/inline.css":      ".inline { color: blue }\n",
+		"app/page/card.module.css": ".card { color: green }\n",
+	})
+	buildApp(t, root)
+	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := evalResult(t, string(code)); !strings.HasPrefix(got, "page-route .inline{color:#00f} card ") && !strings.HasPrefix(got, "page-route .inline{color:blue} card ") {
+		t.Errorf("the SSR bundle renders %q", got)
+	}
+	style := regexp.MustCompile(`href="(/assets/[^"]+\.css)"`).FindStringSubmatch(readBuild(t, root).Head)
+	if style == nil {
+		t.Fatal("no stylesheet in the head")
+	}
+	if css, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", filepath.FromSlash(style[1]))); err != nil || !strings.Contains(string(css), ".page") {
+		t.Errorf("the stylesheet of the browser lacks .page: %s %v", css, err)
+	}
+}
+
 func TestAppReportsAConfigWithoutTheTifaPlugin(t *testing.T) {
 	root := fakeApp(t, "undefined")
 	writeTree(t, root, map[string]string{"vite.config.ts": "export default {}\n"})

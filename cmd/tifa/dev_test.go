@@ -389,7 +389,7 @@ func TestDevStylesWarnsOfPublicFilesInStylesheets(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Without a bundle before, the stylesheets themselves are not checked.
-		_, _ = p.Styles(context.Background())
+		_ = p.Styles(context.Background())
 		if warned() != tc.want {
 			t.Fatalf("with %q the warnings are %q", tc.css, p.Warnings())
 		}

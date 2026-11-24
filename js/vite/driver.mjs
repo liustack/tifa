@@ -508,11 +508,20 @@ const ops = {
       const begun = restarts.begun
       try {
         const worker = ssrWorker
+        // The SSR build leaves out the CSS of plain stylesheets (see plainStylesheet in the tifa
+        // plugin), so their errors fail it no more. The dev server compiles the stylesheets the
+        // pages link meanwhile, as the browser gets them, and an error fails the build. Those of the
+        // last build are checked while this one runs, and the ones it adds after it.
+        const linked = checkedStyles
+        const checking = checkStyles(linked)
         // A failed build leaves as much behind, so it counts too. A thread that ended, such as by an
         // error a plugin did not catch, would fail every later build with that error.
         const { styles, plainStyles, modules, incomplete, warnings } = await worker.build({ assets, minify }).finally(() => {
           if (++worker.builds === ssrWorkerBuilds || worker.failed) replaceSSRWorker(worker)
         })
+        const failed = (await checking) ?? (await checkStyles(styles.filter((file) => !linked.includes(file))))
+        if (failed) throw failed
+        checkedStyles = styles
         return { styles: styleLinks(styles), stylesheets: styles, plainStyles, modules, incomplete, warnings }
       } catch (err) {
         // A restart came in between: build again once it is done.
@@ -582,31 +591,9 @@ const ops = {
   async styles({ files }) {
     if (!server) throw new Error("the stylesheets are checked by Vite's dev server, which is not running")
     await restartsDone()
-    const env = server.environments.client
-    // deps are the files the stylesheets import now, as the dev server saw them, see addInput. A
-    // plugin may watch a glob relative to the root, as Tailwind does for the files it scans, which
-    // is no file.
-    const deps = new Set()
-    const seen = new Set()
-    const visit = (mod) => {
-      for (const dep of mod.importedModules) {
-        if (seen.has(dep)) continue
-        seen.add(dep)
-        if (dep.file && path.isAbsolute(dep.file)) addInput(deps, dep.file)
-        visit(dep)
-      }
-    }
-    for (const file of files) {
-      // The watcher of the dev server may not have seen the edit yet.
-      for (const mod of env.moduleGraph.getModulesByFile(file) ?? []) env.moduleGraph.invalidateModule(mod)
-      try {
-        await env.transformRequest(devPath(file))
-      } catch (err) {
-        throw new Error(`${err?.plugin ? `[plugin ${err.plugin}] ` : ''}${err?.id ?? file}\n${message(err)}`)
-      }
-      for (const mod of env.moduleGraph.getModulesByFile(file) ?? []) visit(mod)
-    }
-    return { deps: [...deps].sort() }
+    const failed = await checkStyles(files)
+    if (failed) throw failed
+    return {}
   },
 
   async pollFiles() {
@@ -984,6 +971,26 @@ function styleLinks(files) {
     tags += `<link rel="stylesheet" href="${attribute(base + encodeURI(devPath(file).slice(1)))}" data-vite-dev-id="${attribute(file)}">`
   }
   return tags
+}
+
+// checkedStyles are the stylesheets the pages of the last SSR bundle link, which the next build
+// checks while it runs, see ops.ssr.
+let checkedStyles = []
+
+// checkStyles has the client environment of the dev server transform each stylesheet of files, as
+// the browser gets it, and returns the error of the first that fails, or null.
+async function checkStyles(files) {
+  const env = server.environments.client
+  for (const file of files) {
+    // The watcher of the dev server may not have seen an edit yet.
+    for (const mod of env.moduleGraph.getModulesByFile(file) ?? []) env.moduleGraph.invalidateModule(mod)
+    try {
+      await env.transformRequest(devPath(file))
+    } catch (err) {
+      return new Error(`${err?.plugin ? `[plugin ${err.plugin}] ` : ''}${err?.id ?? file}\n${message(err)}`)
+    }
+  }
+  return null
 }
 
 // devPath returns the path of file on the dev server, below its base.
