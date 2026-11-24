@@ -327,7 +327,7 @@ func renderFile(files fs.FS, name string, app newApp) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	tmpl, err := template.New(name).Option("missingkey=error").Parse(string(text))
+	tmpl, err := template.New(name).Option("missingkey=error").Funcs(template.FuncMap{"docsIndex": appDocsIndex}).Parse(string(text))
 	if err != nil {
 		return nil, err
 	}

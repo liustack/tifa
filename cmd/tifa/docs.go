@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -243,7 +244,8 @@ const maxSummary = 110
 
 // firstSentence cuts a summary to its first clause: up to the first colon, since a summary says
 // what the doc is and then, after the colon, what it covers. Without a colon, or when the clause
-// is still long, it ends at the last comma before maxSummary characters.
+// is still long, it ends at the last comma before maxSummary characters, or before an opening
+// parenthesis that the cut leaves open.
 func firstSentence(s string) string {
 	if i := strings.Index(s, ": "); i > 0 {
 		s = s[:i]
@@ -254,11 +256,14 @@ func firstSentence(s string) string {
 	if r := []rune(s); len(r) > maxSummary {
 		cut := string(r[:maxSummary])
 		if i := max(strings.LastIndex(cut, ", "), strings.LastIndex(cut, "，")); i > 0 {
-			return cut[:i]
+			cut = cut[:i]
+		} else if i := strings.LastIndex(cut, " "); i > 0 {
+			cut = cut[:i]
 		}
-		if i := strings.LastIndex(cut, " "); i > 0 {
-			return cut[:i]
+		if open := max(strings.LastIndex(cut, "("), strings.LastIndex(cut, "（")); open > strings.LastIndexAny(cut, ")）") {
+			cut = strings.TrimRight(cut[:open], " ")
 		}
+		return cut
 	}
 	return s
 }
@@ -268,9 +273,10 @@ type docMeta struct {
 	summary  string
 	when     []string
 	audience string
+	order    int // the place of the doc in its section folder, 0 when the front matter has none
 }
 
-// frontMatter reads the summary, read_when and audience of the front matter that starts text, in
+// frontMatter reads the summary, read_when, audience and order of the front matter that starts text, in
 // the two forms scripts/docs-list.sh reads: a list of "- item" lines, or [a, b] on the key's line.
 // ok is false when there is no front matter or no summary.
 func frontMatter(text string) (meta docMeta, ok bool) {
@@ -290,6 +296,9 @@ func frontMatter(text string) (meta docMeta, ok bool) {
 			inList = false
 		case strings.HasPrefix(line, "audience:"):
 			meta.audience = unquote(strings.TrimPrefix(line, "audience:"))
+			inList = false
+		case strings.HasPrefix(line, "order:"):
+			meta.order, _ = strconv.Atoi(unquote(strings.TrimPrefix(line, "order:")))
 			inList = false
 		case strings.HasPrefix(line, "read_when:"):
 			rest := unquote(strings.TrimPrefix(line, "read_when:"))

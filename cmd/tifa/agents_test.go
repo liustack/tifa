@@ -4,11 +4,14 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	tifadocs "github.com/liustack/tifa/docs"
 	"github.com/liustack/tifa/skills"
 )
 
@@ -442,5 +445,85 @@ func TestAgentsKeepsCRLFLineEnds(t *testing.T) {
 	notes = readText(t, filepath.Join(dir, "AGENTS.md"))
 	if strings.Contains(strings.ReplaceAll(notes, "\r\n", ""), "\n") || !strings.HasPrefix(notes, "# My notes\r\n\r\nUse tabs.\r\n\r\n<!-- tifa:begin -->\r\n") {
 		t.Errorf("the appended block does not follow the line ends:\n%q", notes)
+	}
+}
+
+// testNotesApp is an app to render the managed block with.
+var testNotesApp = newApp{Module: "example.com/shop", Package: "shop", Install: "pnpm install", Run: "pnpm", Written: "Tifa v9.9.9"}
+
+// The managed block holds an index of the docs for writing an app, made from the docs of this
+// version: a line per section folder, then one line per doc with its file name and the first clause
+// of its summary, as tifa docs prints it. Docs about developing Tifa are left out.
+func TestNotesIndexTheAppDocs(t *testing.T) {
+	block, err := notesBlock(testNotesApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, _, err := readDocs(repoRoot, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var app int
+	for _, d := range all {
+		section, name := path.Split(d.path)
+		if d.audience != audienceApp {
+			if strings.Contains(block, section) {
+				t.Errorf("the block names %s, a folder of docs about developing Tifa", section)
+			}
+			continue
+		}
+		app++
+		head := "`" + section + "`"
+		line := "- `" + name + "`: " + firstSentence(d.summary)
+		i, j := strings.Index(block, "\n"+head+"\n"), strings.Index(block, "\n"+line+"\n")
+		if i < 0 || j < i {
+			t.Errorf("the block has no line %q under %q", line, head)
+		}
+	}
+	if app < 20 {
+		t.Fatalf("only %d docs for apps in %s", app, repoRoot)
+	}
+	// The agent opens the files directly, so the block says where the folder is.
+	if !strings.Contains(block, "`go tool tifa docs`") || !strings.Contains(block, ".zh-CN.md") {
+		t.Errorf("the block does not say how to find the docs folder or the Chinese copies:\n%s", block)
+	}
+}
+
+// Long context files lower the success of coding agents, so the block stays small.
+func TestNotesBlockIsSmall(t *testing.T) {
+	block, err := notesBlock(testNotesApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(block); n > 11*1024 {
+		t.Errorf("the managed block of AGENTS.md is %d bytes, keep it at most 11 KB: move details to the docs and leave the path", n)
+	}
+}
+
+// The docs that tifa carries for the index are the English docs for apps, every one of them and
+// nothing else.
+func TestEmbeddedDocsAreTheAppDocs(t *testing.T) {
+	all, _, err := readDocs(repoRoot, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, d := range all {
+		if d.audience == audienceApp {
+			want = append(want, strings.TrimPrefix(d.path, "docs/"))
+		}
+	}
+	var got []string
+	err = fs.WalkDir(tifadocs.FS, ".", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && !isSectionIndex(p) {
+			got = append(got, p)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("embedded docs:\n%s\nwant the English docs for apps:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

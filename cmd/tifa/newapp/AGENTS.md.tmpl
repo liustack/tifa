@@ -3,91 +3,76 @@
 <!-- tifa:begin -->
 <!-- Written by {{.Written}} with go tool tifa agents. After an upgrade run it again: it refreshes the text between these markers and leaves the rest of this file alone. Put your own notes outside it. -->
 
-This is a [tifa](https://github.com/liustack/tifa) app. Go routes requests, loads data and runs the hooks. React pages render to HTML inside the Go process (beastjs, no Node at run time), and TanStack Router takes over in the browser. The build bundles the front end with Vite, on Node, and makes one executable that needs no Node.
+This is a [Tifa](https://github.com/liustack/tifa) app. Go routes requests, loads data and runs the hooks. React pages render to HTML inside the Go process (beastjs, no Node at run time), and TanStack Router takes over in the browser. The build bundles the front end with Vite, on Node, and makes one executable that needs no Node.
 
-## Read the docs of this version first
-
-Run `go tool tifa docs`. It prints the folder with the docs of the tifa version this app uses and one line for each doc about writing an app. Add `--when` to see when to read each, and `--all` to also list the docs about developing tifa, which an app does not need. The docs for writing an app also exist in Chinese: add `--lang zh-CN` to list those files. Read the docs that apply before you change code. Do not read the docs on GitHub, which are those of the main branch and may differ from this version. The `docs/...` paths in these notes are in that folder.
+Before you change code, read the docs that apply. [Docs](#docs) at the end of this block lists them, and they are those of the Tifa version in `go.mod`. Do not read the docs on GitHub, which belong to the main branch.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `{{.Install}}` | Install the npm packages (React, TanStack Router, TypeScript, Vite). Keep `@tanstack/react-router` at the version in `package.json`: `tifa build` refuses another one, since tifa is tested with that version only. It also runs `go tool tifa gen` |
-| `go tool tifa gen` | Write the generated code into `.tifa/` and build nothing, so editors and `tsc` see its types. While `tifa dev` runs it keeps `.tifa/` and this command leaves it alone |
-| `go tool tifa dev --background` | Start the dev server detached (plain `tifa dev` would hold your terminal) and return once it answers, at http://127.0.0.1:9527. Then `go tool tifa dev status` (`--json`, exit 1 when not running), `go tool tifa dev logs` (`-n 100`, `-f`, all output is in `.tifa/dev.log`) and `go tool tifa dev stop`. Stop it when you finish. A TSX or CSS edit updates the open page in place through Vite, a Go or `tifa.yaml` edit rebuilds and reloads it |
-| `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build: a failed build, unexpected request errors, errors of the browser (hydration mismatches, uncaught errors, unhandled rejections) and pages that render differently each time. Run it after you change code and after you open or reload the pages you changed. It exits with 1 when there are errors, 2 when no `tifa dev` runs. `--json` prints JSON |
-| `go tool tifa build` | Generate `.tifa/`, bundle the front end with Vite and build `bin/` |
-| `go tool tifa check` | The one command to run before you finish. It checks the routing conventions, generates `.tifa/`, then runs `go vet ./...`, `go test ./...` and the TypeScript type check with the app's own TypeScript. It stops at the first step that fails and says which |
-| `go tool tifa routes` | List the routes |
-| `go tool tifa docs` | Print the docs of the tifa version this app uses for writing an app (`--when` for when to read each, `--all` for the docs about developing tifa) |
-| `go tool tifa agents` | Write these notes and the tifa skill in `.claude/skills/tifa/` again from the tifa version in `go.mod`. Run it after you upgrade tifa. `--check` changes nothing and exits with 1 when they are out of date |
-| `go tool tifa upgrade [version]` | Move this app to a newer tifa (the latest without a version): `go get -tool` and `go mod tidy`, then the new tifa sets the versions in `package.json` that tifa new pins, installs, writes these notes and the skill again, prints the `Upgrading:` notes of the changelog between the two versions for you to act on, and runs `tifa check`. It changes no code of the app. Use it, not a hand-made `go get`, to upgrade tifa |
+| `{{.Install}}` | Install the npm packages, then run `go tool tifa gen`. Keep `@tanstack/react-router` at the version in `package.json`: `tifa build` refuses another |
+| `go tool tifa gen` | Write the generated code into `.tifa/`, so editors and `tsc` see its types |
+| `go tool tifa dev --background` | Start the dev server detached (plain `tifa dev` holds the terminal) and return once it answers at http://127.0.0.1:9527. Then `go tool tifa dev status`, `go tool tifa dev logs` and `go tool tifa dev stop`. Stop it when you finish |
+| `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build, those of the browser too. Run it after a change and after you open the pages you changed. Exits with 1 when there are errors |
+| `go tool tifa check` | The one command to run before you finish: the routing conventions, `.tifa/`, `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
+| `go tool tifa build` | Generate `.tifa/`, bundle the front end and build `bin/` |
+| `go tool tifa routes` | List the routes and their URLs |
+| `go tool tifa docs` | Print the docs folder of this Tifa version and its docs |
+| `go tool tifa agents` | Write this block and the skill in `.claude/skills/tifa/` again for the Tifa in `go.mod` |
+| `go tool tifa upgrade [version]` | Move the app to a newer Tifa (not a hand-made `go get`) and print the `Upgrading:` notes to act on |
 
-Never edit `.tifa/`. It is generated, and the Go tools skip it.
+Never edit `.tifa/`. It is generated.
 
 ## Routes
 
-- Every folder under `app/` is a URL segment. `app/` is `/`. `name+` is a parameter, and the folder name is the parameter name: `booking+` under `staff/` is `/staff/{booking}`, not `/staff/booking/{id}` (for that, make a literal folder `booking` with `id+` inside). It is read with `c.Param("name")`. `go tool tifa routes` prints the URLs that result. `name++` is the rest of the path, last folder only, `_splat` in TypeScript. Name the Go package after the parameter: `todo+` holds `package todo`.
-- A folder has at most three convention files. `route.go` holds every Go name of the folder: `Load` (the page data), `Layout` (the data of the Layout), `SSR`, `Memo` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. These names in any other Go file of the package fail the build. `page.tsx` is the page. `layout.tsx` (with `<Outlet />`) wraps the page of its folder and every page below.
-- A folder with `page.tsx` is a page, so it cannot define `GET`. A folder with `route.go` and no `page.tsx` is an API route when it has a method handler, and has no `Load`. Its `Layout` still gives the pages below it their layout data. `tifa.Use(c, pkg.Layout)` gets the data of an enclosing Layout, run once per request.
+- Every folder under `app/` is a URL segment, and `app/` is `/`. `name+` is a parameter named after the folder: `booking+` under `staff/` is `/staff/{booking}`, read with `c.Param("booking")`. For `/staff/booking/{id}`, make a folder `booking` with `id+` inside. `name++` is the rest of the path, last folder only, `_splat` in TypeScript. Name the Go package after the parameter: `todo+` holds `package todo`.
+- A folder has at most three convention files. `route.go` holds every Go name of the folder: `Load` (the page data), `Layout` (the data of the Layout), `SSR`, `Memo` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. These names in another Go file of the package fail the build. `page.tsx` is the page. `layout.tsx` (with `<Outlet />`) wraps the page of its folder and every page below.
+- A folder with `page.tsx` cannot define `GET`. A folder with `route.go` and no `page.tsx` is an API route when it has a method handler, and has no `Load`. `tifa.Use(c, pkg.Layout)` gets the data of an enclosing Layout, run once per request.
 - Write Tifa, not another framework: no `next/link`, `'use client'`, `loader`, `getServerSideProps`, `createServerFn` or `[id]` folders. `go tool tifa check` reports them with the Tifa way. See "Coming from another framework" in `docs/start/app.md`.
-- Details: `docs/start/app.md`, which links to the doc of each topic.
 
-## Returned errors
+## Go side
 
-| Returned | A page (`Load`, `Layout`) | A method handler |
-| --- | --- | --- |
-| `tifa.ErrNotFound`, or a `tifa.Error` with Status 404 | 404 shown by the first `ErrorBoundary` going up from the page (from the Layout one level up when a `Layout` returns it), which gets a `TifaError` with `status` 404 | 404 as JSON |
-| `tifa.Error{Status, Message}`, Status 400 to 599 but not 404 | That status, shown by the nearest `ErrorBoundary` | That status as JSON `{"error": message}` |
-| `tifa.Fields{"field": "message"}` | 422, shown by the nearest `ErrorBoundary` | 422 as JSON with `"fields"` |
-| `tifa.Redirect(url, status)` | A redirect | Called from the browser, the browser goes there: through the router for a URL of this site, a full page load for another. Otherwise a 3xx |
-| Any other error, a panic, or a `tifa.Error` with another status | `OnError`, or a logged 500 without one | `OnError`, or a logged 500 without one |
+- Return `tifa.Redirect(url, status)` to redirect. Return `tifa.ErrNotFound`, `tifa.Error{Status, Message}` or `tifa.Fields{"field": "message"}` (422) for an error that a page shows in the nearest `ErrorBoundary` as a `TifaError` and a handler answers as JSON. Any other error or a panic goes to `OnError`, or a logged 500. See `docs/pages-and-data/routes.md`.
+- A typed handler: `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`. Tifa decodes `in` from a JSON or form body (the query string for `GET` and `DELETE`), runs `in.Validate()` when it exists and writes the result as JSON. `func POST(c *tifa.Ctx) error` writes its own answer.
+- Data, inputs and results travel as JSON, and Tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null`, so write `?? []`. An integer above 9007199254740991 is refused where a page reads it: add `json:",string"` or send milliseconds.
+- The build fails with the file and line when `Load` or `Layout`:
+  - calls `c.Param`, `c.Query` or `c.QueryValues` other than directly with a constant string, such as `c.Query("tab")`,
+  - calls `tifa.Use` with anything but a package-level `Layout` that wraps the caller,
+  - passes `c` anywhere but a plain function or method of this module or of Tifa,
+  - calls `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`.
 
-`Validate` on a handler input runs before the handler. A `tifa.Error` or `tifa.Fields` it returns is answered as in the table. Any other error, also `tifa.ErrNotFound` or a `tifa.Redirect`, is answered with 400 and `err.Error()` as the message. A URL that matches no page shows the `ErrorBoundary` of the deepest Layout it matches (the root `layout.tsx` here), inside that Layout, as a `TifaError` with `status` 404. `NotFound` is no export: exporting it fails the build.
+  `c.JSON`, `c.Text` and `c.NoContent` return an error there. Headers and cookies are fine. Pass `c.Context()` when a function needs only the context. See "How Load may use Ctx" in `docs/pages-and-data/routes.md`.
 
-## Load and Ctx
+## React side
 
-The build reads `Load` and `Layout` and the functions they call to find which parameters each page depends on. It fails with the file and line when they:
-
-- call `c.Param`, `c.Query` or `c.QueryValues` with a string that is not a constant, or not directly (stored in a variable or passed as a value),
-- call `tifa.Use` with anything but a package-level `Layout` that wraps the caller,
-- convert, store, return or send `c` anywhere else than a plain function or method of this module or of tifa, or a new local variable of the same type (see the docs for the full list),
-- call `c.Request()` or `c.Writer()`,
-- call `c.BindQuery` or `c.Bind`: read query values with `c.Query("name")` or `c.QueryValues("name")`.
-
-Writing the response is checked when the request runs instead: in `Load` and `Layout`, `c.JSON`, `c.Text` and `c.NoContent` write nothing and return an error. Returned, that error is an unexpected one (`OnError`, or a 500). Setting headers and cookies is fine. Pass `c.Context()` when a function only needs the context. See "How Load may use Ctx" in `docs/pages-and-data/routes.md`.
-
-## Handlers and the browser
-
-- A typed handler takes an input after the Ctx, returns a result before the error, or both: `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`. The framework decodes `in` from a JSON or form body (from the query string for `GET` and `DELETE`), runs `in.Validate()` if it exists (`func() error`, or `func(c *tifa.Ctx) error` to read the request, such as `c.Language()`), and writes the result as JSON (204 when there is no result). `func POST(c *tifa.Ctx) error` writes its own response.
-- The data of `Load` and handler inputs and results travel as JSON, and tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null` in TypeScript, so write `?? []`. An integer a browser would round (above 9007199254740991, such as a snowflake ID or `time.UnixNano()`) is refused with an error when a page reads it: the results of `Load` and `Layout`, session data, and a handler result for a call that sends `X-Tifa-Call` (the generated function of a page). `tifatest.Start` refuses it in `Load` and `Layout` too. A plain HTTP client and curl get the raw number from a handler, and so does `tifatest.Start` unless the request sets `X-Tifa-Call: 1`, so in a test of a handler set that header to see the refusal. Add `json:",string"` to the field, or send milliseconds.
-- In TSX, import from the generated `./route.gen` of the folder: `page.useLoaderData()` and `layout.useLoaderData()`, the `PageData` and `LayoutData` types, and one function per handler, such as `POST({ params, input })`. A page reads the data of an enclosing Layout from the `route.gen` of that Layout's folder, such as `../route.gen`. A call never reloads page data: after a write, call `router.invalidate()` yourself. See "Calling method handlers from the browser" in `docs/pages-and-data/pages.md#calling-method-handlers-from-the-browser`.
-- The function of a typed handler resolves to its result and throws `TifaError` (`status`, `message`, `fields`) for an error answer. The function of a handler that writes its own response resolves to the `Response`, also for a 4xx or 5xx, so check `response.ok`. When the handler or `OnRequest` redirects, the function resolves to `undefined` once the new page shows, so its result type is `Out | undefined`: check the result before using it. Redirect with `return tifa.Redirect(...)`, not by writing a 3xx yourself.
-- Styles are CSS files imported from TSX, such as `app/styles.css` in the root `layout.tsx`. `vite.config.ts` adds the Vite plugins of tifa and React. For Tailwind CSS, add `@tailwindcss/vite` there. See "Styles" in `docs/pages-and-data/styles.md`.
-- A page may also export `head` and `ErrorBoundary`, which also shows its 404 as a `TifaError` with `status` 404. In the browser each `page.tsx` and `layout.tsx` but the root one loads with its route, also one that exports `head`: its top-level code runs when its route first loads, not when the app starts, so setup every page needs goes in the root `layout.tsx` or a module it imports. Components that need the browser at import time, or show nothing until the browser draws them, go in `*.client.tsx` and load with `clientOnly` from `tifa/client`, with a placeholder of the same size. See "Components that draw only in the browser" in `docs/pages-and-data/server-render.md`.
+- Import from the generated `./route.gen` of the folder: `page.useLoaderData()`, `layout.useLoaderData()`, the `PageData` and `LayoutData` types, and one function per handler, such as `POST({ params, input })`. A page reads the data of an enclosing Layout from the `route.gen` of that folder, such as `../route.gen`.
+- A handler function throws `TifaError` (`status`, `message`, `fields`) for an error answer. It never reloads page data: after a write, call `router.invalidate()`. See `docs/pages-and-data/pages.md#calling-method-handlers-from-the-browser`.
+- Components that need the browser at import time go in `*.client.tsx` and load with `clientOnly` from `tifa/client`. See `docs/pages-and-data/server-render.md`.
+- `page.tsx` may also export `head` and `ErrorBoundary`. Styles are CSS files imported from TSX, see `docs/pages-and-data/styles.md`.
 
 ## Hooks
 
-`hooks.go` in the root package, all optional:
-
-- `OnStart(ctx)` runs before the app listens. An error stops the app. It is where the app wires what the whole process shares, such as `tifa.SetSitemap`, which lists the pages with parameters for `/sitemap.xml` and `/llms.txt` once `site.url` is set in `tifa.yaml`. See `docs/guides/seo.md`.
-- `OnShutdown(ctx)` runs after a stop signal, once the requests in flight have finished. Requests still running after `server.shutdown_timeout` are canceled and get one more `shutdown_timeout` to return. `OnShutdown` is skipped if they do not, and either way the app exits with status 1. A handler that streams with no end, such as server-sent events, returns when `tifa.ShuttingDown(c.Context())` closes, see `docs/guides/streaming.md`.
-- `OnRequest(c, next)` runs before pages, navigation data requests, API routes and unmatched URLs, not static files. Call `next(c)` to go on, or `next(c.WithContext(ctx))` to pass a request-scoped value.
-- `OnError(c, err)` gets unexpected errors and panics. Writing one replaces the default, which logs and answers 500.
+`hooks.go` in the root package, all optional: `OnStart(ctx)` wires what the whole process shares (an error stops the app), `OnShutdown(ctx)`, `OnRequest(c, next)` and `OnError(c, err)`. See `docs/pages-and-data/hooks.md`.
 
 ## Tests
 
-- Domain code: plain Go tests next to it, such as `app/todos/todo_test.go`. Each test gets a fresh database with `useTestDB(t)`, which replaces `{{.Package}}.DB`, so these tests do not run in parallel.
-- Route code: `tifatest.NewCtx(t, httptest.NewRequest(...))` gives a `*tifa.Ctx`. Set path parameters with `r.SetPathValue`. Run `Load` and `Layout` through `tifa.Use(c, Load)`, call handlers directly, and test `Validate` on its own. These tests check what the function returns, not the HTTP answer. See "Testing" in `docs/pages-and-data/testing-apps.md`.
-- Whole requests: `tifatest.Start(t, tifaapp.App)` runs the app and returns an `*httptest.Server` whose client keeps cookies and does not follow redirects, for a flow such as posting a form and following the redirect. Import `{{.Module}}/.tifa/tifaapp` from a test in a package of its own (`package app_test`), set `{{.Package}}.DBPath` to a file in `t.TempDir()` before `Start`, and do not call `t.Parallel` in such a test. Pages answer the data of their Loads as JSON. `tifatest.StartPages` renders them, and needs `go tool tifa build` first. See "Testing a whole request" in `docs/pages-and-data/testing-apps.md`.
+- Domain code: plain Go tests next to it. `useTestDB(t)` gives a test a fresh database by replacing `{{.Package}}.DB`, so these tests do not run in parallel.
+- Route code: `tifatest.NewCtx(t, httptest.NewRequest(...))` gives a `*tifa.Ctx`. Set path parameters with `r.SetPathValue`, run `Load` through `tifa.Use(c, Load)`, call handlers directly and test `Validate` on its own.
+- Whole requests: `tifatest.Start(t, tifaapp.App)`, from a test in a package of its own (`package app_test`) that imports `{{.Module}}/.tifa/tifaapp`. Set `{{.Package}}.DBPath` to a file in `t.TempDir()` first, and do not call `t.Parallel`. Pages answer their data as JSON there. `tifatest.StartPages` renders them, after `go tool tifa build`.
+- See `docs/pages-and-data/testing-apps.md`.
 
 ## Settings and data
 
-- `tifa.yaml` lists every setting commented out at its default, with an example for `ssr.vms`, whose default is GOMAXPROCS, at most 4. See `docs/build-and-deploy/config.md`. A setting `server.addr` is also the flag `--server-addr` and the environment variable `SERVER_ADDR`, and the app defines its own options in `options.go` with `tifa.String`, `tifa.Int` and the like.
-- The database is `app.db`, or what the option `db.path` of `options.go` says (`DB_PATH`, `--db-path`). `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`). A new domain adds its tables there. `tifa dev` does not watch `schema.sql`: after changing it, restart `tifa dev`.
-- Under `tifa dev`, a page whose server render fails, or whose `OnRequest` returns an unexpected error, answers with its status and the whole error, a render error with its stack trace in the source files. `curl -i` on the page shows them. `go tool tifa errors` lists them too. A built app shows only the status and the public message.
-- Build and generated files: `docs/build-and-deploy/build.md`. `tifa dev`: `docs/build-and-deploy/dev.md`.
+- `tifa.yaml` lists every setting at its default, and `options.go` holds the options of the app. See `docs/build-and-deploy/config.md`.
+- `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`).
+- Under `tifa dev`, a page that fails answers with the whole error: `curl -i` the page, or run `go tool tifa errors`.
+
+## Docs
+
+The paths below are relative to the folder of the Tifa module in `go.mod`, which `go tool tifa docs` prints. Open the files there. Each has a Chinese copy beside it, `<name>.zh-CN.md`.
+
+{{docsIndex}}
 
 <!-- tifa:end -->
 

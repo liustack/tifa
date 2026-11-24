@@ -2,7 +2,7 @@
 summary: '`tifa new` 怎样开始一个应用、`tifa build` 做什么、`tifa check` 运行什么、`tifa gen` 写什么、Tifa docs 打印什么、`tifa upgrade` 怎样把应用升到更新的 Tifa、`tifa agents` 写什么（技能和 AGENTS.md 里由它管理的那一块）以及怎样让它们保持最新、它在 .tifa/ 里生成哪些文件和输出、怎样设置应用的 tsconfig 和 go.mod、前端为什么用 Vite 构建、生成的程序怎样启动并回答页面请求、为什么去掉调试信息，以及随程序要附上哪些许可证声明'
 audience: app
 order: 2
-translatedFrom: d8d4fdcf5b62
+translatedFrom: 47390e876c94
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -42,7 +42,7 @@ tifa new <dir> [--module module-path] [--empty]
 | `app/about/page.tsx` | 一个没有 `route.go` 的页面 |
 | `*_test.go` | 放在被测代码旁边的测试：待办领域、数据库、hook 和会话存储，以及路由代码的 `tifatest` 测试，每个测试都在临时目录里的全新数据库上运行 |
 | `tifa.yaml` | [config.md](config.zh-CN.md) 里的每个设置，都注释掉并保持默认值。`ssr.vms` 默认是 GOMAXPROCS，最多 4，所以这里写了一个示例值 |
-| `AGENTS.md`, `CLAUDE.md` | 写给编码 agent 的说明，讲 Tifa 应用如何工作，让 agent 先运行 `go tool tifa docs`，并把 `go tool tifa check` 作为唯一的检查命令，其中由 Tifa 管理的部分放在标记行之间（见 [AGENTS.md 里由 Tifa 管理的部分](#the-managed-block-of-agentsmd)，`tifa agents` 会刷新它）。`CLAUDE.md` 只是指向 `AGENTS.md` |
+| `AGENTS.md`, `CLAUDE.md` | 写给编码 agent 的说明，讲 Tifa 应用如何工作，附有所用 Tifa 版本的文档索引，并把 `go tool tifa check` 作为唯一的检查命令，其中由 Tifa 管理的部分放在标记行之间（见 [AGENTS.md 里由 Tifa 管理的部分](#the-managed-block-of-agentsmd)，`tifa agents` 会刷新它）。`CLAUDE.md` 只是指向 `AGENTS.md` |
 | `.claude/skills/tifa/` | 给编码 agent 用的 Tifa skill，包括 `SKILL.md` 和它的参考文件，由和 `tifa agents` 相同的代码写出（见 [`tifa agents`](#tifa-agents)） |
 | `package.json`, `tsconfig.json`, `vite.config.ts`, `.gitignore`, `README.md` | npm 包，TypeScript 和 Vite 的设置，被忽略的构建产物和数据库文件，以及相关命令 |
 | `pnpm-workspace.yaml` | `minimumReleaseAge: 4320`，这样 pnpm 不会安装发布不满 3 天的包版本（见下文） |
@@ -224,7 +224,7 @@ pnpm 和 npm 会在 `pnpm install` 和 `npm install` 之后运行项目的 `prep
 tifa docs [--dir app-root] [--all] [--when] [--lang zh-CN]
 ```
 
-打印应用所用 Tifa 版本的文档在哪里，然后是它们的索引。默认列出用于编写应用的文档，每篇一行，包括路径和摘要的第一句，总共约 2 KB。`--lang zh-CN` 列出中文文档，而不是英文文档。`--when` 会加上 `read_when` 行，`--all` 还会在各自的标题下列出关于开发 Tifa 本身的文档（发布、提交、测试、Tifa 内部如何工作、研究）。`tifa new` 写出的 `AGENTS.md` 会告诉编码 agent 先运行它，这样 agent 读到的是应用构建所用版本的文档，而不是 GitHub 上 main 分支的文档。
+打印应用所用 Tifa 版本的文档在哪里，然后是它们的索引。默认列出用于编写应用的文档，每篇一行，包括路径和摘要的第一句，总共约 2 KB。`--lang zh-CN` 列出中文文档，而不是英文文档。`--when` 会加上 `read_when` 行，`--all` 还会在各自的标题下列出关于开发 Tifa 本身的文档（发布、提交、测试、Tifa 内部如何工作、研究）。`tifa new` 写出的 `AGENTS.md` 里有同样的一份应用文档清单，并告诉编码 agent 文件夹在哪里，这样 agent 读到的是应用构建所用版本的文档，而不是 GitHub 上 main 分支的文档。
 
 Tifa 在应用根目录里向 go 命令查询（`go list -m -json github.com/liustack/tifa`），所以用的是 `go.mod` 解析出的那个文件夹：已发布版本对应模块缓存，`replace` 指令则对应它指向的文件夹。还没下载的模块会失败，并提示要运行的步骤 `go mod download github.com/liustack/tifa`。
 
@@ -329,7 +329,7 @@ AGENTS.md and .claude/skills/tifa are up to date (Tifa v0.0.11)
 ## This app
 ```
 
-每个标记各占一行，只出现一次，并且 `tifa:begin` 在 `tifa:end` 之前。它们之间的一切都归 Tifa：命令、约定，以及去哪里读更多内容。`tifa agents` 会用当前所用 Tifa 版本的内容替换那一部分，文件的其他每一个字节都保持原样。关于应用本身的说明请放在标记之外（`tifa new` 用 `## This app` 开头）。
+每个标记各占一行，只出现一次，并且 `tifa:begin` 在 `tifa:end` 之前。它们之间的一切都归 Tifa：命令、约定，以及那个 Tifa 版本里写给应用的文档索引，按章节文件夹分组，每篇一行，包括路径和摘要的第一句。索引来自命令自带的文档，所以总是和版本一致。`tifa agents` 会用当前所用 Tifa 版本的内容替换那一部分，文件的其他每一个字节都保持原样。关于应用本身的说明请放在标记之外（`tifa new` 用 `## This app` 开头）。
 
 - 没有 `AGENTS.md` 时，它会写一个，包含标题和这一部分。
 - 有 `AGENTS.md` 但没有标记时，它会把这一部分追加在末尾，并说明这一点。把标记加在这一部分周围，以后就能原地刷新它。

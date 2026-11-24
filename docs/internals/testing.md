@@ -37,7 +37,7 @@ go vet ./...
 CGO_ENABLED=0 go build ./...
 ```
 
-`go test ./cmd/tifa -run TestAgentTexts` checks that every command, flag, `tifa.X`, `c.X`, `tifa/client` name, doc link and anchor and reference file that `skills/tifa` and the notes template of `tifa new` name exists, and fails with the file, the line and what is missing. Fix the text, not the test.
+`go test ./cmd/tifa -run TestAgentTexts` checks that every command, flag, `tifa.X`, `c.X`, `tifa/client` name, doc link and anchor and reference file that `skills/tifa` and the notes template of `tifa new` name exists, and fails with the file, the line and what is missing. Fix the text, not the test. `go test ./cmd/tifa -run 'TestNotes|TestEmbeddedDocs'` checks that the managed block of `AGENTS.md` lists every doc for apps, and that the block stays at most 10 KB: when it grows past that, move detail into a doc and leave its path.
 
 `scripts/docs-list.sh --check` (CI runs it) fails when a doc has no summary or audience, and `--check-translations` runs only the check that fails when a doc with `audience: app` has no `.zh-CN.md` partner, when the `translatedFrom` of a partner is not what `scripts/doc-hash.sh <english file>` prints for the English file (the English changed, so the Chinese must change in the same commit), when a `.zh-CN.md` has no English file, or when a doc with `audience: dev` has one. `go test ./cmd/tifa -run 'TestHeadingIDs|TestChineseDocs'` checks that a Chinese doc has the heading ids of its English file.
 
