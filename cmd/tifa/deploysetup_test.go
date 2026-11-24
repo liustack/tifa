@@ -325,7 +325,7 @@ func TestSetupFreshServer(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("got %v", err)
 	}
-	for _, want := range []string{"Plan for shop on vps", "add     server: the user tifa", "add     app: /srv/tifa/shop with an empty shared/.env, serving visitors itself on port 80, over plain HTTP since site.url names no domain, the systemd socket and service tifa-shop", "Visitors need port 80 of the server open. Tifa does not change the firewall or the security groups of your provider"} {
+	for _, want := range []string{"Plan for shop on vps", "add     server: the user tifa", "add     app: /srv/tifa/shop with an empty shared/.env, serving visitors itself on port 80, over plain HTTP since site.url names no domain, the systemd socket and service tifa-shop", "Visitors need port 80 of the server open. Tifa does not change your provider's firewall or security groups"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plan lacks %q:\n%s", want, out)
 		}

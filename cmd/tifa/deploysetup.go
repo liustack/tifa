@@ -515,7 +515,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		serves = "serving visitors itself on port 80, over plain HTTP since site.url names no domain"
 	}
 	if servesVisitors(port) {
-		p.firewall = fmt.Sprintf("Visitors need %s of the server open. Tifa does not change the firewall or the security groups of your provider: if they block %s, open %[2]s there.",
+		p.firewall = fmt.Sprintf("Visitors need %s of the server open. Tifa does not change your provider's firewall or security groups: if they block %s, open %[2]s there.",
 			portsText(port), pick(port == httpsPort, "them", "it"))
 		if r.st.LowPort > httpPort {
 			p.add(opChange, fmt.Sprintf("server: let the systemd of %s open ports 80 and 443, with net.ipv4.ip_unprivileged_port_start = 80 (now %d) in %s, as root. Ports from 80 to 1023 are then open to every user of the server, not only root", deployUser, r.st.LowPort, portsConf), func(ctx context.Context) (string, error) {

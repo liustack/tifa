@@ -95,7 +95,7 @@ func TestSetupServesVisitorsOverHTTP(t *testing.T) {
 	for _, want := range []string{
 		"change  server: let the systemd of tifa open ports 80 and 443, with net.ipv4.ip_unprivileged_port_start = 80 (now 1024) in /etc/sysctl.d/60-tifa-ports.conf, as root",
 		"add     app: /srv/tifa/shop with an empty shared/.env, serving visitors itself on port 80, over plain HTTP since site.url names no domain, the systemd socket and service tifa-shop",
-		"Visitors need port 80 of the server open. Tifa does not change the firewall or the security groups of your provider: if they block it, open it there.",
+		"Visitors need port 80 of the server open. Tifa does not change your provider's firewall or security groups: if they block it, open it there.",
 		"shop serves visitors itself on port 80 of the server. If the firewall or a security group of your provider blocks it, open it there: Tifa does not change those.",
 	} {
 		if !strings.Contains(out, want) {
@@ -121,7 +121,7 @@ func TestSetupServesVisitorsOverHTTPS(t *testing.T) {
 	}
 	for _, want := range []string{
 		"add     app: /srv/tifa/shop with an empty shared/.env, serving visitors itself on ports 80 and 443, with HTTPS for shop.example.com and its certificate from Let's Encrypt kept in /srv/tifa/shop/certs, the systemd sockets and service tifa-shop",
-		"Visitors need ports 80 and 443 of the server open. Tifa does not change the firewall or the security groups of your provider: if they block them, open them there.",
+		"Visitors need ports 80 and 443 of the server open. Tifa does not change your provider's firewall or security groups: if they block them, open them there.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)

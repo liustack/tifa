@@ -126,7 +126,7 @@ func TestSetupOpensUFW(t *testing.T) {
 	if !strings.Contains(out, line) {
 		t.Errorf("lacks %q:\n%s", line, out)
 	}
-	if !strings.Contains(out, "Visitors need ports 80 and 443 of the server open. Tifa does not change the firewall or the security groups of your provider: if they block them, open them there.") {
+	if !strings.Contains(out, "Visitors need ports 80 and 443 of the server open. Tifa does not change your provider's firewall or security groups: if they block them, open them there.") {
 		t.Errorf("what is left to the developer:\n%s", out)
 	}
 	if strings.Contains(srv.calls(), "ufwallow") || strings.Contains(srv.calls(), "app tifa") {
