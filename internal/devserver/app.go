@@ -112,11 +112,20 @@ func (a *app) waitReady(ctx context.Context, addr string, timeout time.Duration)
 	// would hold up the app's graceful shutdown.
 	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
 	for {
-		if answers(ctx, client, addr) {
+		probe := answers(ctx, client, addr)
+		if probe == nil {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return &appExit{err: fmt.Errorf("the app did not answer on %s within %s", addr, timeout), output: a.stderr.String()}
+			// The log has the app's own output already. What it cannot show is why the probes
+			// failed, and whether the process was still there.
+			state := "the app process is still running"
+			select {
+			case <-a.done:
+				state = "the app process has exited"
+			default:
+			}
+			return &appExit{err: fmt.Errorf("the app did not answer on %s within %s (last probe: %v, %s)", addr, timeout, probe, state), output: a.stderr.String()}
 		}
 		select {
 		case <-a.done:
@@ -283,16 +292,20 @@ func inReport(line []byte, last byte) bool {
 	return false
 }
 
-// answers reports whether the app under server.DevMain answers at addr.
-func answers(ctx context.Context, client *http.Client, addr string) bool {
+// answers probes the app under server.DevMain at addr. It returns nil when the app answers, and
+// otherwise why not.
+func answers(ctx context.Context, client *http.Client, addr string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+deverrors.Path, nil)
 	if err != nil {
-		return false
+		return err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return false
+		return err
 	}
 	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %s", resp.Status)
+	}
+	return nil
 }

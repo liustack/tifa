@@ -260,3 +260,19 @@ func stopWithin(t *testing.T, a *app, timeout, limit time.Duration) error {
 		return nil
 	}
 }
+
+// An app that runs but never answers leaves nothing in the terminal. The error of the timeout says
+// what the last probe saw and that the process still runs, so a log shows why.
+func TestAppReadyTimeoutSaysWhatTheLastProbeSaw(t *testing.T) {
+	t.Setenv("TIFA_FAKE_APP_LISTEN_DELAY", "1m")
+	a, addr := startFakeApp(t, io.Discard)
+	err := a.waitReady(context.Background(), addr, 300*time.Millisecond)
+	if err == nil {
+		t.Fatal("the app that does not listen was ready")
+	}
+	for _, want := range []string{"did not answer on " + addr, "last probe:", "the app process is still running"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error lacks %q: %v", want, err)
+		}
+	}
+}

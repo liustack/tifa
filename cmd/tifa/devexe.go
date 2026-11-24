@@ -15,7 +15,7 @@ import (
 // the app of tifa dev runs from exe while go build writes its next version, and Windows refuses to
 // write over or delete a program that runs, but lets it be renamed. The app keeps running from the
 // new name until tifa dev stops it, and the next call deletes that file. A file Windows refuses to
-// delete runs still, and is left for a later call. exe not being there is no error: the first build
+// delete runs still or is held by another program, and is left for a later call. exe not being there is no error: the first build
 // makes it, and a failed build leaves none.
 func moveAside(exe string) error {
 	dir, name := filepath.Split(exe)
@@ -26,7 +26,9 @@ func moveAside(exe string) error {
 	}
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), base+".old-") && strings.HasSuffix(e.Name(), exeSuffix) {
-			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, fs.ErrPermission) {
+			// A program that runs, or that another program holds open without sharing its deletion
+			// (ERROR_SHARING_VIOLATION, which is not ErrPermission), stays for a later call.
+			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, fs.ErrPermission) && !heldByAnother(err) {
 				return err
 			}
 		}
