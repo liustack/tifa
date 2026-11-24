@@ -12,7 +12,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/beastjs"
 )
 
 // scriptError is an exception of the bundle's JavaScript that the bundle caught and reported in
@@ -52,7 +52,7 @@ type explainedError struct {
 func (e *explainedError) Error() string { return e.text }
 func (e *explainedError) Unwrap() error { return e.err }
 
-// bundlePlace matches a place in the bundle in a slowjs stack trace. slowjs names the bundle
+// bundlePlace matches a place in the bundle in a beastjs stack trace. beastjs names the bundle
 // <eval>, and code that eval or Function runs <input>.
 var bundlePlace = regexp.MustCompile(`<eval>:(\d+):(\d+)`)
 
@@ -66,7 +66,7 @@ const maxFrames = 64
 // markEvery is how many code points apart the marks of a long line are.
 const markEvery = 1024
 
-// missingRequire is how slowjs reports a call of require, which it does not have.
+// missingRequire is how beastjs reports a call of require, which it does not have.
 const missingRequire = "ReferenceError: 'require' is not defined"
 
 // nodeModuleUsed ends the message of the error that the stand-in of a Node module throws when a
@@ -106,7 +106,7 @@ type segment struct {
 func (s *sources) explain(err error, loading bool) error {
 	var head, stack string
 	var reported *scriptError
-	var js *slowjs.Error
+	var js *beastjs.Error
 	switch {
 	case errors.As(err, &reported):
 		head, stack, _ = strings.Cut(reported.text, "\n")
@@ -171,13 +171,13 @@ func (s *sources) nodeModuleAdvice(stack string, loading bool) string {
 			break
 		}
 	}
-	return where + ". SSR runs in slowjs, which has no Node modules, so this code took a path meant for Node. " + nodeAdvice(loading)
+	return where + ". SSR runs in beastjs, which has no Node modules, so this code took a path meant for Node. " + nodeAdvice(loading)
 }
 
 // requireAdvice says which code called require at line and column of the bundle, why it fails,
 // and what to do, which depends on whether the bundle was loading.
 func (s *sources) requireAdvice(line, column int, loading bool) string {
-	why := ". SSR runs in slowjs, which has no require, so this code took a path meant for Node. " + nodeAdvice(loading)
+	why := ". SSR runs in beastjs, which has no require, so this code took a path meant for Node. " + nodeAdvice(loading)
 	file, sourceLine, sourceColumn, ok := s.source(line, column)
 	if !ok {
 		call := nodeModule.FindStringSubmatch(s.text(line, column))
@@ -218,7 +218,7 @@ func (s *sources) source(line, column int) (string, int, int, bool) {
 }
 
 // locate returns the offset in the bundle of line and column, both from 1, and the column in
-// UTF-16 units from 0. slowjs counts columns in code points, source maps in UTF-16 units.
+// UTF-16 units from 0. beastjs counts columns in code points, source maps in UTF-16 units.
 func (s *sources) locate(line, column int) (offset, units int, ok bool) {
 	s.once.Do(s.prepare)
 	if line < 1 || line > len(s.starts) || column < 1 {

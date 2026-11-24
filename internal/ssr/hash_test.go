@@ -3,7 +3,7 @@ package ssr
 import (
 	"testing"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/beastjs"
 )
 
 // emotionHash is murmur2 of @emotion/hash 0.9.2 (MIT, Copyright (c) Emotion team and other
@@ -39,9 +39,9 @@ const emotionHash = `function emotionHash(str) {
   return ((h ^ h >>> 15) >>> 0).toString(36);
 }`
 
-func hashVM(t *testing.T) *slowjs.VM {
+func hashVM(t *testing.T) *beastjs.VM {
 	t.Helper()
-	vm, err := slowjs.NewVM()
+	vm, err := beastjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func hashVM(t *testing.T) *slowjs.VM {
 	if err := registerHash(vm); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := vm.Eval(emotionHash, slowjs.EvalGlobal); err != nil {
+	if _, err := vm.Eval(emotionHash, beastjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	return vm
@@ -75,7 +75,7 @@ func TestMurmur2IsTheHashOfEmotion(t *testing.T) {
   }
   const wrong = strings.filter((s) => __tifa_murmur2__(s) !== emotionHash(s))
   return strings.length + ' ' + wrong.length + ' ' + wrong.slice(0, 3).map((s) => JSON.stringify(s)).join(' ')
-})()`, slowjs.EvalGlobal)
+})()`, beastjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestMurmur2LeavesTheRestToJavaScript(t *testing.T) {
   out.push(__tifa_murmur2__('abc') === emotionHash('abc'))
   out.push(Object.keys(globalThis).includes('__tifa_murmur2__'))
   return JSON.stringify(out)
-})()`, slowjs.EvalGlobal)
+})()`, beastjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

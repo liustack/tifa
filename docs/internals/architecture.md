@@ -23,7 +23,7 @@ flowchart LR
   B["Browser"]
   subgraph P["The executable"]
     G["Go: routes, hooks, Load, render memo (server, internal/core)"]
-    V["VM pool: ssr.js in slowjs (internal/ssr)"]
+    V["VM pool: ssr.js in beastjs (internal/ssr)"]
     S["Embedded files: assets, public, content"]
   end
   B -- "HTTP" --> G
@@ -38,7 +38,7 @@ flowchart LR
 | `tifa`, `tifatest`, `content` | The public API. `tifa` is thin: it forwards to `internal/core`. `tifatest` makes a `Ctx` for tests |
 | `internal/core` | `Ctx`, errors, the JSON rules, sessions and the session store, the render clock |
 | `server` | The HTTP server: routing, `OnRequest`, page and data requests, the render memo, compression, HTTPS, cross-site check, graceful stop |
-| `internal/ssr` | The pool of [slowjs](https://github.com/liustack/slowjs) VMs and the render call |
+| `internal/ssr` | The pool of [beastjs](https://github.com/liustack/beastjs) VMs and the render call |
 | `internal/config` | Settings: sources, flags, values and their errors |
 | `internal/analyze` | Static analysis of the app's Go code into the route manifest |
 | `internal/codegen` | Writes `.tifa/`: the Go main, the route registration, the TypeScript route tree |

@@ -2,7 +2,7 @@
 summary: 'Tifa 应用这样组织背后的想法，以及每一条能给你什么：按领域分组代码、手工接线依赖、从小处开始、按 Go 的方式做事'
 audience: app
 order: 3
-translatedFrom: 8057ad28b6b8
+translatedFrom: c799b5b48eca
 read_when:
   - '新建 Tifa 应用，想知道它为什么是这样的布局'
   - '在新增一层、一个包或一个辅助函数之前，对照 Tifa 应用应有的样子权衡'
@@ -54,4 +54,4 @@ Tifa 应用就是一个 Go 程序。四条理念决定了它的代码怎么组�
 
 - `go test ./...`、`go vet ./...` 和你的编辑器，都能像对待任何 Go 模块一样对待这个应用。
 - 构建可以放心在任何地方运行（包括 CI），不需要应用运行时才用的数据库或密钥。
-- 应用构建成一个可以直接复制的文件，支持它的引擎 [slowjs](https://github.com/liustack/slowjs) 所支持的每个平台：amd64 和 arm64 上的 linux 与 darwin，以及 amd64 和 arm64 上的 windows。
+- 应用构建成一个可以直接复制的文件，支持它的引擎 [beastjs](https://github.com/liustack/beastjs) 所支持的每个平台：amd64 和 arm64 上的 linux 与 darwin，以及 amd64 和 arm64 上的 windows。

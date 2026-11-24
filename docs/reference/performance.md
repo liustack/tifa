@@ -60,7 +60,7 @@ Latency at 2.75 visits a second, P50 / P99 of one round of 3,060 visits:
 
 ### CPU and `ssr.vms`
 
-A full page load spends most of its CPU on rendering, and one render takes longer than in Node: Tifa renders in slowjs, a pure Go JavaScript engine with no JIT.
+A full page load spends most of its CPU on rendering, and one render takes longer than in Node: Tifa renders in beastjs, a pure Go JavaScript engine with no JIT.
 
 - [`ssr.vms`](../build-and-deploy/config.md#settings) defaults to the CPU count Go sees, at most 4. On more than 4 CPUs set it to the CPU count when the memory allows.
 - Plan on about 42 page requests a second per physical core for pages like the shop's workbench, with the render memo off so that every request renders. Throughput follows the cores: 1.99 times on two and 2.94 times on three.

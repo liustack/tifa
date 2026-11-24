@@ -103,7 +103,7 @@ func requireMap() []byte {
 }
 
 const (
-	advice = "SSR runs in slowjs, which has no require"
+	advice = "SSR runs in beastjs, which has no require"
 	// What a render can do: run the code in the browser only.
 	renderAdvice = "Import the package from a .client file, or call it from a useEffect"
 	// What a bundle that fails to load can do: the import itself fails.
@@ -163,7 +163,7 @@ func TestPrewarmErrorsNameTheNodeModuleTheBundleUses(t *testing.T) {
 		"function read() { used() }\nread()\n"
 	_, err := NewPool(bundle, sourceMapOf(mapping{2, 0, "node_modules/esm-fs/index.js", 4, 2}), testConfig(1), false)
 	if err == nil || !strings.Contains(err.Error(), `ssr: prewarm VM: Error: readFileSync of the Node module "node:fs", imported by esm-fs`) ||
-		!strings.Contains(err.Error(), "The code at node_modules/esm-fs/index.js:5:3 used it. SSR runs in slowjs, which has no Node modules") ||
+		!strings.Contains(err.Error(), "The code at node_modules/esm-fs/index.js:5:3 used it. SSR runs in beastjs, which has no Node modules") ||
 		!strings.Contains(err.Error(), loadAdvice) || strings.Contains(err.Error(), renderAdvice) {
 		t.Errorf("err = %v, want the place of the use and the advice", err)
 	}

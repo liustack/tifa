@@ -12,7 +12,7 @@ import (
 )
 
 // flowFiles extend a copy of test/apps/pages with the failures the error flow must handle in
-// the real slowjs VM: a page component that throws, one whose Error throws too, a root Error
+// the real beastjs VM: a page component that throws, one whose Error throws too, a root Error
 // that never returns for a 404, a Layout Load that refuses, a middleware that redirects and one
 // that refuses on any error of next.
 var flowFiles = map[string]string{
@@ -188,7 +188,7 @@ func TestErrorFlowInTheVM(t *testing.T) {
 			t.Errorf("%d %s", code, body)
 		}
 		output.waitFor(t, func(string) bool { return onErrors()-before >= 1 })
-		want := "The code at app/legacy/legacy.cjs:2:10 calls require. SSR runs in slowjs, which has no require"
+		want := "The code at app/legacy/legacy.cjs:2:10 calls require. SSR runs in beastjs, which has no require"
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("OnError:\n%s\nwant %s", output, want)
 		}

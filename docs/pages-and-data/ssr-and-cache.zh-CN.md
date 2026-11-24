@@ -2,7 +2,7 @@
 summary: '页面怎样渲染和保存：route.go 里的 SSR、Memo 和 Cache 开关、每个响应的 Cache-Control、Cache 让 CDN 保存什么以及哪些内容会变成匿名，以及怎样让私有数据不进入共享页面'
 audience: app
 order: 8
-translatedFrom: d7350cdee9dd
+translatedFrom: 59fcdbc4f46d
 read_when:
   - '用 `SSR`、`Memo` 或 `Cache` 给某个页面打开或关闭服务端渲染、渲染记忆或 `Cache`'
   - '用 `const Cache` 让 CDN 保存一个公开页面几分钟，了解哪些内容会变成匿名，或者遇到在这种页面里读取 Cookie 或会话的构建错误'
@@ -23,7 +23,7 @@ const Cache = true             // the page, the same for everyone, a CDN may kee
 
 `SSR`、`Memo` 和 `Cache` 作用于 `page.tsx` 的页面。在没有 `page.tsx` 的 `route.go` 里写它们，构建会失败。`Memo` 只能是 `false`：渲染记忆 memo 默认就是开的，所以永远不用写 `true`。`Cache` 可以是 `true`、`false`，或不小于一秒的 `time.Duration` 常量，见 [给 CDN 用的缓存](#cache-for-cdns)。名字要按上面的大小写写。名为 `ssr`、`cache` 或 `memo` 的常量会让构建失败，因为它会被忽略。布局没有自己的开关：想让一个布局下的页面只在浏览器里渲染，就在每个这样的页面的 `route.go` 里写 `const SSR = false`。
 
-- `SSR = false`：中间件和每个 `Load` 照常运行，但跳过 slowjs。响应是一个带数据的最小文档，由浏览器来渲染。
+- `SSR = false`：中间件和每个 `Load` 照常运行，但跳过 beastjs。响应是一个带数据的最小文档，由浏览器来渲染。
 - 渲染记忆 memo 对每个页面都是开的。每个请求都会运行自己的中间件、`Load` 和布局，只有渲染所依据的内容都没变时，才会复用 HTML（键、它不覆盖什么、等同一次渲染的请求和 ETag，见 [渲染记忆 memo](../reference/memo.zh-CN.md)）。`X-Tifa-Render` 说明一个响应是怎么来的，见 [看它怎么工作](../reference/memo.zh-CN.md#seeing-it-work)。`ssr.memo_size` 是 memo 的大小，设为 0 会关掉 memo，共享渲染仍然保留（见 [config.md](../build-and-deploy/config.zh-CN.md)）。
 - `const Memo = false` 为一个页面关掉 memo，这个页面对每个请求都渲染，也没有 ETag。页面确实要显示每次渲染都会变的值时用它，比如服务器的时间。除此之外，组件不能把这样的值放进 HTML：水合也要求这样，而且 memo 会把它冻住，见 [限制](../reference/memo.zh-CN.md#limits)。
 - 页面不带数据加载的时间，所以同样的数据总是得到同样的 HTML。取而代之的是，应用的页面响应（一次渲染、一个 304、应用的一个 404 页面）带 `Server-Timing: tifa-age;dur=<ms>`，表示它的数据最多有多旧，从它第一个 `Load` 开始算起。只有任何缓存在不再问服务器就不能复用的响应才带它：它的 `Cache-Control` 含 `no-cache` 或 `no-store`，默认的 `private, no-cache` 就是这样。带 `Cache` 的页面，或你把 `Cache-Control` 设成允许缓存保存的页面（如 `public, max-age=60`），不带它，因为缓存之后会发出同一个年龄。浏览器路由把浏览器发出请求的时间减去这个年龄，当作数据加载的时间，`staleTime` 和 `gcTime` 都从它开始算。它在页面第一次加载或预加载之前，才把这个时间设到页面的匹配项上，所以在那之前它们的 `updatedAt` 是 0，和服务器渲染时一样，显示它的组件水合时就不会不一致。如果响应没有年龄，或浏览器读不到（纯 HTTP 下的 Firefox，来自前进后退历史的页面），数据就算旧的，回到该页面时会重新加载。导航数据不带它：路由会自己记下它取到数据的时间。

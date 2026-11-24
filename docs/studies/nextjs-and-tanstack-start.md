@@ -102,7 +102,7 @@ Runs before 2026-11-17 put the server and the client on the two threads of one p
 
 ## Why
 
-- **JIT.** Node compiles the hot render code to machine code, and slowjs interprets it. Rendered alone without HTTP, a page takes several times as long in slowjs as in Node with JIT (see [How fast a page renders](capacity.md#how-fast-a-page-renders)).
+- **JIT.** Node compiles the hot render code to machine code, and beastjs interprets it. Rendered alone without HTTP, a page takes several times as long in beastjs as in Node with JIT (see [How fast a page renders](capacity.md#how-fast-a-page-renders)).
 - **Framework cost.** Next.js renders server components, serializes them to the RSC payload, renders the client components from it and writes the payload into the page. It also matches routes and writes `Vary` and `Cache-Control`. Start's request path is lighter, which is most of why it serves more than Next.js. Tifa's request path around the render is small, so whole requests differ much less than renders alone.
 - **Memory.** Each Node process carries V8, its heap sized for the machine and the framework's modules. A Tifa VM holds the bytecode of one bundle and the objects of one render.
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/beastjs"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -56,7 +56,7 @@ Math.random = () => { throw new Error('Unexpected insecure random fallback') }
 			if _, err = vm.ExecutePendingJobs(); err != nil {
 				t.Fatal(err)
 			}
-			got, err := vm.Eval("globalThis.result", slowjs.EvalGlobal)
+			got, err := vm.Eval("globalThis.result", beastjs.EvalGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}

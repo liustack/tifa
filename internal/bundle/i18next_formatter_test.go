@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/beastjs"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -74,11 +74,11 @@ func TestSSRBoundsTheFormattersI18nextKeeps(t *testing.T) {
 			if _, err := vm.ExecutePendingJobs(); err != nil {
 				t.Fatal(err)
 			}
-			if got, err := vm.Eval("globalThis.result", slowjs.EvalGlobal); err != nil || got != "Costs 1,234.50|Mine AB" {
+			if got, err := vm.Eval("globalThis.result", beastjs.EvalGlobal); err != nil || got != "Costs 1,234.50|Mine AB" {
 				t.Fatalf("result = %v, %v", got, err)
 			}
 			run := func(n int) int64 {
-				if _, err := vm.Eval("run("+strconv.Itoa(n)+")", slowjs.EvalGlobal); err != nil {
+				if _, err := vm.Eval("run("+strconv.Itoa(n)+")", beastjs.EvalGlobal); err != nil {
 					t.Fatal(err)
 				}
 				return ssr.VMMemory(vm.VM, true).MemoryUsedSize

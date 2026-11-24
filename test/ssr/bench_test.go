@@ -30,9 +30,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
-	"github.com/liustack/slowjs/intl"
-	slowjsurl "github.com/liustack/slowjs/url"
+	"github.com/liustack/beastjs"
+	"github.com/liustack/beastjs/intl"
+	beastjsurl "github.com/liustack/beastjs/url"
 	"github.com/liustack/tifa/internal/ssr"
 )
 
@@ -250,14 +250,14 @@ func TestShopVMMemory(t *testing.T) {
 	}
 	defer bytecode.Close()
 
-	bare, err := slowjs.NewVM()
+	bare, err := beastjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer bare.Close()
 	builtins := ssr.VMMemory(bare, true)
 
-	withIntl, err := slowjs.NewVM()
+	withIntl, err := beastjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,11 +267,11 @@ func TestShopVMMemory(t *testing.T) {
 	}
 	intlAdded := ssr.VMMemory(withIntl, true)
 	// Load registers the engine's URL before the bundle, and the host script takes its prototype.
-	if err := slowjsurl.Register(withIntl); err != nil {
+	if err := beastjsurl.Register(withIntl); err != nil {
 		t.Fatal(err)
 	}
 	urlAdded := ssr.VMMemory(withIntl, true)
-	if _, err := withIntl.Eval(string(host), slowjs.EvalGlobal); err != nil {
+	if _, err := withIntl.Eval(string(host), beastjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
 	hosted := ssr.VMMemory(withIntl, true)
@@ -297,7 +297,7 @@ func TestShopVMMemory(t *testing.T) {
 	t.Logf("bytecode of the bundle: %d bytes (source %d bytes)", bytecode.Len(), len(source))
 	columns := []struct {
 		name string
-		m    slowjs.MemoryUsage
+		m    beastjs.MemoryUsage
 	}{{"bare VM", builtins}, {"+ Intl", intlAdded}, {"+ URL", urlAdded}, {"+ host.js", hosted}, {"loaded bundle", loaded}, {"64 renders", used}, {"after GC", collected}}
 	var out strings.Builder
 	fmt.Fprintf(&out, "%-22s", "")
@@ -317,27 +317,27 @@ func TestShopVMMemory(t *testing.T) {
 
 var memoryRows = []struct {
 	name  string
-	value func(*slowjs.MemoryUsage) int64
+	value func(*beastjs.MemoryUsage) int64
 }{
-	{"malloc size", func(m *slowjs.MemoryUsage) int64 { return m.MallocSize }},
-	{"malloc count", func(m *slowjs.MemoryUsage) int64 { return m.MallocCount }},
-	{"memory used size", func(m *slowjs.MemoryUsage) int64 { return m.MemoryUsedSize }},
-	{"atoms", func(m *slowjs.MemoryUsage) int64 { return m.AtomCount }},
-	{"atom size", func(m *slowjs.MemoryUsage) int64 { return m.AtomSize }},
-	{"strings", func(m *slowjs.MemoryUsage) int64 { return m.StrCount }},
-	{"string size", func(m *slowjs.MemoryUsage) int64 { return m.StrSize }},
-	{"objects", func(m *slowjs.MemoryUsage) int64 { return m.ObjCount }},
-	{"object size", func(m *slowjs.MemoryUsage) int64 { return m.ObjSize }},
-	{"properties", func(m *slowjs.MemoryUsage) int64 { return m.PropCount }},
-	{"property size", func(m *slowjs.MemoryUsage) int64 { return m.PropSize }},
-	{"shapes", func(m *slowjs.MemoryUsage) int64 { return m.ShapeCount }},
-	{"shape size", func(m *slowjs.MemoryUsage) int64 { return m.ShapeSize }},
-	{"JS functions", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncCount }},
-	{"JS function size", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncSize }},
-	{"bytecode size", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncCodeSize }},
-	{"pc2line size", func(m *slowjs.MemoryUsage) int64 { return m.JSFuncPC2LineSize }},
-	{"C functions", func(m *slowjs.MemoryUsage) int64 { return m.CFuncCount }},
-	{"arrays", func(m *slowjs.MemoryUsage) int64 { return m.ArrayCount }},
-	{"fast array elements", func(m *slowjs.MemoryUsage) int64 { return m.FastArrayElements }},
-	{"binary object size", func(m *slowjs.MemoryUsage) int64 { return m.BinaryObjectSize }},
+	{"malloc size", func(m *beastjs.MemoryUsage) int64 { return m.MallocSize }},
+	{"malloc count", func(m *beastjs.MemoryUsage) int64 { return m.MallocCount }},
+	{"memory used size", func(m *beastjs.MemoryUsage) int64 { return m.MemoryUsedSize }},
+	{"atoms", func(m *beastjs.MemoryUsage) int64 { return m.AtomCount }},
+	{"atom size", func(m *beastjs.MemoryUsage) int64 { return m.AtomSize }},
+	{"strings", func(m *beastjs.MemoryUsage) int64 { return m.StrCount }},
+	{"string size", func(m *beastjs.MemoryUsage) int64 { return m.StrSize }},
+	{"objects", func(m *beastjs.MemoryUsage) int64 { return m.ObjCount }},
+	{"object size", func(m *beastjs.MemoryUsage) int64 { return m.ObjSize }},
+	{"properties", func(m *beastjs.MemoryUsage) int64 { return m.PropCount }},
+	{"property size", func(m *beastjs.MemoryUsage) int64 { return m.PropSize }},
+	{"shapes", func(m *beastjs.MemoryUsage) int64 { return m.ShapeCount }},
+	{"shape size", func(m *beastjs.MemoryUsage) int64 { return m.ShapeSize }},
+	{"JS functions", func(m *beastjs.MemoryUsage) int64 { return m.JSFuncCount }},
+	{"JS function size", func(m *beastjs.MemoryUsage) int64 { return m.JSFuncSize }},
+	{"bytecode size", func(m *beastjs.MemoryUsage) int64 { return m.JSFuncCodeSize }},
+	{"pc2line size", func(m *beastjs.MemoryUsage) int64 { return m.JSFuncPC2LineSize }},
+	{"C functions", func(m *beastjs.MemoryUsage) int64 { return m.CFuncCount }},
+	{"arrays", func(m *beastjs.MemoryUsage) int64 { return m.ArrayCount }},
+	{"fast array elements", func(m *beastjs.MemoryUsage) int64 { return m.FastArrayElements }},
+	{"binary object size", func(m *beastjs.MemoryUsage) int64 { return m.BinaryObjectSize }},
 }

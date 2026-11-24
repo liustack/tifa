@@ -38,12 +38,12 @@ So I started hacking on Tifa. Once it is done, deploying should mean copying one
 | :-- | :-- | :-- |
 | Reverse proxy and certificates | nginx + certbot | The Go HTTP server in the binary, which gets its own Let's Encrypt certificate and speaks HTTP/2 |
 | Runtime and process manager | Node.js + PM2 | One Go executable |
-| React SSR | TanStack Start | TanStack Router, rendered inside the Go process by [slowjs](https://github.com/liustack/slowjs), the fastest pure Go JavaScript engine for rendering React |
+| React SSR | TanStack Start | TanStack Router, rendered inside the Go process by [beastjs](https://github.com/liustack/beastjs), the fastest pure Go JavaScript engine for rendering React |
 | Cache | Redis | An in-process render memo for pages, a CDN in front if you want one, plus whatever you keep in Go memory |
 | Queues and scheduled jobs | BullMQ + cron | Goroutines you start in `OnStart` |
 | Database | SQLite | SQLite, with [the fastest pure Go SQLite driver](https://github.com/liustack/sqlite), so CGO stays off |
 
-I still do not know what to call it. A React SSR framework with no Node runtime? A React SSR framework with a Go backend? Both sound a little unhinged. Under the hood it is Go, [slowjs](https://github.com/liustack/slowjs) (a pure Go JavaScript engine), and TanStack Router.
+I still do not know what to call it. A React SSR framework with no Node runtime? A React SSR framework with a Go backend? Both sound a little unhinged. Under the hood it is Go, [beastjs](https://github.com/liustack/beastjs) (a pure Go JavaScript engine), and TanStack Router.
 
 Go + React SSR has been tried before: [go-starter-kit](https://github.com/olebedev/go-starter-kit) is archived, and [go-react-ssr](https://github.com/natewong1313/go-react-ssr) stopped in 2024 and renders through C QuickJS with CGO. Tifa is a finished framework around the same idea: Go routing, data loading, caching and background jobs, React rendered by a pure Go engine with CGO off, TanStack Router in the browser, and `tifa deploy`, all in one executable.
 
@@ -84,7 +84,7 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 
 - **One file to deploy.** Pure Go, `CGO_ENABLED=0`, cross-compiles like any Go program. The browser bundle, styles and server renderer are embedded in the executable.
 - **Live on every push.** `tifa deploy setup` sets up the server, Cloudflare and GitHub Actions in one command. After that every push is checked and goes live, and a release that fails its health check rolls back by itself. See [Deploying](docs/build-and-deploy/deploy.md#deploy-with-tifa-deploy).
-- **Real HTML on the first request.** Go runs the page's `Load` and every `Layout` function first, then renders React to complete HTML inside the process with slowjs, a pure Go JavaScript engine. Search engines and link previews see the content, title and meta tags. Each page renders whole in one pass: there is no streaming and there are no React Server Components.
+- **Real HTML on the first request.** Go runs the page's `Load` and every `Layout` function first, then renders React to complete HTML inside the process with beastjs, a pure Go JavaScript engine. Search engines and link previews see the content, title and meta tags. Each page renders whole in one pass: there is no streaming and there are no React Server Components.
 - **Your frontend tools keep working.** Vite, Tailwind and shadcn work as usual on your machine. The server runs one Go file and never installs Node.
 - **Types from Go to React.** The TypeScript type of each page's data is generated from what its Go `Load` returns.
 - **Mistakes caught at build time.** Duplicate paths, a Layout reading a parameter it does not own, a `Load` result that cannot become TypeScript: the build stops and names the file and line.

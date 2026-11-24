@@ -2,7 +2,7 @@
 summary: '怎样使用 `tifa dev`：每种改动之后页面怎样更新、运行哪些步骤、Vite 怎样配合、怎样读日志、构建失败时页面和应用怎么办、浏览器的错误怎样显示、`tifa errors` 怎样打印上次构建以来的错误、agent 或脚本怎样在后台启动 `tifa dev` 并读取它的状态、日志和停止它（`--background`、`status`、`logs`、`stop`）、Windows 上有什么不同、dev 的输出放在哪里，以及大型应用怎样监视'
 audience: app
 order: 1
-translatedFrom: 3ffd0df5edc2
+translatedFrom: dc6686ef5539
 read_when:
   - '第一次在本地运行 Tifa 应用'
   - '修改 internal/devserver、cmd/tifa 里的 dev 命令，或者 internal/bundle 里的 dev 构建'
@@ -33,7 +33,7 @@ tifa dev [--dir app-root] [--addr 127.0.0.1:9527] [--background]
 `tifa dev` 在 Node 上运行应用自己的 Vite，用的是应用的 `vite.config.ts`（见 [build.md](build.zh-CN.md#the-apps-tsconfig-and-vite-config)）：
 
 - Vite 的开发服务器提供浏览器模块。它随带页面的应用的第一次构建一起启动，监听 127.0.0.1 上一个空闲端口，只有 `tifa dev` 会连它。页面从它那里加载 Vite 客户端、`@vitejs/plugin-react` 的 React Fast Refresh 运行时和 `.tifa/client.ts`。
-- SSR 包仍然是一个文件 `.tifa/dist/ssr.js`，应用把它加载进自己的 slowjs VM。它在开发服务器所在的同一个 Node 进程里构建，放在它自己的工作线程上：浏览器拿到的是 React 的开发版，slowjs 跑的是生产版，而 Vite 每个线程只选一次版本。Tifa 自己设置 `NODE_ENV`（开发服务器用 development，SSR 包用 production），所以 shell 里的 `NODE_ENV` 两边都不影响。SSR 包每构建 10 次（失败的也算）就换一个新的工作线程，因为 Node 不会把 Vite 构建留在线程里的东西全部释放。线程结束过的那次构建（比如插件没捕获的错误）之后也会换。把东西放在该线程 `globalThis` 上的插件，到那时会从头开始。
+- SSR 包仍然是一个文件 `.tifa/dist/ssr.js`，应用把它加载进自己的 beastjs VM。它在开发服务器所在的同一个 Node 进程里构建，放在它自己的工作线程上：浏览器拿到的是 React 的开发版，beastjs 跑的是生产版，而 Vite 每个线程只选一次版本。Tifa 自己设置 `NODE_ENV`（开发服务器用 development，SSR 包用 production），所以 shell 里的 `NODE_ENV` 两边都不影响。SSR 包每构建 10 次（失败的也算）就换一个新的工作线程，因为 Node 不会把 Vite 构建留在线程里的东西全部释放。线程结束过的那次构建（比如插件没捕获的错误）之后也会换。把东西放在该线程 `globalThis` 上的插件，到那时会从头开始。
 
 ## 每种改动会触发什么 {#what-each-change-triggers}
 
@@ -87,10 +87,10 @@ tifa dev: 07:35:36 bundle done in 90ms
 tifa dev: 07:35:36 ready in 260ms
 ```
 
-运行超过 5 秒的步骤会说明这一点，之后每 15 秒再说一次。应用的第一次 go build 要编译 slowjs、SQLite 和其他依赖，在 Apple M4 上构建缓存为空时大约 7 秒，机器慢些就更久，之后的构建会用 Go 的构建缓存。第一条 ready 行还会写出要打开的地址：
+运行超过 5 秒的步骤会说明这一点，之后每 15 秒再说一次。应用的第一次 go build 要编译 beastjs、SQLite 和其他依赖，在 Apple M4 上构建缓存为空时大约 7 秒，机器慢些就更久，之后的构建会用 Go 的构建缓存。第一条 ready 行还会写出要打开的地址：
 
 ```text
-tifa dev: 07:35:41 go build still running (5s). The first build compiles slowjs and the other dependencies, later builds use Go's build cache
+tifa dev: 07:35:41 go build still running (5s). The first build compiles beastjs and the other dependencies, later builds use Go's build cache
 tifa dev: 07:35:56 go build still running (20s)
 tifa dev: 07:36:30 go build done in 54.1s
 tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
@@ -113,7 +113,7 @@ tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
 - 如果安装的 React 或 React DOM 低于 19.3.0（见 [build.md](build.zh-CN.md#the-apps-tsconfig-and-vite-config)），bundle 步骤会带着那条错误失败。装上更新的版本后要重启 `tifa dev`。
 - 如果最开始的第一次构建就失败，就没有旧版本可以提供。每个请求都得到 502 和原始错误，修好之后会自己恢复。
 - 如果应用启动后马上退出，或者 30 秒内没有监听，覆盖层的标题是 `The app did not start`。正文显示退出状态和应用写到 stderr 的最后 40 行，`OnStart` 的错误和 panic 都在那里。只要输出以那个 panic 的报告结尾，panic 那一行即使堆栈更长也会保留。应用记下日志后继续运行的 `panic: ` 行则不会。如果运行中的应用退出了（比如请求之外发生了 panic），标题是 `The app stopped`，正文相同。到下一次构建之前，页面请求会得到 502 和同样的文字。`tifa dev` 的日志只说应用退出了，因为应用自己的输出已经打印在它上面。
-- 如果运行中的应用无法加载重建后的 SSR 包（比如 slowjs 编译不了，或者它的顶层代码抛了错），覆盖层标题是 `The app did not load the SSR bundle`。应用继续使用它已有的包。堆栈给出源文件里的位置，调用了 slowjs 没有的 `require` 的包，会连同该怎么做一起指出来。
+- 如果运行中的应用无法加载重建后的 SSR 包（比如 beastjs 编译不了，或者它的顶层代码抛了错），覆盖层标题是 `The app did not load the SSR bundle`。应用继续使用它已有的包。堆栈给出源文件里的位置，调用了 beastjs 没有的 `require` 的包，会连同该怎么做一起指出来。
 
 你可以关掉覆盖层。关掉它不影响以后的重新加载。
 
