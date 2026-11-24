@@ -1,5 +1,5 @@
 ---
-summary: 'How to keep data in a Tifa app with SQLite: the pure Go driver, opening the database in OnStart, where the file lives and how to set its path, changing the tables with numbered migrations that run at start, using it in Load and handlers, a transaction, rejecting a duplicate row, a backup, testing on a temporary database, and when to move to Postgres'
+summary: 'How to keep data in a Tifa app with SQLite: the pure Go driver, opening the database in OnStart, where the file lives and how to set its path, changing the tables with numbered migrations that run at start, using it in Load and handlers, a transaction, why a write gets `database is locked` and how `_txlock=immediate` prevents it, rejecting a duplicate row, a backup, testing on a temporary database, and when to move to Postgres'
 audience: app
 order: 2
 read_when:
@@ -7,6 +7,7 @@ read_when:
   - Changing a table of an app that is already running
   - Deciding between SQLite and Postgres for a Tifa app
   - Writing Go tests for code that reads or writes the database
+  - A write fails with `database is locked` or `SQLITE_BUSY`
 ---
 
 # Keeping data in SQLite
@@ -248,6 +249,17 @@ return t, tx.Commit()
 ```
 
 Keep a transaction short. SQLite lets one writer in at a time, and the others wait up to `busy_timeout`. Do not call another service, or wait on a visitor, while one is open.
+
+### When a write gets `database is locked`
+
+SQLite lets one write in at a time. The driver queues the writes of the app in the order they came, so a write waits for the ones ahead of it instead of failing. Two things still end in `database is locked` (`SQLITE_BUSY`):
+
+- **A transaction that does not take the write lock when it starts.** Without `_txlock=immediate`, `BEGIN` takes no lock. The transaction reads, another request writes and commits, and the first write of the transaction then fails, however long `busy_timeout` is. SQLite refuses it to keep what the transaction read consistent, and waiting longer or trying the statement again does not help. Open the database with `_txlock=immediate`, as `OpenDB` above and the `db.go` of `tifa new` do: every transaction then takes the write lock at `BEGIN` and waits its turn there.
+- **Writes that come faster than the disk can commit them.** A write then waits longer than `busy_timeout` (5 seconds by default) and fails. Keep transactions short, as above, before you raise the timeout.
+
+A transaction that only reads needs no write lock. Start it with `db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})`, so it does not wait behind the writes. A query outside a transaction needs neither.
+
+Another process that writes the same file, such as a script or the `sqlite3` shell, is not in the queue of the driver: it meets the app at the lock of SQLite, as with any driver.
 
 ### Reject a duplicate
 

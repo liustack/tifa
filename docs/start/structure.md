@@ -101,7 +101,7 @@ When two domains need each other, move what one needs into the other, or into a 
   var DB *sql.DB
 
   func openDB() (err error) {
-  	DB, err = sql.Open("sqlite", "app.db")
+  	DB, err = sql.Open("sqlite", "file:app.db?_txlock=immediate") // see the guide on SQLite
   	return err
   }
   ```
