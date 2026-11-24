@@ -1,8 +1,8 @@
 ---
-summary: '怎样把 Tifa 应用放到服务器上：服务器在哪里指定（.env 里的 TIFA_DEPLOY_HOST，永远不写在 tifa.yaml 里，或者 `tifa deploy setup` 记在 ~/.tifa/config.yaml 里的服务器）和以同样方式读取的其他输入（命令行参数、环境变量、.env）以及 tifa.yaml 里的部署设置（front、connect，以及带 branch 和 needs 的 auto 块）、带有增加、修改和删除各行计划的 tifa deploy setup、通过 ssh 向带 systemd 的 Linux 服务器执行的 tifa deploy 和 tifa deploy rollback、每次部署时清除域名的 Cloudflare CDN 缓存、在 CI 工作流之后通过 GitHub Actions 部署（密钥、主机密钥、secrets、直接连接或经由 Cloudflare 或 Tailscale、用 gh 或用细粒度令牌）、从你自己的机器也通过 Cloudflare Tunnel 走 ssh（针对你的邮箱的 Access 策略、cloudflared、~/.ssh/config 里的块、第一次浏览器登录、关闭 ssh 端口）、运行器用工作负载身份联合加入你的 Tailscale tailnet（Tailscale 身份、它的两个变量、要在 Tailscale 控制台里建什么）、第二台开发机、用 tifa deploy env 管理服务器上应用的 .env、用 tifa deploy logs、status 和 remove 读取应用的日志、查看哪个版本在运行以及把应用从服务器上拿掉、一台服务器上放多个应用、应用自己在 80 和 443 端口上接待访客并用自己的 HTTPS（一台服务器一个应用，防火墙由你管）或者前面放 Cloudflare Tunnel，以及手工部署：为 Linux 构建、带着它的设置和数据文件夹运行、干净地停下、在 systemd 下重启而不拒绝连接也不让用户登出、容器、端口和 HTTPS、前面有 CDN 或代理时要设置什么（Host 和 Origin、压缩、缓存哪些响应）、健康检查路由、来自 tifa.Stats 的 Prometheus 指标和该看什么，以及部署时打开着的页面会怎样'
+summary: '怎样把 Tifa 应用放到服务器上：服务器在哪里指定（.env 里的 TIFA_DEPLOY_HOST，永远不写在 tifa.yaml 里，或者 `tifa deploy setup` 记在 ~/.tifa/config.yaml 里的服务器）和以同样方式读取的其他输入（命令行参数、环境变量、.env）以及 tifa.yaml 里的部署设置（front、connect，以及带 branch 和 needs 的 auto 块）、带有增加、修改和删除各行计划的 tifa deploy setup、通过 ssh 向带 systemd 的 Linux 服务器执行的 tifa deploy 和 tifa deploy rollback、每次部署时清除域名的 Cloudflare CDN 缓存、在 CI 工作流之后通过 GitHub Actions 部署（密钥、主机密钥、secrets、直接连接或经由 Cloudflare 或 Tailscale、用 gh 或用细粒度令牌）、从你自己的机器也通过 Cloudflare Tunnel 走 ssh（针对你的邮箱的 Access 策略、cloudflared、~/.ssh/config 里的块、第一次浏览器登录、关闭 ssh 端口）、运行器用工作负载身份联合加入你的 Tailscale tailnet（Tailscale 身份、它的两个变量、要在 Tailscale 控制台里建什么）、第二台开发机、用 tifa deploy env 管理服务器上应用的 .env、用 tifa deploy logs、status 和 remove 读取应用的日志、查看哪个版本在运行以及把应用从服务器上拿掉、一台服务器上放多个应用、应用自己在 80 和 443 端口上接待访客并用自己的 HTTPS（一台服务器一个应用，经你同意开放 ufw，服务商的防火墙由你管）或者前面放 Cloudflare Tunnel，以及手工部署：为 Linux 构建、带着它的设置和数据文件夹运行、干净地停下、在 systemd 下重启而不拒绝连接也不让用户登出、容器、端口和 HTTPS、前面有 CDN 或代理时要设置什么（Host 和 Origin、压缩、缓存哪些响应）、健康检查路由、来自 tifa.Stats 的 Prometheus 指标和该看什么，以及部署时打开着的页面会怎样'
 audience: app
 order: 3
-translatedFrom: 27d70da15d56
+translatedFrom: 47843ec49af0
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -18,7 +18,7 @@ read_when:
   - 'agent 运行 tifa deploy env set，或带 --cache-purge-token 的 tifa deploy setup，浏览器里打开了一个页面用来输入密钥'
   - '读取已部署应用的日志、检查哪个版本在运行以及它是否健康，或者用 tifa deploy logs、status 或 remove 把应用从服务器、Cloudflare 和 GitHub 上拿掉'
   - '一台服务器上放多个应用，或者找已部署应用的日志、.env 或数据'
-  - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，或者你想知道要开放哪些端口'
+  - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，你想知道要开放哪些端口，或者想知道 setup 和 remove 在 ufw 里改了什么'
   - '在 Tifa 应用前面放 CDN 或 nginx、Cloudflare、CloudFront 之类的反向代理'
   - 'POST 只在代理后面得到 403，信息是 `cross-origin request detected`'
   - '部署之后页面显示旧内容或缺少脚本'
@@ -177,7 +177,15 @@ setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你�
 
 **一台服务器一个应用。** 一个端口只能有一个程序监听，所以一台服务器上只能有一个应用自己接待访客。setup 在改动任何东西之前，先看应用需要的端口（80，有域名时还有 443）上有谁在监听：`ss -ltnp`，以及 `tifa` 的 systemd 拿着的 socket。端口被 Tifa 的另一个应用占着，或者被 nginx、Caddy、Apache 之类的程序占着时，setup 会停下，说出是谁、哪个端口，什么也不改。请停掉那个程序并让它开机不再启动，或者移除另一个应用，或者用 `front: cloudflare` 把这个应用放到 Cloudflare 后面，那样多个应用可以共用一台服务器。
 
-**防火墙归你管。** Tifa 从不改防火墙。计划会说访客需要哪些端口，80 和 443，没有域名时是 80，setup 结束时也会再说一遍。请在 ufw（`ufw allow 80,443/tcp`）或服务商的防火墙里开放它们。每次部署之后，Tifa 从你的机器访问应用的这些端口，有端口没回答时会告诉你。
+**ufw。** 如果 ufw 开着，并且不让访客访问应用需要的端口（80 和 443，没有域名时是 80），setup 的计划会放行它们：
+
+```
+  change  firewall: allow ports 80 and 443 (tcp) in ufw, so visitors reach shop, in rules with the comment 'tifa shop', as root
+```
+
+你同意之后，或者带了 `--yes`，setup 以 root 为每个端口运行 `ufw allow 80/tcp comment 'tifa <app>'`。以下情况 ufw 里什么都不改：ufw 关着或没装，你自己的规则已经放行了这个端口，或者它的默认策略放行所有连接。你自己拒绝这个端口的规则会保留：setup 会说是哪条，以及怎样删掉它。注释 `tifa <app>` 标明这些规则是 Tifa 加的：`tifa deploy remove` 会删掉它们，应用不再在某个端口上接待访客时（比如改成 `front: cloudflare` 之后），setup 也会删掉。其他规则一概不碰，ssh 的规则也不碰。只有 root 能读 ufw 的规则：root 登录不了时，setup 会告诉你改去服务器上查什么。
+
+**服务商的防火墙归你管。** Tifa 不改服务商的防火墙和安全组，也不改服务器上不是 ufw 的防火墙（firewalld，或者不是 ufw 写的 nftables、iptables 规则）。计划会说访客需要哪些端口，setup 结束时也会再说一遍：如果它们挡住了这些端口，请在那里开放。每次部署之后，Tifa 从你的机器访问应用的这些端口，有端口没回答时会告诉你。
 
 用更早版本设置的服务器，应用在回环地址上。下一次 `tifa deploy setup` 会把搬迁列进计划：先以 root 设置端口，再换上新的 socket，之后应用在新 socket 上重启，并且必须通过和部署一样的健康检查。
 
@@ -195,7 +203,7 @@ go tool tifa deploy
 4. 在服务器上检查新程序：每秒一次 `GET /healthz`，最长 30 秒，直到它以低于 500 的状态回答。它在回环地址上访问，有自己 HTTPS 的应用则像访客一样，用它的域名走 HTTPS。没有 `/healthz` 路由的应用，一有响应就带着它的 404 通过。写一个会看数据库的[健康检查](#health-check)，让这项检查更有意义。
 5. 检查通过后，把这次部署记下来，并保留最近 5 个发布。检查失败时，它会打印应用日志的最后几行，重新启动之前运行的那个发布，并以 1 退出。如果从来没有通过的发布，它会停掉应用。
 6. 用 `front: cloudflare` 时，会清除那个主机名的 CDN 缓存（见下）。
-7. 说明访客从哪里访问应用：`visitors: https://shop.example.com`，没有域名时是 `http://<服务器的地址>`。用 `front: none` 时，它接着从你的机器访问应用的端口，有端口没回答时，会提示你在防火墙里开放它，Tifa 不改防火墙。
+7. 说明访客从哪里访问应用：`visitors: https://shop.example.com`，没有域名时是 `http://<服务器的地址>`。用 `front: none` 时，它接着从你的机器访问应用的端口，有端口没回答时，会提示你服务商的防火墙或安全组可能挡住了它，这些 Tifa 不改。
 
 每次部署和回滚都是 `/srv/tifa/<app>/deploys.log` 里的一行：时间、发布、git 提交（应用有未提交的改动时带 `-dirty`）、`deploy` 或 `rollback`，以及 `ok` 或 `failed`。上传从不包含 `.env`。一个应用同一时间只运行一次部署。
 
@@ -268,7 +276,7 @@ secret 的值通过 gh 的输入，或者封装后通过 API 交给 GitHub：它
 
 #### connect: cloudflare {#connect-cloudflare}
 
-用于不为 ssh 开任何端口的服务器，有没有 CI 都行。它需要 `front: cloudflare` 和 tunnel。CI 和你自己的机器都经由它连到服务器，所以一旦它能用，你就可以关掉服务器的 ssh 端口。Tifa 不改防火墙：请在一次经由 tunnel 的部署成功之后，自己去关。用你的 cf 登录，setup 会：
+用于不为 ssh 开任何端口的服务器，有没有 CI 都行。它需要 `front: cloudflare` 和 tunnel。CI 和你自己的机器都经由它连到服务器，所以一旦它能用，你就可以关掉服务器的 ssh 端口。Tifa 从不关它：请在一次经由 tunnel 的部署成功之后，自己去关。用你的 cf 登录，setup 会：
 
 1. 先创建 Access 应用和它的策略，然后才往 tunnel 里添加路由 `<ssh host> -> ssh://localhost:22`，保留其他路由，并为它加一条被代理的 DNS 记录。当现在还没有任何东西能放行任何人时（cf 给不出邮箱而且没有 CI，或者策略建不出来），setup 不发布路由和记录，并说明原因：ssh 主机名绝不会对所有人开放。ssh 主机是域名的第一段后面加上 `-ssh-` 和 12 个随机字符，因为 Cloudflare 的免费证书只覆盖一级子域名：`deploy-a.example.com` 变成 `deploy-a-ssh-k3j9x2m5q7wt.example.com`，顶级域名 `example.com` 变成 `ssh-k3j9x2m5q7wt.example.com`。随机的部分让这个名字没法从域名猜出来。setup 只生成一次，之后的运行从 tunnel 的路由和它创建的 Access 应用里读回来，所以它保持不变，有没有 CI 都一样。没有随机部分的、更早版本的名字，会在方案里显示为替换：新的路由、记录和 Access 应用被添加，`TIFA_DEPLOY_HOST` 改变，旧的被移除。
 2. 为 ssh 主机创建一个 self-hosted Access 应用，名字是 `tifa deploy ssh <ssh host>`，再创建一条策略 `tifa-people-<ssh host>`，放行你的 cf 登录的邮箱（用 `cf auth whoami` 读取，它只读）。只动这个应用和这条策略，zone 和账号里的别的东西都不碰。用同一个邮箱再运行，什么也不会变。另一个人用自己的 cf 登录运行 setup，会把他的邮箱加到同一条策略里，方案会说明：`change  cloudflare: the Access application of <host> admits ana@example.com, and keeps dev@example.com`。用 API 令牌登录的 cf 没有邮箱：没有 CI 时，这是一件留给你的事，有 CI 时只是一条提示。
@@ -416,7 +424,7 @@ shop on vps, port 9527
 
 `remove` 把应用从服务器上拿掉，收回 Tifa 为它做的东西，别的不动：
 
-- 在服务器上，以 `tifa` 身份：它停止并禁用 `tifa-<app>.socket`、`tifa-<app>-http.socket` 和 `.service`，删除它们的单元文件和 `/srv/tifa/<app>`，包括它的发布、`shared/.env`、`shared/` 里的数据、`certs/` 里的证书和 `deploys.log`。想保留数据的话，请先复制出来。对自己接待访客的应用，还以 root 删除 `/etc/sysctl.d/60-tifa-ports.conf`，用户能打开的最小端口改回原来的值。其他应用、用户 `tifa`、防火墙和 sshd 保持原样。
+- 在服务器上，以 `tifa` 身份：它停止并禁用 `tifa-<app>.socket`、`tifa-<app>-http.socket` 和 `.service`，删除它们的单元文件和 `/srv/tifa/<app>`，包括它的发布、`shared/.env`、`shared/` 里的数据、`certs/` 里的证书和 `deploys.log`。想保留数据的话，请先复制出来。对自己接待访客的应用，还以 root 删除 `/etc/sysctl.d/60-tifa-ports.conf`，用户能打开的最小端口改回原来的值，有 ufw 时还删掉 setup 加的、带注释 `tifa <app>` 的规则，计划里会列出它们。其他应用、用户 `tifa`、防火墙的其他规则和 sshd 保持原样。
 - 用 `front: cloudflare` 时：域名的路由、DNS 记录和规则，用 `connect: cloudflare` 时（有没有 CI 都一样），还有 ssh 主机名的 Access 应用和它放行人的策略、它的路由和 DNS 记录，以及仓库的 service token 和策略。所有需要 ssh 的事先做（应用、缓存令牌），然后停掉 tunnel，最后才移除 ssh 主机名：先移除路由和记录，再移除应用和它的策略，所以部分失败也绝不会留下一条没有 Access 保护的路由，而且只在前面的步骤成功时才这样做。当应用已经没了时，再运行一次会从 tunnel 的路由里找到 ssh 主机名。当你的 ssh 经由 tunnel 时，服务器上最后一个应用会在 ssh 离开几秒之后才停掉 tunnel，所以命令不会切断它自己的连接。tunnel 和 cloudflared 服务服务器上的每个应用，所以只有服务器上最后一个 Tifa 应用移除时它们才会一起走：那时 remove 以 root 停止 cloudflared，删除 `/etc/tifa`，在 cloudflared 是 setup 装的时候卸载它，并删除 tunnel。
 - 服务器上的缓存令牌，`/srv/tifa/.config/tifa`，也服务服务器上的每个应用，随服务器上最后一个 Tifa 应用一起走。remove 在删除时会在那个文件的锁下再找一次应用，所以在 remove 等你回答时刚设置好的应用，会保住它们。Cloudflare 控制台里的令牌 `tifa cache purge <zone>` 请你自己删：Tifa 做不到。
 - 有 `auto` 块时：`authorized_keys` 里仓库的密钥，setup 设置的 secret 和变量（`TIFA_DEPLOY_FINGERPRINT` 和 Tailscale 身份的那两个），以及旧标记担保的旧名字。身份本身在你的 Tailscale 控制台里：请在那里删掉它。`.github/workflows/tifa-deploy.yml` 是你仓库里的文件，所以它留下：在你删除它之前，每次 push 都会部署失败。

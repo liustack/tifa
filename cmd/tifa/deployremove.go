@@ -157,7 +157,8 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 		})
 	}
 	// The app that served visitors itself is the one that needed ports 80 and 443 open to the
-	// systemd of the deploy user: what setup set for it goes with it.
+	// systemd of the deploy user, and in ufw: what setup set for it goes with it.
+	r.removeFirewall(ctx, &p)
 	if servesVisitors(st.Port) && st.PortsConf {
 		p.add(opRemove, fmt.Sprintf("server: %s, which let the systemd of %s open ports 80 and 443, and the value from before it, as root", portsConf, deployUser), func(ctx context.Context) (string, error) {
 			var out strings.Builder

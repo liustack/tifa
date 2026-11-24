@@ -464,7 +464,7 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 		}
 		// What the app needs to know of a server without the user: who listens on the ports of
 		// the visitors, and whether its user may open them.
-		r.st.LowPort, r.st.Listen = s.LowPort, s.Listen
+		r.st.LowPort, r.st.Listen, r.st.UFW = s.LowPort, s.Listen, s.UFW
 		p.add(opAdd, fmt.Sprintf("server: the user %s does not exist yet (ssh cannot log in as it), so setup creates it (home %s) with the keys of root, and starts its systemd at boot", deployUser, deployHome), r.serverApply)
 		return nil
 	default:
@@ -495,6 +495,7 @@ func (r *setupRun) serverApply(ctx context.Context) (string, error) {
 // appSteps plans the folder, port and units of the app. With deploy.front none the app serves
 // visitors itself on port 80, and with a domain on 443 too: setup stops before it changes anything
 // when something else listens there, and lets the systemd of the deploy user open them, as root.
+// Then it plans ufw for those ports, see firewallSteps.
 func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	t := r.t
 	port, err := t.visitorPort(r.st)
@@ -514,8 +515,8 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		serves = "serving visitors itself on port 80, over plain HTTP since site.url names no domain"
 	}
 	if servesVisitors(port) {
-		p.firewall = fmt.Sprintf("Visitors need %s of the server open. Tifa does not change the firewall: if ufw or the firewall of your provider blocks %s, open %s there.",
-			portsText(port), pick(port == httpsPort, "them", "it"), pick(port == httpsPort, "them", "it"))
+		p.firewall = fmt.Sprintf("Visitors need %s of the server open. Tifa does not change your provider's firewall or security groups: if they block %s, open %[2]s there.",
+			portsText(port), pick(port == httpsPort, "them", "it"))
 		if r.st.LowPort > httpPort {
 			p.add(opChange, fmt.Sprintf("server: let the systemd of %s open ports 80 and 443, with net.ipv4.ip_unprivileged_port_start = 80 (now %d) in %s, as root. Ports from 80 to 1023 are then open to every user of the server, not only root", deployUser, r.st.LowPort, portsConf), func(ctx context.Context) (string, error) {
 				var out strings.Builder
@@ -569,6 +570,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	default:
 		p.ok(fmt.Sprintf("app: %s/%s, %s, systemd units", deployHome, app, portsText(port)))
 	}
+	r.firewallSteps(ctx, p, port)
 	return nil
 }
 
@@ -587,12 +589,13 @@ func (r *setupRun) rootListeners(ctx context.Context) []listener {
 }
 
 // printVisitors ends a setup of an app that serves visitors itself: which ports they need, and
-// that Tifa does not open them. Once a release runs, this machine asks each port.
+// that Tifa does not open them at the provider. Once a release runs, this machine asks each port.
 func (r *setupRun) printVisitors(ctx context.Context, w io.Writer) {
 	if !r.haveServer || !servesVisitors(r.port) {
 		return
 	}
-	line := fmt.Sprintf("%s serves visitors itself on %s of the server. Tifa does not change the firewall: %s must be open to them, in ufw and at your provider.", r.t.app, portsText(r.port), portsText(r.port))
+	line := fmt.Sprintf("%s serves visitors itself on %s of the server. If the firewall or a security group of your provider blocks %s, open %[3]s there: Tifa does not change those.",
+		r.t.app, portsText(r.port), pick(r.port == httpsPort, "them", "it"))
 	if r.st.Current != "" {
 		host := r.t.serverAddress(ctx)
 		if r.st.HTTPS != "" {

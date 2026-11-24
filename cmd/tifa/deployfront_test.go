@@ -82,7 +82,7 @@ func TestDeployOwnDomain(t *testing.T) {
 
 // A fresh server, no domain: setup creates the user, lets its systemd open the ports as root,
 // then makes the app on port 80. The plan says which port visitors need and that Tifa does not
-// open it.
+// open it at the provider.
 func TestSetupServesVisitorsOverHTTP(t *testing.T) {
 	root := setupApp(t, "deploy:\n", nil)
 	srv := newSetupServer(t, "", freshFacts)
@@ -95,8 +95,8 @@ func TestSetupServesVisitorsOverHTTP(t *testing.T) {
 	for _, want := range []string{
 		"change  server: let the systemd of tifa open ports 80 and 443, with net.ipv4.ip_unprivileged_port_start = 80 (now 1024) in /etc/sysctl.d/60-tifa-ports.conf, as root",
 		"add     app: /srv/tifa/shop with an empty shared/.env, serving visitors itself on port 80, over plain HTTP since site.url names no domain, the systemd socket and service tifa-shop",
-		"Visitors need port 80 of the server open. Tifa does not change the firewall: if ufw or the firewall of your provider blocks it, open it there.",
-		"shop serves visitors itself on port 80 of the server. Tifa does not change the firewall: port 80 must be open to them",
+		"Visitors need port 80 of the server open. Tifa does not change your provider's firewall or security groups: if they block it, open it there.",
+		"shop serves visitors itself on port 80 of the server. If the firewall or a security group of your provider blocks it, open it there: Tifa does not change those.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
@@ -121,7 +121,7 @@ func TestSetupServesVisitorsOverHTTPS(t *testing.T) {
 	}
 	for _, want := range []string{
 		"add     app: /srv/tifa/shop with an empty shared/.env, serving visitors itself on ports 80 and 443, with HTTPS for shop.example.com and its certificate from Let's Encrypt kept in /srv/tifa/shop/certs, the systemd sockets and service tifa-shop",
-		"Visitors need ports 80 and 443 of the server open. Tifa does not change the firewall: if ufw or the firewall of your provider blocks them, open them there.",
+		"Visitors need ports 80 and 443 of the server open. Tifa does not change your provider's firewall or security groups: if they block them, open them there.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
@@ -278,7 +278,7 @@ func serveApp(t *testing.T, port, domain string, health map[string]string) (root
 }
 
 // Plain HTTP: the health check asks port 80 on the loopback. Deploy then names the address of the
-// server and asks port 80 from this machine: closed, it says the firewall is not Tifa's to open.
+// server and asks port 80 from this machine: closed, it says the provider may block it.
 func TestDeployServesVisitorsOverHTTP(t *testing.T) {
 	root, home, calls := serveApp(t, "80", "", map[string]string{"20261120T100000Z": "200", "20261120T110000Z": "200"})
 	out, _, err := run(t, "deploy", "--dir", root)
@@ -288,7 +288,7 @@ func TestDeployServesVisitorsOverHTTP(t *testing.T) {
 	if !strings.Contains(calls(), "http://127.0.0.1:80/healthz") || !strings.Contains(out, "health check: GET /healthz answered 200") {
 		t.Errorf("health check:\n%s\n%s", calls(), out)
 	}
-	want := "visitors: http://203.0.113.7, once port 80 is open to them. Port 80 did not answer from this machine within 3 seconds, and Tifa does not change the firewall: allow port 80 in ufw, or in the firewall of your provider\n"
+	want := "visitors: http://203.0.113.7, once port 80 is open to them. Port 80 did not answer from this machine within 3 seconds: the firewall or a security group of your provider may block it. Open port 80 (tcp) there, which Tifa does not change\n"
 	if !strings.HasSuffix(out, want) {
 		t.Errorf("output does not end with %q:\n%s", want, out)
 	}

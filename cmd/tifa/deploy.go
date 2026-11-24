@@ -366,7 +366,9 @@ When all is right it prints one line and asks nothing. It can run again at any t
   app       the folder, port and systemd units of this app, as tifa. With deploy.front none
             the app serves visitors itself on port 80, and with a domain in site.url on 443
             with HTTPS: setup stops when another program has them, and lets the systemd of
-            tifa open them, as root once. Tifa never changes the firewall
+            tifa open them, as root once. When ufw is on and blocks them, setup allows them
+            there, in rules with the comment tifa <app>. Tifa does not change the firewall or
+            security groups of your provider
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
             the host of site.url (needs cf), and on the server a token that can only clear
             its cache, which every deploy reads
@@ -516,7 +518,7 @@ func (t deployTarget) serverAddress(ctx context.Context) string {
 
 // printVisitors says, after the health check passed on the server, where visitors reach the app of
 // s. An app that serves them itself is also asked for from this machine, on each of its ports:
-// one that does not answer is closed somewhere between, and Tifa does not open firewalls.
+// one that does not answer is closed somewhere between, which may be the provider.
 func (t deployTarget) printVisitors(ctx context.Context, w io.Writer, s serverState) {
 	switch {
 	case t.front == "cloudflare" && t.domain != "":
@@ -538,10 +540,10 @@ func (t deployTarget) printVisitors(ctx context.Context, w io.Writer, s serverSt
 	if s.Port == httpsPort {
 		ports = append(ports, httpsPort)
 	}
-	var closed []string
+	var closed []int
 	for _, p := range ports {
 		if !portAnswers(ctx, host, p) {
-			closed = append(closed, strconv.Itoa(p))
+			closed = append(closed, p)
 		}
 	}
 	many := len(ports) > 1
@@ -549,8 +551,14 @@ func (t deployTarget) printVisitors(ctx context.Context, w io.Writer, s serverSt
 		fmt.Fprintf(w, "visitors: %s (%s %s from this machine)\n", site, portsText(s.Port), pick(many, "answer", "answers"))
 		return
 	}
-	fmt.Fprintf(w, "visitors: %s, once %s %s open to them. %s %s did not answer from this machine within 3 seconds, and Tifa does not change the firewall: allow %s in ufw, or in the firewall of your provider\n",
-		site, portsText(s.Port), pick(many, "are", "is"), pick(len(closed) > 1, "Ports", "Port"), strings.Join(closed, " and "), portsText(s.Port))
+	shut := portList(closed)
+	line := fmt.Sprintf("visitors: %s, once %s %s open to them. %s did not answer from this machine within 3 seconds: the firewall or a security group of your provider may block %s. Open %s (tcp) there, which Tifa does not change",
+		site, portsText(s.Port), pick(many, "are", "is"), strings.ToUpper(shut[:1])+shut[1:], pick(len(closed) > 1, "them", "it"), shut)
+	if s.UFW == "on" {
+		// ufw may block them too, when it was turned on after setup or its plan was not applied.
+		line += ". ufw is on too: go tool tifa deploy setup lets visitors through it"
+	}
+	fmt.Fprintln(w, line)
 }
 
 // pick is a when cond holds, else b.
