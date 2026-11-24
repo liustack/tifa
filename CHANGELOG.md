@@ -4,6 +4,12 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-25
+
+### Changed
+
+- The docs index in the Tifa block of AGENTS.md now shows the whole summary of each doc, with the names, settings and commands it covers, so a coding agent can tell which doc answers its question.
+
 ### Fixed
 
 - `tifa dev` on Windows no longer fails a rebuild when another program holds an old copy of the app open. When the app does not answer in time, the log now says what the last check saw and whether the app process still ran.
