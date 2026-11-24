@@ -63,7 +63,7 @@ package myapp
 var DB *sql.DB
 
 func openDB() (err error) {
-	DB, err = sql.Open("sqlite", "file:app.db?_txlock=immediate") // see the guide on SQLite
+	DB, err = sql.Open("sqlite", "file:app.db?_pragma=journal_mode(WAL)&_txlock=immediate") // see the guide on SQLite
 	return err
 }
 ```

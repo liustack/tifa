@@ -146,6 +146,24 @@ func TestNewApp(t *testing.T) {
 	typecheck(t, dir)
 }
 
+// TestNewAppBacksUpItsDatabase runs the database backup of a new app, with db.backup set, against
+// a fake S3 store: testdata/newapp_backup_test.go goes into the root package of the app and runs
+// there, on the code of db.go and hooks.go.
+func TestNewAppBacksUpItsDatabase(t *testing.T) {
+	skipUnlessEnabled(t)
+	dir := createNewApp(t)
+	src, err := os.ReadFile(filepath.Join("testdata", "newapp_backup_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "backup_test.go"), string(src))
+	cmd := exec.Command("go", "test", "-count=1", "-run", "Backup", ".")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go test in the app: %v\n%s", err, out)
+	}
+}
+
 // The Go files under app/ import the root package by its own name. tifa new refuses a name that
 // clashes there, and the names it takes compile: also the name of a package under app/, which a
 // file may import from a package of the same name, and the name of a package of the standard

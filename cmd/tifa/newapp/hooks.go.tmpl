@@ -2,12 +2,20 @@ package {{.Package}}
 
 import (
 	"context"
+	"errors"
 
 	"github.com/liustack/tifa"
 )
 
 // OnStart runs once before the app listens. A returned error stops the app.
-func OnStart(context.Context) error {
+func OnStart(ctx context.Context) error {
+	if DBBackup != "" {
+		b, err := StartBackup(ctx, DBPath, DBBackup)
+		if err != nil {
+			return err
+		}
+		Backup = b
+	}
 	db, err := OpenDB(DBPath)
 	if err != nil {
 		return err
@@ -20,7 +28,13 @@ func OnStart(context.Context) error {
 
 // OnShutdown runs after a stop signal, once the requests in flight have finished.
 func OnShutdown(ctx context.Context) error {
-	return DB.Close()
+	err := DB.Close()
+	if Backup != nil {
+		// Close uploads what is left, for up to 10 seconds.
+		err = errors.Join(err, Backup.Close())
+		Backup = nil
+	}
+	return err
 }
 
 // Two more hooks are optional. Write them only when you need them: an OnError replaces the

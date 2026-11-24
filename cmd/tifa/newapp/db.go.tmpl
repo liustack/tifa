@@ -3,16 +3,27 @@
 package {{.Package}}
 
 import (
+	"context"
 	"database/sql"
 	_ "embed"
+	"errors"
+	"io/fs"
+	"log/slog"
+	"os"
 
 	// The SQLite driver is pure Go and needs no C compiler, so the app builds with CGO_ENABLED=0.
 	_ "github.com/liustack/sqlite"
+	"github.com/liustack/sqlite/replica"
 )
 
 // DB is the database of the app. OnStart opens it and OnShutdown closes it. Tests replace it
 // with a fresh database of their own.
 var DB *sql.DB
+
+// Backup copies every commit of DB to the S3 store of DBBackup, when it is set. OnStart starts it
+// before it opens DB, and OnShutdown closes it after DB. Backup.Sync(ctx) waits until what was
+// committed is in the store.
+var Backup *replica.Replica
 
 //go:embed schema.sql
 var schema string
@@ -35,4 +46,26 @@ func OpenDB(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// StartBackup starts copying every commit of the database at path to the S3 URL url, about a
+// second after it. When the file is missing, as on a new machine, it first restores the database
+// from url, unless the store holds none yet. Call it before OpenDB.
+func StartBackup(ctx context.Context, path, url string) (*replica.Replica, error) {
+	if AWSAccessKeyID == "" || AWSSecretAccessKey == "" {
+		return nil, errors.New("db.backup is set: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY too")
+	}
+	cfg := replica.Config{
+		URL:         url,
+		Credentials: replica.StaticCredentials(replica.Credentials{AccessKeyID: AWSAccessKeyID, SecretAccessKey: AWSSecretAccessKey}),
+		// The uploads run in the background, and a store that is down never fails a write.
+		OnError: func(err error) { slog.Error("database backup", "err", err) },
+	}
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		_, err := replica.Restore(ctx, path, cfg, replica.RestoreOptions{})
+		if err != nil && !errors.Is(err, replica.ErrNoReplica) {
+			return nil, err
+		}
+	}
+	return replica.New(ctx, path, cfg)
 }

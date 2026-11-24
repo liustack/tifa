@@ -17,5 +17,6 @@ After cloning, run `{{.Install}}` (`node_modules` is not in git), then `go tool 
 - Each folder under `app/` is a URL.{{if not .Empty}} `app/todos/todo+/` is `/todos/{todo}`.{{end}}
 - The root folder holds what the whole app shares: `db.go` opens the database, `schema.sql` holds its tables, `sessions.go` keeps the sessions of signed-in users in it, so a restart signs nobody out, and `hooks.go` opens the database when the app starts and closes it when it stops.
 - The database is `app.db` in the folder the app runs in. Set `DB_PATH` (or pass `--db-path`) to put it elsewhere: it is the option `db.path` of `options.go`.
+- Set `DB_BACKUP` to an S3 URL, such as a Cloudflare R2 bucket, to copy every commit there about a second later and bring the database back on a new machine. See [Back it up](https://github.com/liustack/tifa/blob/main/docs/guides/database.md#back-it-up).
 
 See [Writing an app](https://github.com/liustack/tifa/blob/main/docs/start/app.md) and [Structuring an app](https://github.com/liustack/tifa/blob/main/docs/start/structure.md).

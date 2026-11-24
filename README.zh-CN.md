@@ -42,6 +42,7 @@
 | 缓存 | Redis | 进程内的渲染记忆，想要的话前面放 CDN，以及你放在 Go 内存里的数据 |
 | 队列与定时任务 | BullMQ + cron | 在 `OnStart` 里启动的 goroutine |
 | 数据库 | SQLite | SQLite，用[全网最快的纯 Go SQLite 驱动](https://github.com/liustack/sqlite)，CGO 保持关闭 |
+| 备份 | Litestream，或者定时拷文件的 cron 任务 | 每次提交约一秒后从应用内部复制到 Cloudflare R2，换新机器后第一次启动时自动恢复（`db.backup`） |
 
 说真的，我都不知道怎么定义这个东西。叫它没有 Node.js 运行时的 React SSR 框架，还是用 Go 写后端的 React SSR 框架？听起来都挺神经的。底下是 Go、[beastjs](https://github.com/liustack/beastjs)（纯 Go 写的 JavaScript 引擎）和 TanStack Router。
 

@@ -7,4 +7,13 @@ import "github.com/liustack/tifa"
 var (
 	// DBPath is the SQLite database file, relative to the folder the app runs in.
 	DBPath = tifa.String("db.path", "app.db", "SQLite database file")
+	// DBBackup is where every commit of the database is copied, such as
+	// s3://<bucket>/app.db?endpoint=https://<account>.r2.cloudflarestorage.com&region=auto
+	// for Cloudflare R2. Empty, the default, backs up nothing. See "Back it up" in
+	// docs/guides/database.md.
+	DBBackup = tifa.String("db.backup", "", "S3 URL to copy the database to, empty for none")
+	// The keys of the S3 store of DBBackup: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, in
+	// the environment or .env.
+	AWSAccessKeyID     = tifa.Secret("aws.access_key_id", "Access key ID of the S3 store of db.backup")
+	AWSSecretAccessKey = tifa.Secret("aws.secret_access_key", "Secret access key of the S3 store of db.backup")
 )
