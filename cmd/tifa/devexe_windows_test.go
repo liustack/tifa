@@ -46,6 +46,22 @@ func TestMoveAsideWaitsForAProgramThatReadsTheFile(t *testing.T) {
 	}
 }
 
+// A file held for longer is an error, after a bounded wait.
+func TestMoveAsideGivesUpOnAFileHeldForLong(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "tifa-dev.exe")
+	writeFile(t, exe, "app")
+	holdOpen(t, exe)
+	start := time.Now()
+	err := moveAside(exe)
+	if !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("moveAside: %v, want the sharing violation", err)
+	}
+	if took := time.Since(start); took < heldWait/2 || took > heldWait+time.Second {
+		t.Fatalf("moveAside gave up after %s, want about %s", took, heldWait)
+	}
+}
+
 // The app of tifa dev runs from its program while go build writes the next one. Windows refuses to
 // write over a program that runs, and moveAside makes room for it.
 func TestMoveAsideMakesRoomWhileTheProgramRuns(t *testing.T) {

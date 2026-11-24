@@ -31,9 +31,30 @@ func moveAside(exe string) error {
 			}
 		}
 	}
-	err = os.Rename(exe, filepath.Join(dir, fmt.Sprintf("%s.old-%d%s", base, time.Now().UnixNano(), exeSuffix)))
+	err = renameHeld(exe, filepath.Join(dir, fmt.Sprintf("%s.old-%d%s", base, time.Now().UnixNano(), exeSuffix)))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	return err
+}
+
+// heldWait bounds how long renameHeld waits for another program to close the file.
+const heldWait = 2 * time.Second
+
+// renameHeld is os.Rename, tried again for up to heldWait while another program has the file open
+// without sharing its deletion. Windows then refuses the rename (ERROR_SHARING_VIOLATION). Neither
+// tifa dev nor the app opens the program, but other programs may read a new one for a moment, such
+// as a virus scanner. The rebuild after a save failed this way only in the windows-11-arm runners of
+// GitHub Actions, the ones where the real-time protection of Microsoft Defender is on. The go
+// command waits 2 seconds for the same reason when it renames or deletes files
+// (cmd/internal/robustio). A file held for longer fails as before, with the error of the last try.
+func renameHeld(from, to string) error {
+	start := time.Now()
+	for wait := time.Millisecond; ; wait = min(2*wait, 100*time.Millisecond) {
+		err := os.Rename(from, to)
+		if err == nil || !heldByAnother(err) || time.Since(start)+wait > heldWait {
+			return err
+		}
+		time.Sleep(wait)
+	}
 }
