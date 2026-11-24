@@ -2,7 +2,7 @@
 summary: '怎样在 Tifa 应用里用 SQLite 保存数据：纯 Go 驱动、在 OnStart 里打开数据库、文件放在哪里以及怎样设置路径、用启动时运行的带编号迁移修改表、在 Load 和处理函数里使用、事务、写入为什么会报 `database is locked` 以及 `_txlock=immediate` 怎样避免它、拒绝重复的行、用选项 `db.backup` 把每次提交复制到 Cloudflare R2 或其他 S3 存储，并在新机器上或者回到一次错误部署前一秒恢复数据库、这在 R2 上花多少钱、用 `VACUUM INTO` 做一次性副本、在临时数据库上测试，以及什么时候该换成 Postgres'
 audience: app
 order: 2
-translatedFrom: f984afba7896
+translatedFrom: 98af850bde01
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'
@@ -23,7 +23,7 @@ Tifa 没有数据库层。你的应用在 `OnStart` 里打开一个数据库，�
 用 [`github.com/liustack/sqlite`](https://github.com/liustack/sqlite)。在服务器上不用 SQLite 的三个常见理由，它都有答案：
 
 - **`database is locked`。** SQLite 一次只让一个写入进来。驱动把应用的写入按到达顺序排队，所以有了 `_txlock=immediate`，一个写入会等它前面的写入，而不是失败。只有当写入比磁盘提交得更快的情况持续超过 `busy_timeout` 时，它才会失败。见[写入报 `database is locked` 时](#when-a-write-gets-database-is-locked)。
-- **写入速度。** 64 个 goroutine 同时插入时，它每行用 3.7 µs，cgo 驱动用 22.8 µs（linux/amd64，[它的基准测试](https://github.com/liustack/sqlite#benchmarks)）。它读取也比 cgo 驱动和其他纯 Go 驱动快，只在完全留在 SQLite 内部的工作上（比如 join）输给它们。
+- **写入速度。** 64 个 goroutine 同时插入时，它每行用 3.7 µs，cgo 驱动用 22.8 µs（linux/amd64，[它的基准测试](https://github.com/liustack/sqlite#benchmarks)）。在驱动的大多数基准测试里，它读取也比 cgo 驱动和其他纯 Go 驱动快。
 - **丢掉机器。** 它在应用内部把每次提交在大约一秒后复制到 Cloudflare R2 或其他 S3 存储，一次调用就能在新机器上把数据库找回来，可以是现在的样子，也可以是更早某个时间的样子。见[备份](#back-it-up)。
 
 它把 SQLite 作为 Go 代码来运行，所以应用仍然可以用 `CGO_ENABLED=0` 构建成一个文件（[理念](../start/philosophy.zh-CN.md#do-things-the-go-way)）。cgo 驱动 `github.com/mattn/go-sqlite3` 需要 C 编译器，会破坏这一点。它支持 amd64 和 arm64 上的 Linux、macOS 和 Windows。`tifa new` 已经在 `go.mod` 里固定了一个版本。每个发布版本都写明它测试过的 Go 版本，并且拒绝用更新的版本构建，所以升级 Go 之后，驱动也要升级。
