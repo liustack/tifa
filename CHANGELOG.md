@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-24
+
 ### Added
 
 - The managed block of `AGENTS.md` that `tifa new` and `tifa agents` write ends with an index of the docs for apps of the Tifa version in use: one line per doc with its path and the first clause of its summary, grouped by section folder, and where the folder is. A coding agent sees which doc to open without running `go tool tifa docs` first. `go tool tifa upgrade` and `go tool tifa agents` write it.
@@ -11,7 +13,6 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Changed
 
 - The managed block of `AGENTS.md` is about a third shorter, index included: it keeps the conventions, the commands, the build rules of `Load` and the test helpers in short form, and leaves the details (the table of returned errors, the hooks, the flags of `tifa dev` and `tifa errors`) to the docs it names. It no longer says that `tifa dev` misses a change to `schema.sql`, which it rebuilds on since it watches embedded files.
-
 - `tifa dev` and `tifa build` no longer compile plain stylesheets (a `.css` file imported for its side effect) for the server render, which has no use for CSS. Tailwind and Vite's CSS step now run for the browser only. A save of a `.ts` or `.tsx` file in `examples/shop` takes about 2.1 s for the bundle step instead of 2.4 s (median of 12 saves each, on an Apple M4). `dist/ssr.js` and its map are byte for byte the same. A stylesheet that does not compile still fails the bundle step. `.tifa/dist/inputs.json` lists fewer files under `tifa dev`: not the files a stylesheet imports nor the ones Tailwind scans.
 - With `deploy.front: none`, `tifa deploy` makes the app serve visitors itself instead of listening on `127.0.0.1` only, where nothing outside the server reached it. With a domain as the host of `site.url`, systemd opens ports 443 and 80 for the app and the app runs its built-in HTTPS with a certificate from Let's Encrypt, kept in `/srv/tifa/<app>/certs`. Without a domain (no `site.url`, an IP address or `localhost`) it serves plain HTTP on port 80. Setup sets `net.ipv4.ip_unprivileged_port_start = 80` once per server as root so the app needs no root, stops before changing anything when another app or a program such as nginx or Caddy listens on those ports, and says which ports the firewall must let in. When ufw is on and blocks them, the plan of setup allows them as root, once you agree or with `--yes`, in rules with the comment `tifa <app>` (`ufw allow 80/tcp comment 'tifa <app>'`). `tifa deploy remove`, and setup once the app no longer serves visitors on a port, deletes only the rules with that comment, and no other rule, the one of ssh among them. Tifa does not change the firewall or the security groups of your provider. After a deploy it prints `visitors: <url>` and whether the ports answered from your machine. See [The app serves visitors itself](docs/build-and-deploy/deploy.md#the-app-serves-visitors-itself).
 
