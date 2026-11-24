@@ -3,12 +3,48 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/windows"
 )
+
+// holdOpen opens the program the way another program that reads it may, such as a virus scanner:
+// os.Open shares it for reading and writing but not for deletion, and Windows refuses to rename it
+// while it is open.
+func holdOpen(t *testing.T, exe string) *os.File {
+	t.Helper()
+	f, err := os.Open(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	if err := os.Rename(exe, exe+".probe"); !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("renaming a file held open: %v, want a sharing violation: the test proves nothing", err)
+	}
+	return f
+}
+
+// Another program may read the program for a moment right after go build wrote it, and moveAside
+// waits for it to let go.
+func TestMoveAsideWaitsForAProgramThatReadsTheFile(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "tifa-dev.exe")
+	writeFile(t, exe, "app")
+	f := holdOpen(t, exe)
+	time.AfterFunc(300*time.Millisecond, func() { f.Close() })
+	if err := moveAside(exe); err != nil {
+		t.Fatal(err)
+	}
+	if got := oldExes(t, dir); len(got) != 1 {
+		t.Fatalf("moved aside: %q", got)
+	}
+}
 
 // The app of tifa dev runs from its program while go build writes the next one. Windows refuses to
 // write over a program that runs, and moveAside makes room for it.
