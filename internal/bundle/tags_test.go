@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/beastjs"
 )
 
 // tagsPage renders elements of many kinds with props of every kind the start tag of React DOM writes:
@@ -49,8 +49,8 @@ const tagsPage = "import './host'\n" +
 // engineTags makes a VM give a bundle the start and end tags of the engine as the pool of
 // internal/ssr does, under the names __tifa_start_tag and __tifa_end_tag, and count the calls of
 // the start tag in globalThis.startCalls and those it leaves to React in globalThis.declined.
-func engineTags(t *testing.T) func(*slowjs.VM) {
-	return func(vm *slowjs.VM) {
+func engineTags(t *testing.T) func(*beastjs.VM) {
+	return func(vm *beastjs.VM) {
 		t.Helper()
 		if err := vm.RegisterStartTag("__engine_start_tag"); err != nil {
 			t.Fatal(err)
@@ -64,7 +64,7 @@ func engineTags(t *testing.T) func(*slowjs.VM) {
 			"  const r = __engine_start_tag(target, props, type, context, has, decline)\n"+
 			"  if (r === decline) declined++\n"+
 			"  return r\n"+
-			"}", slowjs.EvalGlobal); err != nil {
+			"}", beastjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -153,7 +153,7 @@ func TestSSRChecksTheTagsOfTheEngine(t *testing.T) {
 	if strings.Contains(printed, "start and end tags") || !strings.Contains(code, "__tifa_emit_check") {
 		t.Fatalf("the build of the test hook prints:\n%s", printed)
 	}
-	vm, err := slowjs.NewVM()
+	vm, err := beastjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,13 +162,13 @@ func TestSSRChecksTheTagsOfTheEngine(t *testing.T) {
 		t.Errorf("the bundle of the test hook loads without __tifa_emit_check: %v", err)
 	}
 	want := evalResult(t, plain)
-	check := func(vm *slowjs.VM) {
+	check := func(vm *beastjs.VM) {
 		engineTags(t)(vm)
 		if _, err := vm.Eval("globalThis.verdicts = { same: 0, declined: 0, differ: 0 }, globalThis.differences = []\n"+
 			"globalThis.__tifa_emit_check = (verdict, tag, props, c, js) => {\n"+
 			"  verdicts[verdict]++\n"+
 			"  if (verdict === 'differ') differences.push(tag + ' ' + props + '\\n  C:     ' + c + '\\n  React: ' + js)\n"+
-			"}", slowjs.EvalGlobal); err != nil {
+			"}", beastjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -224,8 +224,8 @@ const anchorsPage = "import './host'\n" +
 // anchorTags is engineTags that also records in globalThis.asked, for each element with a data-case,
 // "engine" when the engine wrote its start tag and "react" when it left it to React DOM. An element
 // the engine was not asked about has no entry.
-func anchorTags(t *testing.T) func(*slowjs.VM) {
-	return func(vm *slowjs.VM) {
+func anchorTags(t *testing.T) func(*beastjs.VM) {
+	return func(vm *beastjs.VM) {
 		t.Helper()
 		engineTags(t)(vm)
 		if _, err := vm.Eval("globalThis.asked = {}\n"+
@@ -234,7 +234,7 @@ func anchorTags(t *testing.T) func(*slowjs.VM) {
 			"  const r = asking(target, props, type, context, has, decline)\n"+
 			"  asked[props['data-case']] = r === decline ? 'react' : 'engine'\n"+
 			"  return r\n"+
-			"}", slowjs.EvalGlobal); err != nil {
+			"}", beastjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -300,13 +300,13 @@ func TestSSRChecksTheTagsOfAnchorsAndButtons(t *testing.T) {
 	plain, _ := buildPrinting(t, root, "anchors.tsx")
 	t.Setenv("TIFA_EMIT_CHECK", "1")
 	code, _ := buildPrinting(t, root, "anchors.tsx")
-	check := func(vm *slowjs.VM) {
+	check := func(vm *beastjs.VM) {
 		engineTags(t)(vm)
 		if _, err := vm.Eval("globalThis.tagsSame = {}, globalThis.differences = []\n"+
 			"globalThis.__tifa_emit_check = (verdict, tag, props, c, js) => {\n"+
 			"  if (verdict === 'same') tagsSame[tag] = (tagsSame[tag] || 0) + 1\n"+
 			"  if (verdict === 'differ') differences.push(tag + ' ' + props + '\\n  C:     ' + c + '\\n  React: ' + js)\n"+
-			"}", slowjs.EvalGlobal); err != nil {
+			"}", beastjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -360,8 +360,8 @@ const voidPage = "import './host'\n" +
 // 7), and records in globalThis.modes each call that has a seventh argument as "tag:mode" and in
 // globalThis.longest the most arguments a call had. A call with a mode is declined, as an engine
 // does that does not know the mode, and the others go to the engine.
-func modeTags(t *testing.T, params int) func(*slowjs.VM) {
-	return func(vm *slowjs.VM) {
+func modeTags(t *testing.T, params int) func(*beastjs.VM) {
+	return func(vm *beastjs.VM) {
 		t.Helper()
 		engineTags(t)(vm)
 		formals := "target, props, type, context, has, decline"
@@ -377,7 +377,7 @@ func modeTags(t *testing.T, params int) func(*slowjs.VM) {
 			"    return decline\n"+
 			"  }\n"+
 			"  return asking(target, props, type, context, has, decline)\n"+
-			"}", slowjs.EvalGlobal); err != nil {
+			"}", beastjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -418,7 +418,7 @@ func TestSSRAsksTheEngineForSelfClosingTags(t *testing.T) {
 			t.Fatalf("React DOM unchanged does not write %q:\n%.3000s", text, want)
 		}
 	}
-	for name, setup := range map[string]func(*slowjs.VM){
+	for name, setup := range map[string]func(*beastjs.VM){
 		"no engine":                   nil,
 		"an engine without modes":     engineTags(t),
 		"a start tag of 6 parameters": modeTags(t, 6),
@@ -453,13 +453,13 @@ func TestSSRChecksTheSelfClosingTags(t *testing.T) {
 	plain, _ := buildPrinting(t, root, "void.tsx")
 	t.Setenv("TIFA_EMIT_CHECK", "1")
 	code, _ := buildPrinting(t, root, "void.tsx")
-	check := func(vm *slowjs.VM) {
+	check := func(vm *beastjs.VM) {
 		modeTags(t, 7)(vm)
 		if _, err := vm.Eval("globalThis.verdicts = { same: 0, declined: 0, differ: 0 }, globalThis.differences = []\n"+
 			"globalThis.__tifa_emit_check = (verdict, tag, props, c, js) => {\n"+
 			"  verdicts[verdict]++\n"+
 			"  if (verdict === 'differ') differences.push(tag + ' ' + props + '\\n  C:     ' + c + '\\n  React: ' + js)\n"+
-			"}", slowjs.EvalGlobal); err != nil {
+			"}", beastjs.EvalGlobal); err != nil {
 			t.Fatal(err)
 		}
 	}

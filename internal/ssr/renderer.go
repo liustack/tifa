@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liustack/slowjs"
-	"github.com/liustack/slowjs/intl"
-	"github.com/liustack/slowjs/temporal"
-	slowjsurl "github.com/liustack/slowjs/url"
+	"github.com/liustack/beastjs"
+	"github.com/liustack/beastjs/intl"
+	"github.com/liustack/beastjs/temporal"
+	beastjsurl "github.com/liustack/beastjs/url"
 )
 
 // fromVM reads JSON the VM wrote with JSON.stringify. A JavaScript string may hold a lone
@@ -30,8 +30,8 @@ var fromVM = jsontext.AllowInvalidUTF8(true)
 // from: these stay in the one copy of the bytecode, outside the memory of every VM and of
 // ssr.vm_memory. The caller closes the bytecode, and its memory goes once the last VM that loaded
 // it is closed too.
-func Compile(source string, memory uintptr, timeout time.Duration) (bytecode *slowjs.SharedBytecode, err error) {
-	vm, err := slowjs.NewVM()
+func Compile(source string, memory uintptr, timeout time.Duration) (bytecode *beastjs.SharedBytecode, err error) {
+	vm, err := beastjs.NewVM()
 	if err != nil {
 		return nil, err
 	}
@@ -40,11 +40,11 @@ func Compile(source string, memory uintptr, timeout time.Duration) (bytecode *sl
 	if err := vm.SetEvalTimeout(timeout); err != nil {
 		return nil, err
 	}
-	code, err := vm.Compile(source, slowjs.EvalModule)
+	code, err := vm.Compile(source, beastjs.EvalModule)
 	if err != nil {
 		return nil, err
 	}
-	return slowjs.NewSharedBytecode(code)
+	return beastjs.NewSharedBytecode(code)
 }
 
 // Check compiles the bundle as NewPool does, without running it, so that tifa build finds code
@@ -98,8 +98,8 @@ const (
 // Load takes the functions RenderVM calls from the global object once, so that a render parses no
 // code of its own: globalThis.startRender as the bundle left it, which a render calls even when
 // the bundle replaces it later.
-func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.Duration, dev bool) (*VM, error) {
-	js, err := slowjs.NewVM()
+func Load(bytecode *beastjs.SharedBytecode, memory, stack uintptr, timeout time.Duration, dev bool) (*VM, error) {
+	js, err := beastjs.NewVM()
 	if err != nil {
 		return nil, err
 	}
@@ -138,10 +138,10 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 		err = registerAsyncContext(vm.VM)
 	}
 	if err == nil && dev {
-		_, err = vm.Eval(intlCheck, slowjs.EvalGlobal)
+		_, err = vm.Eval(intlCheck, beastjs.EvalGlobal)
 	}
 	if err == nil && dev {
-		_, err = vm.Eval(readCheck, slowjs.EvalGlobal)
+		_, err = vm.Eval(readCheck, beastjs.EvalGlobal)
 	}
 	if err == nil {
 		_, err = vm.EvalSharedBytecode(bytecode)
@@ -151,7 +151,7 @@ func Load(bytecode *slowjs.SharedBytecode, memory, stack uintptr, timeout time.D
 	}
 	if err == nil && dev {
 		// What the bundle read as it loaded is the same for every render.
-		_, err = vm.Eval(takeReads, slowjs.EvalGlobal)
+		_, err = vm.Eval(takeReads, beastjs.EvalGlobal)
 	}
 	if err != nil {
 		return nil, errors.Join(err, vm.VM.Close())
@@ -199,18 +199,18 @@ var readCheck string
 
 // VM is a VM of the bundle, made by Load, with the functions RenderVM calls.
 type VM struct {
-	*slowjs.VM
+	*beastjs.VM
 	// global is the global object, which startRender gets as this, as a call by its name would
 	// give it. reset clears globalThis.renderResult, and readResult is the function of
 	// readResult.
-	global, reset, startRender, readResult slowjs.Value
+	global, reset, startRender, readResult beastjs.Value
 }
 
 // takeFunctions takes the functions RenderVM calls from the global object.
 func (vm *VM) takeFunctions() error {
-	values := [...]*slowjs.Value{&vm.global, &vm.reset, &vm.startRender, &vm.readResult}
+	values := [...]*beastjs.Value{&vm.global, &vm.reset, &vm.startRender, &vm.readResult}
 	for i, source := range [...]string{"globalThis", resetResult, "globalThis.startRender", readResult} {
-		v, err := vm.EvalValue(source, slowjs.EvalGlobal)
+		v, err := vm.EvalValue(source, beastjs.EvalGlobal)
 		if err != nil {
 			for _, taken := range values[:i] {
 				taken.Free()
@@ -224,7 +224,7 @@ func (vm *VM) takeFunctions() error {
 
 // Close frees the functions RenderVM calls and closes the VM.
 func (vm *VM) Close() error {
-	for _, v := range [...]*slowjs.Value{&vm.global, &vm.reset, &vm.startRender, &vm.readResult} {
+	for _, v := range [...]*beastjs.Value{&vm.global, &vm.reset, &vm.startRender, &vm.readResult} {
 		v.Free()
 	}
 	return vm.VM.Close()
@@ -264,7 +264,7 @@ func RenderVM(vm *VM, input []byte, texts []string, timeout time.Duration) (stri
 	if err := budget(); err != nil {
 		return "", err
 	}
-	if _, err := vm.reset.Call(slowjs.UndefinedValue); err != nil {
+	if _, err := vm.reset.Call(beastjs.UndefinedValue); err != nil {
 		return "", phase("reset result", err)
 	}
 	if err := budget(); err != nil {
@@ -287,7 +287,7 @@ func RenderVM(vm *VM, input []byte, texts []string, timeout time.Duration) (stri
 	if err := budget(); err != nil {
 		return "", err
 	}
-	value, err := vm.readResult.Call(slowjs.UndefinedValue)
+	value, err := vm.readResult.Call(beastjs.UndefinedValue)
 	if err != nil {
 		return "", phase("read result", err)
 	}
@@ -301,7 +301,7 @@ func RenderVM(vm *VM, input []byte, texts []string, timeout time.Duration) (stri
 		if err := budget(); err != nil {
 			return "", err
 		}
-		if value, err = vm.readResult.Call(slowjs.UndefinedValue); err != nil {
+		if value, err = vm.readResult.Call(beastjs.UndefinedValue); err != nil {
 			return "", phase("read result", err)
 		}
 	}
@@ -363,7 +363,7 @@ var ErrOutOfMemory = errors.New("ssr: VM out of memory")
 // or promise handler runs, so the bundle never reports it as an error of its own. What page code
 // throws never counts, whatever its name and message.
 func outOfMemory(err error) bool {
-	var e *slowjs.Error
+	var e *beastjs.Error
 	return errors.As(err, &e) && e.OutOfMemory
 }
 
@@ -371,7 +371,7 @@ func outOfMemory(err error) bool {
 // pool, so it is the time budget. What page code throws never counts, whatever its name and
 // message.
 func interrupted(err error) bool {
-	var e *slowjs.Error
+	var e *beastjs.Error
 	return errors.As(err, &e) && e.Interrupted
 }
 
@@ -383,6 +383,6 @@ func timedOut(timeout time.Duration, cause error) error {
 }
 
 // registerURL is url.Register of the engine, a variable so that a test can make it fail.
-var registerURL = slowjsurl.Register
+var registerURL = beastjsurl.Register
 
-type urlOption = slowjsurl.Option
+type urlOption = beastjsurl.Option

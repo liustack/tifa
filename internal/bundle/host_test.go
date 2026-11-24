@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
-	slowjsurl "github.com/liustack/slowjs/url"
+	"github.com/liustack/beastjs"
+	beastjsurl "github.com/liustack/beastjs/url"
 )
 
 var hostDir = filepath.Join("..", "..", "js", "host")
@@ -64,13 +64,13 @@ func TestHostScriptFreesDeadAbortSignalsInOneCollection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vm, err := slowjs.NewVM()
+	vm, err := beastjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 	// Every VM of the server has the engine's URL before the host script runs.
-	if err := slowjsurl.Register(vm); err != nil {
+	if err := beastjsurl.Register(vm); err != nil {
 		t.Fatal(err)
 	}
 	if err := evalModule(vm, string(script)+`
@@ -96,7 +96,7 @@ for (let i = 0; i < 16; i++) globalThis.signals.push(...render())
 		t.Fatal(err)
 	}
 	left := func() string {
-		value, err := vm.Eval("signals.filter((signal) => signal.deref() !== undefined).length + ' of ' + signals.length + ' signals left'", slowjs.EvalGlobal)
+		value, err := vm.Eval("signals.filter((signal) => signal.deref() !== undefined).length + ' of ' + signals.length + ' signals left'", beastjs.EvalGlobal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -175,8 +175,8 @@ func TestHostScriptPerformanceClockAndExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := evalResultWith(t, string(script)+`globalThis.result = typeof performance.now + ' ' + performance.mine`,
-		func(vm *slowjs.VM) {
-			if _, err := vm.Eval(`globalThis.performance = { mine: 'kept' }`, slowjs.EvalGlobal); err != nil {
+		func(vm *beastjs.VM) {
+			if _, err := vm.Eval(`globalThis.performance = { mine: 'kept' }`, beastjs.EvalGlobal); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -193,7 +193,7 @@ const second = performance.now()
 globalThis.step(7200000 + 50)
 const third = performance.now()
 globalThis.result = [first >= 0, second === first, third > second].join(',')`,
-		func(vm *slowjs.VM) {
+		func(vm *beastjs.VM) {
 			vm.SetClock(func() time.Time { return clock })
 			if err := vm.RegisterFunc("step", func(ms int) int {
 				clock = clock.Add(time.Duration(ms) * time.Millisecond)

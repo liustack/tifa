@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/beastjs"
 )
 
 // Load gives every VM __tifa_start_tag and __tifa_end_tag, which the bundle's React DOM asks for
@@ -28,7 +28,7 @@ func TestLoadDefinesStartAndEndTags(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer vm.Close()
-	got, err := vm.Eval(`JSON.stringify(globalThis.tags)`, slowjs.EvalGlobal)
+	got, err := vm.Eval(`JSON.stringify(globalThis.tags)`, beastjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,12 +1,12 @@
 package ssr
 
-import "github.com/liustack/slowjs"
+import "github.com/liustack/beastjs"
 
 // The hash of @emotion/hash (MurmurHash2 of the low bytes of the UTF-16 code units of a string,
 // in base 36), which emotion takes of every style it serializes. MUI's styles are long, and the
 // JavaScript loop over their code units takes about 30% of the render of an MUI page in QuickJS.
 // The tifa plugin makes murmur2 ask __tifa_murmur2__ first, see js/vite/plugin.js. The hash is the
-// engine's, written in C (slowjs.VM.NewMurmur2Function), which reads the characters where the
+// engine's, written in C (beastjs.VM.NewMurmur2Function), which reads the characters where the
 // engine keeps them and gives undefined for anything but a string.
 
 // murmur2Hook is __tifa_murmur2__: the hash of a string, or undefined when the argument is not a
@@ -19,8 +19,8 @@ const murmur2Hook = `(hash) => {
   })
 }`
 
-func registerHash(vm *slowjs.VM) error {
-	define, err := vm.EvalValue(murmur2Hook, slowjs.EvalGlobal)
+func registerHash(vm *beastjs.VM) error {
+	define, err := vm.EvalValue(murmur2Hook, beastjs.EvalGlobal)
 	if err != nil {
 		return err
 	}
@@ -30,7 +30,7 @@ func registerHash(vm *slowjs.VM) error {
 		return err
 	}
 	defer h.Free()
-	r, err := define.CallValue(slowjs.UndefinedValue, h)
+	r, err := define.CallValue(beastjs.UndefinedValue, h)
 	if err != nil {
 		return err
 	}

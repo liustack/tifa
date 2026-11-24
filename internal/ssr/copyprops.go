@@ -1,6 +1,6 @@
 package ssr
 
-import "github.com/liustack/slowjs"
+import "github.com/liustack/beastjs"
 
 // React's createElement and cloneElement copy the keys of their config into the props of the
 // element with a loop that takes about 250 ns for each key. The tifa plugin makes them ask
@@ -9,6 +9,6 @@ import "github.com/liustack/slowjs"
 // false, having changed nothing, for any other config, which then goes through the loop.
 
 // registerCopyProps defines __tifa_copy_props on vm.
-func registerCopyProps(vm *slowjs.VM) error {
+func registerCopyProps(vm *beastjs.VM) error {
 	return vm.RegisterCopyProps("__tifa_copy_props")
 }

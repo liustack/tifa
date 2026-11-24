@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/liustack/slowjs"
+	"github.com/liustack/beastjs"
 )
 
 func TestHostStructuredClone(t *testing.T) {
@@ -69,7 +69,7 @@ func TestHostStructuredCloneWithoutBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vm, err := slowjs.NewVM()
+	vm, err := beastjs.NewVM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,10 +79,10 @@ func TestHostStructuredCloneWithoutBridge(t *testing.T) {
 	if err := registerURL(vm); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = vm.Eval(string(host), slowjs.EvalGlobal); err != nil {
+	if _, err = vm.Eval(string(host), beastjs.EvalGlobal); err != nil {
 		t.Fatal(err)
 	}
-	result, err := vm.Eval(`(()=>{const a={n:1};a.self=a;const b=structuredClone(a);return b!==a&&b.self===b&&b.n===1})()`, slowjs.EvalGlobal)
+	result, err := vm.Eval(`(()=>{const a={n:1};a.self=a;const b=structuredClone(a);return b!==a&&b.self===b&&b.n===1})()`, beastjs.EvalGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
