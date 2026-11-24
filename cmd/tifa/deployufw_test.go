@@ -140,6 +140,11 @@ func TestSetupOpensUFW(t *testing.T) {
 	if !strings.Contains(srv.calls(), "ufwread root") || !strings.Contains(srv.calls(), "ufwallow root") {
 		t.Errorf("calls:\n%s", srv.calls())
 	}
+	// ufw opens before the app moves: the app restarted on 443 has no certificate until Let's
+	// Encrypt reaches it, so its health check would fail behind a closed firewall.
+	if allow, move := strings.Index(srv.calls(), "ufwallow root"), strings.Index(srv.calls(), "app tifa"); move < 0 || allow > move {
+		t.Errorf("ufw opens after the app moves:\n%s", srv.calls())
+	}
 	for _, want := range []string{"ufw allow 80/tcp comment 'tifa shop'\n", "ufw allow 443/tcp comment 'tifa shop'\n"} {
 		if !strings.Contains(srv.unquoted(), want) {
 			t.Errorf("the script lacks %q:\n%s", want, srv.unquoted())
