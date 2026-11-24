@@ -22,9 +22,11 @@ var schema string
 func OpenDB(path string) (*sql.DB, error) {
 	// The pragmas run on every connection of the pool. WAL lets reads go on during a write,
 	// and SQLite checks foreign keys only when asked to. A write waits up to 5s for another one
-	// by default, so busy_timeout needs no setting. In SQL text, strings go in single quotes:
-	// double quotes mean a column or table name.
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)")
+	// by default, so busy_timeout needs no setting. _txlock=immediate makes a transaction take the
+	// write lock at BEGIN, so writers wait their turn instead of failing with "database is
+	// locked" halfway: start a transaction that only reads with sql.TxOptions{ReadOnly: true}.
+	// In SQL text, strings go in single quotes: double quotes mean a column or table name.
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}

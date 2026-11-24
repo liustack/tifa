@@ -3,6 +3,7 @@ package {{.Package}}
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // useTestDB gives the test a fresh, empty database in DB. Tests that use it must not run in
@@ -24,6 +25,44 @@ func TestOpenDBSetsThePragmas(t *testing.T) {
 		if err := DB.QueryRow("PRAGMA " + pragma).Scan(&got); err != nil || got != want {
 			t.Errorf("PRAGMA %s: %q, %v, want %q", pragma, got, err, want)
 		}
+	}
+}
+
+// A transaction that reads and then writes does not fail with "database is locked" when another
+// write comes in between: with _txlock=immediate it holds the write lock from BEGIN, and the
+// other write waits for its commit.
+func TestATransactionThatReadsThenWritesHoldsTheLock(t *testing.T) {
+	useTestDB(t)
+	if _, err := DB.Exec(`CREATE TABLE counter (n INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := DB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRow(`SELECT count(*) FROM counter`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	other := make(chan error, 1)
+	go func() {
+		_, err := DB.Exec(`INSERT INTO counter (n) VALUES (1)`)
+		other <- err
+	}()
+	select {
+	case err := <-other:
+		t.Fatalf("another write committed while the transaction was open (err %v): it does not hold the write lock", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if _, err := tx.Exec(`INSERT INTO counter (n) VALUES (?)`, n+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-other; err != nil {
+		t.Fatalf("the other write: %v", err)
 	}
 }
 
