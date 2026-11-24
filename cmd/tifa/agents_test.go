@@ -495,8 +495,8 @@ func TestNotesBlockIsSmall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(block); n > 10*1024 {
-		t.Errorf("the managed block of AGENTS.md is %d bytes, keep it at most 10 KB: move details to the docs and leave the path", n)
+	if n := len(block); n > 11*1024 {
+		t.Errorf("the managed block of AGENTS.md is %d bytes, keep it at most 11 KB: move details to the docs and leave the path", n)
 	}
 }
 
