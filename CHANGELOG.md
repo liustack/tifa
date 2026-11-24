@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-24
+
 ### Added
 
 - An app from `tifa new` can back up its database to Cloudflare R2, AWS S3 or another S3 store: set the option `db.backup` (`DB_BACKUP`, `--db-backup`) to the URL of the store, and `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in the environment or `.env`. Every commit is in the store about a second later, and a start that finds no database file restores it from there, as on a new machine. Empty, the default, backs up nothing. An app made earlier can add the code from [Back it up](docs/guides/database.md#back-it-up).
