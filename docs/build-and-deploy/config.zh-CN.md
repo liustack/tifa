@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的每一项设置和应用怎样定义自己的设置，以及每个响应都带的安全头，其中包括 server.csp 的 Content-Security-Policy：每一项可以在哪里设置（命令行参数、环境变量、.env、-c 指定的文件、tifa.yaml）、哪个来源优先、PORT 和 HOST 怎样读取、默认值、参数和环境变量的名字、值的格式和错误的值会给出什么错误、需要更久的处理函数怎样放宽读写超时、怎样用程序自己拿到的证书或你自己的证书提供 HTTPS，以及程序怎样拒绝浏览器从其他站点发来的写请求，和怎样放行指定的来源或路径'
 audience: app
 order: 4
-translatedFrom: ec04021ee122
+translatedFrom: 8ccf25480c30
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -134,7 +134,7 @@ Cloud Run、Heroku、Render、Railway 和 Fly 这样的托管平台，通过 `PO
 | `server.csp_policy` | `script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'` | `--server-csp-policy`、`SERVER_CSP_POLICY` | `server.csp` 的策略：用分号分隔的指令。它只检查能让它保持为一个头的条件：可打印 ASCII，没有逗号，指令名由字母、数字和连字符组成 |
 | `server.trusted_origins` | 无 | `--server-trusted-origins`、`SERVER_TRUSTED_ORIGINS` | 允许它们的页面从另一个站点发送写入（POST、PUT、PATCH、DELETE）的 origin，用逗号分隔，比如 `https://admin.example.com,http://localhost:3000`。见[跨站写入](#cross-site-writes) |
 | `server.cross_site_paths` | 无 | `--server-cross-site-paths`、`SERVER_CROSS_SITE_PATHS` | 路径模式，对这些路径的写入不检查它来自哪个站点，用逗号分隔，比如 `POST /auth/apple/callback`。见[跨站写入](#cross-site-writes) |
-| `ssr.vms` | CPU 数（`GOMAXPROCS`），最多 4 | `--ssr-vms`、`SSR_VMS` | 预热好的 JavaScript VM，也就是同时能渲染多少个页面。在容器里它跟随 CPU 限制。在 1、2、4 和 8 个 CPU 上，默认值分别是 1、2、4 和 4 个 VM：每个 VM 占内存，而一个有内存限制、没有 CPU 限制的容器能看到它宿主机的每个 CPU。在 CPU 更多、内存也够的机器上，请自己设置，比如 `ssr.vms: 8` 或 `SSR_VMS=8`。你设置的值原样使用。什么时候该改它，见[给机器定规格](../reference/performance.zh-CN.md#sizing-a-machine)。在每个 P 都在渲染（每个 P 一个 VM，1 个 CPU 上 `GOMAXPROCS=1`）的情况下实测，短请求要在渲染后面等大约 20 毫秒，原因在 Go 的调度器（它 10 毫秒的监控周期，两次，见 slowjs 的 [A long call and the Go scheduler](https://github.com/liustack/slowjs/blob/main/docs/internals/architecture.md#a-long-call-and-the-go-scheduler)）。在同一个 1 CPU 上设 `GOMAXPROCS=2` 时，它们的 P50 是 0.016 毫秒。要让它们保持快速，就让 `GOMAXPROCS` 大于 `ssr.vms`，不过多出来的 P 只有在还有 CPU 给它用时才有帮助。默认值在最多 4 个 CPU 时让两者相等，从 5 个起让 `GOMAXPROCS` 更大 |
+| `ssr.vms` | CPU 数（`GOMAXPROCS`），最多 4 | `--ssr-vms`、`SSR_VMS` | 预热好的 JavaScript VM，也就是同时能渲染多少个页面。在容器里它跟随 CPU 限制。在 1、2、4 和 8 个 CPU 上，默认值分别是 1、2、4 和 4 个 VM：每个 VM 占内存，而一个有内存限制、没有 CPU 限制的容器能看到它宿主机的每个 CPU。在 CPU 更多、内存也够的机器上，请自己设置，比如 `ssr.vms: 8` 或 `SSR_VMS=8`。你设置的值原样使用。什么时候该改它，见[给机器定规格](../reference/performance.zh-CN.md#sizing-a-machine)。在每个 P 都在渲染（每个 P 一个 VM，1 个 CPU 上 `GOMAXPROCS=1`）的情况下实测，短请求要在渲染后面等大约 20 毫秒，原因在 Go 的调度器（它 10 毫秒的监控周期，两次，见 beastjs 的 [A long call and the Go scheduler](https://github.com/liustack/beastjs/blob/main/docs/internals/architecture.md#a-long-call-and-the-go-scheduler)）。在同一个 1 CPU 上设 `GOMAXPROCS=2` 时，它们的 P50 是 0.016 毫秒。要让它们保持快速，就让 `GOMAXPROCS` 大于 `ssr.vms`，不过多出来的 P 只有在还有 CPU 给它用时才有帮助。默认值在最多 4 个 CPU 时让两者相等，从 5 个起让 `GOMAXPROCS` 更大 |
 | `ssr.vm_memory` | `128MiB` | `--ssr-vm-memory`、`SSR_VM_MEMORY` | 每个 VM 的内存上限。内存用光的渲染会失败，VM 会被换成全新的。页面代码捕获不了它。引擎为复用而保留的 shape 也算在这里，最坏每个 VM 约 6 MiB（2048 个 shape，每个 32 个键，每个键约十个字符，键更长则更多），所以调低它时要给它们留出空间（见[内存](../reference/performance.zh-CN.md#memory)）。一次回收后占用超过它一半的 VM 会在后台被换掉，所以 VM 稳定在那之上的应用需要更高的上限（见[内存](../reference/performance.zh-CN.md#memory)） |
 | `ssr.vm_stack_depth` | `10000` | `--ssr-vm-stack-depth`、`SSR_VM_STACK_DEPTH` | 每个 VM 里 JavaScript 调用最多能嵌套多深，大约每次调用一层。更深的调用会抛出 `RangeError: Maximum call stack size exceeded`，深度和 Node 差不多。取值从 1 到 10000，见[栈深度](#stack-depth) |
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`SSR_TIMEOUT` | 一次渲染的时间预算。运行更久的渲染会被停止，并作为意外错误处理，交给 `OnError`。页面代码捕获不了它 |

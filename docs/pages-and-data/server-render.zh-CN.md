@@ -1,8 +1,8 @@
 ---
-summary: '服务端渲染有什么、缺什么：slowjs 虚拟机里的浏览器和 Node API、导入 Node 模块的包、在那里渲染结果不同的库、只在浏览器里加载的组件，以及怎样使用 Intl 和 Temporal 让水合结果一致'
+summary: '服务端渲染有什么、缺什么：beastjs 虚拟机里的浏览器和 Node API、导入 Node 模块的包、在那里渲染结果不同的库、只在浏览器里加载的组件，以及怎样使用 Intl 和 Temporal 让水合结果一致'
 audience: app
 order: 7
-translatedFrom: 964b6ff6a443
+translatedFrom: 251220614700
 read_when:
   - '页面在服务端渲染失败或没有水合，想知道服务端有哪些浏览器 API 和库的功能'
   - '某个组件在浏览器画出来之前什么都不显示（比如图表或地图），想知道要不要在服务端渲染它'
@@ -16,7 +16,7 @@ read_when:
 
 ## 服务端渲染有什么 {#what-the-server-render-has}
 
-页面在服务器上的一个 slowjs VM 里渲染，不是在 Node 或浏览器里。VM 有 JavaScript 语言本身，包括 `Proxy`、`WeakRef`、`FinalizationRegistry` 和 `new Function`，还有这些：
+页面在服务器上的一个 beastjs（Tifa 用来渲染的纯 Go JavaScript 引擎）VM 里渲染，不是在 Node 或浏览器里。VM 有 JavaScript 语言本身，包括 `Proxy`、`WeakRef`、`FinalizationRegistry` 和 `new Function`，还有这些：
 
 - `URL` 和 `URLSearchParams`，完整的标准，由引擎在 Go 里解析。主机名会经过 UTS 46，包含它的 Bidi 和连接符检查，和浏览器一样。URL 没有自己的属性，无效的 URL 会抛出 `TypeError: Failed to construct 'URL': Invalid URL`，而 `URL.createObjectURL` 和 `URL.revokeObjectURL` 不存在，因为没有 `Blob`。
 - `TextEncoder`、`TextDecoder`、`AbortController`、`Headers`、`Response` 和 `queueMicrotask`。`TextDecoder` 只认识 UTF-8：别的编码，比如 `new TextDecoder('latin1')`，会抛出 `RangeError`。
@@ -161,7 +161,7 @@ export default function ReceiptPage() {
 
 ## 服务端渲染里的 Temporal {#temporal-in-server-rendering}
 
-页面可以使用 `Temporal.Now`、`Instant`、`ZonedDateTime`、`PlainDate`、`PlainTime`、`PlainDateTime`、`PlainYearMonth`、`PlainMonthDay`、`Duration` 和 `Date.prototype.toTemporalInstant`，包括在模块加载时。slowjs 提供 V8 带的那些方法、IANA 时区，以及 Intl 支持的历法。Temporal 用的是和 Intl 相同的内置 tz 2026e 数据，不读取机器的 zoneinfo。
+页面可以使用 `Temporal.Now`、`Instant`、`ZonedDateTime`、`PlainDate`、`PlainTime`、`PlainDateTime`、`PlainYearMonth`、`PlainMonthDay`、`Duration` 和 `Date.prototype.toTemporalInstant`，包括在模块加载时。beastjs 提供 V8 带的那些方法、IANA 时区，以及 Intl 支持的历法。Temporal 用的是和 Intl 相同的内置 tz 2026e 数据，不读取机器的 zoneinfo。
 
 `Date.now()`、`new Date()`、`Date()`、`Temporal.Now` 和不带日期的 Intl 日期格式化，共用 VM 的时钟。默认情况下它在渲染期间保持实时。Go 可以用 `tifa.WithRenderClock` 为一次渲染提供一个时钟，见[渲染时钟](testing-apps.zh-CN.md#render-clock)。`Temporal.Now.instant().epochMilliseconds` 和 `Date.now()` 各自单独读取这个时钟，所以如果两次调用之间过了一点时间，它们可能不同。`Temporal.Now.timeZoneId()` 是 `UTC`，也就是 Intl 的默认时区，其他 Now 方法在没有传入时区时也使用 UTC。进程的 Go 时区保持不变。
 

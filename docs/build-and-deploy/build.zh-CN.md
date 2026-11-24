@@ -2,7 +2,7 @@
 summary: '`tifa new` 怎样开始一个应用、`tifa build` 做什么、`tifa check` 运行什么、`tifa gen` 写什么、Tifa docs 打印什么、`tifa upgrade` 怎样把应用升到更新的 Tifa、`tifa agents` 写什么（技能和 AGENTS.md 里由它管理的那一块）以及怎样让它们保持最新、它在 .tifa/ 里生成哪些文件和输出、怎样设置应用的 tsconfig 和 go.mod、前端为什么用 Vite 构建、生成的程序怎样启动并回答页面请求、为什么去掉调试信息，以及随程序要附上哪些许可证声明'
 audience: app
 order: 2
-translatedFrom: 1d8094edec6f
+translatedFrom: 23aacb0e2ec4
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -133,7 +133,7 @@ build:
 
 ### JavaScript 引擎 {#the-javascript-engine}
 
-slowjs 是用 C 写的，LLVM 把它编译成 Go 汇编，由这个模块一起发布。构建不需要 C 编译器，也不需要 cgo，`CGO_ENABLED=0` 保持不变。引擎能在 linux 和 darwin 的 amd64 和 arm64 上运行，也能在 amd64 和 arm64 的 windows 上运行。为其他目标构建时，会因为 slowjs 的错误而停止，错误里会列出这些目标。它渲染得有多快，一个 VM 占用多少内存，见[性能](../reference/performance.zh-CN.md)。
+beastjs 是 Tifa 用来渲染的纯 Go JavaScript 引擎，它是用 C 写的，LLVM 把它编译成 Go 汇编，由这个模块一起发布。构建不需要 C 编译器，也不需要 cgo，`CGO_ENABLED=0` 保持不变。引擎能在 linux 和 darwin 的 amd64 和 arm64 上运行，也能在 amd64 和 arm64 的 windows 上运行。为其他目标构建时，会因为 beastjs 的错误而停止，错误里会列出这些目标。它渲染得有多快，一个 VM 占用多少内存，见[性能](../reference/performance.zh-CN.md)。
 
 ### 为另一个系统构建 {#building-for-another-system}
 
@@ -149,9 +149,9 @@ GOOS=linux GOARCH=amd64 $(go tool -n tifa) build -o bin/myapp-linux
 
 ### 随程序一起发布的声明文件 {#notices-to-ship-with-the-program}
 
-程序里包含多种许可证下的代码和数据：Tifa（MIT）、Go（BSD-3-Clause）、引擎 slowjs 和它所源自的 QuickJS（MIT 和 BSD-3-Clause）、它链接的其他 Go 模块、[Intl](../pages-and-data/server-render.zh-CN.md#intl-in-server-rendering) 的区域设置和时区数据（Unicode License V3，ICU 和 Chromium 的声明），以及它的打包文件里的 npm 包。这些许可证要求，每一份程序副本都要附带它们的声明，放在文档里或程序旁边的文件里。把程序交给别人时，请一起提供这些声明。
+程序里包含多种许可证下的代码和数据：Tifa（MIT）、Go（BSD-3-Clause）、引擎 beastjs 和它所源自的 QuickJS（MIT 和 BSD-3-Clause）、它链接的其他 Go 模块、[Intl](../pages-and-data/server-render.zh-CN.md#intl-in-server-rendering) 的区域设置和时区数据（Unicode License V3，ICU 和 Chromium 的声明），以及它的打包文件里的 npm 包。这些许可证要求，每一份程序副本都要附带它们的声明，放在文档里或程序旁边的文件里。把程序交给别人时，请一起提供这些声明。
 
-对于 Go 一侧的所有内容，请在 `tifa build` 之后，在应用的文件夹里运行下面的命令，这样 `go list` 会找到应用构建时用的版本。它会复制 Go 的许可证，`go version -m` 列出的、链接进程序的每个模块的许可证和声明文件，以及 slowjs 放在子文件夹里的声明（循环已经复制了 slowjs 根目录下的 `LICENSE*` 文件）：
+对于 Go 一侧的所有内容，请在 `tifa build` 之后，在应用的文件夹里运行下面的命令，这样 `go list` 会找到应用构建时用的版本。它会复制 Go 的许可证，`go version -m` 列出的、链接进程序的每个模块的许可证和声明文件，以及 beastjs 放在子文件夹里的声明（循环已经复制了 beastjs 根目录下的 `LICENSE*` 文件）：
 
 ```sh
 mkdir -p bin/notices
@@ -162,15 +162,15 @@ go version -m bin/<app> | awk '$1 == "dep" { print $2 }' | while read -r m; do
     if [ -f "$f" ]; then cp "$f" "bin/notices/$(echo "$m" | tr / _)-$(basename "$f")"; fi
   done
 done
-q="$(go list -m -f '{{.Dir}}' github.com/liustack/slowjs)"
-cp "$q/engine/libc/COPYRIGHT" bin/notices/slowjs-libc-COPYRIGHT
+q="$(go list -m -f '{{.Dir}}' github.com/liustack/beastjs)"
+cp "$q/engine/libc/COPYRIGHT" bin/notices/beastjs-libc-COPYRIGHT
 cp "$q/intl/LICENSE-DATA" "$q"/internal/gointl/qjsdata/NOTICE-* bin/notices/
-cp "$q/internal/gointl/LICENSE" bin/notices/slowjs-gointl-LICENSE
+cp "$q/internal/gointl/LICENSE" bin/notices/beastjs-gointl-LICENSE
 cp "$q/internal/whatwgurl/LICENSE-WHATWG-URL" "$q/internal/whatwgurl/LICENSE-GO" bin/notices/
-cp "$q/fmt/LICENSE-GO" bin/notices/slowjs-fmt-LICENSE-GO
+cp "$q/fmt/LICENSE-GO" bin/notices/beastjs-fmt-LICENSE-GO
 ```
 
-slowjs 的 [NOTICE.md](https://github.com/liustack/slowjs/blob/main/NOTICE.md#what-a-program-that-ships-a-binary-must-include) 说明了每种许可证要求其中的哪些文件。
+beastjs 的 [NOTICE.md](https://github.com/liustack/beastjs/blob/main/NOTICE.md#what-a-program-that-ships-a-binary-must-include) 说明了每种许可证要求其中的哪些文件。
 
 Vite 打包进 SSR 包和浏览器包的 npm 包是应用自己的依赖，它们的大多数许可证（MIT、ISC、BSD、Apache-2.0）提出同样的要求。浏览器包会发给每个打开页面的人。`tifa build` 不会收集它们的声明：请用你选的工具来收集，比如某个 Vite 或 Rollup 的许可证插件。
 
@@ -353,7 +353,7 @@ go tool tifa build
 ```
 
 - `go tool tifa` 使用 `go.mod` 里的 Tifa 版本，所以命令和运行时库总是匹配的。
-- 生成的 main 导入 `github.com/liustack/tifa/server`。`go mod tidy` 会跳过 `.tifa/`，看不到这个导入。Tifa 命令自己导入了 server，而 `go mod tidy` 会保留工具需要的每个模块，所以 server 的依赖（cobra、yaml、slowjs 等）总是留在 `go.mod` 和 `go.sum` 里。
+- 生成的 main 导入 `github.com/liustack/tifa/server`。`go mod tidy` 会跳过 `.tifa/`，看不到这个导入。Tifa 命令自己导入了 server，而 `go mod tidy` 会保留工具需要的每个模块，所以 server 的依赖（cobra、yaml、beastjs 等）总是留在 `go.mod` 和 `go.sum` 里。
 - `tifa build` 不会改动 `go.mod` 或 `go.sum`。运行过 `go mod tidy` 的应用可以直接构建，使用 `GOFLAGS=-mod=readonly` 的 CI 也一样。
 - 如果缺少某个依赖，构建会失败，并告诉你运行上面的 `go get -tool` 和 `go mod tidy`。
 - 要升级 Tifa，运行 `go tool tifa upgrade`（见[升级 Tifa](#upgrading-tifa)）。手动做的话，是 `go get -tool github.com/liustack/tifa/cmd/tifa@<version>`，然后 `go mod tidy`，它会把新命令或运行时库需要的依赖加进 `go.mod`。
@@ -386,7 +386,7 @@ go tool tifa build
 | 路径 | 内容 |
 | --- | --- |
 | `dist/assets/` | Vite 构建的浏览器包，以 `client.ts` 为入口（`app-<hash>.js`），还有共享的代码块（`chunk-<hash>.js`），一个包含应用全部 CSS 的样式表（`style-<hash>.css`），以及这些 CSS 引用的字体和图片。Vite 会把小的内联成 data URL。内容集合的正文引用的图片和其他文件也在这里，名为 `<name>-<hash>.<ext>`，从不内联。语法目标来自配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本，加上任意多个带版本的浏览器，比如 `es2019,chrome90,safari14`）。按路由拆分：入口里有根布局和每个页面都要加载的其他所有代码，其他每个 `page.tsx` 和 `layout.tsx` 都是单独的一个代码块，在第一次需要它的路由时才加载，见[浏览器里的路由模块](#route-modules-in-the-browser)。每个 1024 字节或更大的 JavaScript、CSS、HTML、JSON、SVG、XML 和 WebAssembly 文件，还会得到一个 gzip 最高压缩级别的 `<name>.gz`，除非 gzip 不能让它变小。服务器会用它代替原文件发送，见[压缩](#compression) |
-| `dist/ssr.js` | SSR 包，以 `server.ts` 为入口：一个 ES 模块文件，每个 npm 包都在里面，没有剩下的 import 或 export。每个 VM 把它当作模块来求值，所以它运行在严格模式下，并且可以使用顶层 `await`（见[顶层 await 和严格模式](../pages-and-data/server-render.zh-CN.md#top-level-await-and-strict-mode)）。构建随后会用引擎把它编译一次，和服务器启动时做的一样，但不运行它：服务器无法编译的代码，比如 rolldown 从 CommonJS 文件里保留下来的 `with` 语句，会让构建失败，并给出它在源文件里的位置。在 Apple M4 上，对 `examples/shop` 这大约要 0.12 秒。包解析到它们的主文件（先 `module`，再 `main`），带条件的 `exports` 解析到 `worker`、`import`、`module` 和 `default` 这些条件。它们的浏览器文件不会被使用：很多文件会用浏览器里有的东西，比如 `self` 或 `window`，而 slowjs 没有这些。要在服务器上使用某个包的浏览器构建，请按路径导入它的文件。语法目标固定为 ES2022（slowjs 原样运行的版本。降低它只会让渲染变慢，提高它则可能输出 slowjs 不支持的语法）。页面代码导入 Node 模块会让构建失败。对 npm 包，构建只给警告：它会列出包在运行时仍可能用 `require` 或 `import()` 加载模块的地方，给出源文件、行、列和包，因为服务端渲染一旦走到这样的地方，就会在 slowjs 里失败。为了找到它们，它会读取最终代码的一个压缩副本，在这个副本里，只要代码没有声明自己的 `require`，`typeof require` 就是 `"undefined"`。所以死代码里的 `require`，比如 `if (false)` 分支，或在 `typeof require` 测试后面的 `require`，如 `typeof require === 'function' ? require(name) : fallback`，不会得到警告：slowjs 没有 `require`，会走另一个分支。这个列表只是个提示。它可能点出没有渲染会走到的代码，比如包按 `typeof process` 选择的某个分支（debug 就这样做），`try`/`catch` 里的 `require`，或者代码给它赋了值的 `require`。它也可能漏掉 `eval` 字符串里的 `require`，设置了 `globalThis.require` 又把它删掉的代码里的 `require`，或之后某个插件加进去的代码里的 `require`。任何源映射都指不到的地方，比如 Node 模块的导入，会按它在 `ssr.js` 里的位置给出。`define` 会把浏览器包的 head 标签写进 `__TIFA_ASSETS__` |
+| `dist/ssr.js` | SSR 包，以 `server.ts` 为入口：一个 ES 模块文件，每个 npm 包都在里面，没有剩下的 import 或 export。每个 VM 把它当作模块来求值，所以它运行在严格模式下，并且可以使用顶层 `await`（见[顶层 await 和严格模式](../pages-and-data/server-render.zh-CN.md#top-level-await-and-strict-mode)）。构建随后会用引擎把它编译一次，和服务器启动时做的一样，但不运行它：服务器无法编译的代码，比如 rolldown 从 CommonJS 文件里保留下来的 `with` 语句，会让构建失败，并给出它在源文件里的位置。在 Apple M4 上，对 `examples/shop` 这大约要 0.12 秒。包解析到它们的主文件（先 `module`，再 `main`），带条件的 `exports` 解析到 `worker`、`import`、`module` 和 `default` 这些条件。它们的浏览器文件不会被使用：很多文件会用浏览器里有的东西，比如 `self` 或 `window`，而 beastjs 没有这些。要在服务器上使用某个包的浏览器构建，请按路径导入它的文件。语法目标固定为 ES2022（beastjs 原样运行的版本。降低它只会让渲染变慢，提高它则可能输出 beastjs 不支持的语法）。页面代码导入 Node 模块会让构建失败。对 npm 包，构建只给警告：它会列出包在运行时仍可能用 `require` 或 `import()` 加载模块的地方，给出源文件、行、列和包，因为服务端渲染一旦走到这样的地方，就会在 beastjs 里失败。为了找到它们，它会读取最终代码的一个压缩副本，在这个副本里，只要代码没有声明自己的 `require`，`typeof require` 就是 `"undefined"`。所以死代码里的 `require`，比如 `if (false)` 分支，或在 `typeof require` 测试后面的 `require`，如 `typeof require === 'function' ? require(name) : fallback`，不会得到警告：beastjs 没有 `require`，会走另一个分支。这个列表只是个提示。它可能点出没有渲染会走到的代码，比如包按 `typeof process` 选择的某个分支（debug 就这样做），`try`/`catch` 里的 `require`，或者代码给它赋了值的 `require`。它也可能漏掉 `eval` 字符串里的 `require`，设置了 `globalThis.require` 又把它删掉的代码里的 `require`，或之后某个插件加进去的代码里的 `require`。任何源映射都指不到的地方，比如 Node 模块的导入，会按它在 `ssr.js` 里的位置给出。`define` 会把浏览器包的 head 标签写进 `__TIFA_ASSETS__` |
 | `dist/ssr.js.map` | SSR 包的源映射，不带源码的副本。服务器加载这个包时读取这个文件，并在这个包第一次出错时（包括预热失败）解码它，让堆栈跟踪里的位置落在源文件里，路径相对于应用根目录。读不完整的映射不会被使用，位置会留在 `ssr.js` 里。它的大小因应用而异：`examples/shop` 的约为 1.9 MB，比 `ssr.js` 的两倍略少。它和 `dist/` 里的其余部分一起嵌入程序。要去掉它，在 `vite.config.ts` 里把 `environments.ssr.build.sourcemap` 设为 `false`：`examples/shop` 的程序会因此小约 1.9 MB，构建的警告和渲染错误会给出 `ssr.js` 里的位置。没有写出 `ssr.js.map` 的构建会删除之前某次构建留下的那个，因为它对应的是别的代码：`tifa dev` 会在两次构建之间保留 `.tifa/dist`。服务器只读这个文件，所以设为 `inline` 时，`ssr.js` 里的映射不会被使用 |
 | `dist/public/` | `build.public` 配置项（默认 `public`）所指文件夹的原样副本，给需要固定名字的文件使用（见[静态文件](../start/app.zh-CN.md#static-files)）。里面的符号链接，或文件夹本身是符号链接，都会被跟随：指向文件的链接会被复制成那个文件，指向文件夹的链接会连同里面的内容一起复制。指回正在复制的文件夹，或指向不存在的东西的链接，会让构建失败。那个文件夹不存在时就没有这一项。`build.json` 列出其中每个文件的内容哈希，它会成为该文件的 ETag |
 | `dist/content.json` | 给有内容集合的应用：每个集合里不是草稿的条目，包括 `content.Entry` 的字段、翻译键、正文文件和它的标题，以及 JSON 形式的 front matter。程序在 `OnStart` 之前读取它，见[内容](../pages-and-data/content.zh-CN.md) |
@@ -396,15 +396,15 @@ go tool tifa build
 
 构建会打印 Vite 和 Rolldown 对应用自己的代码给出的警告。Tifa 关掉了应用无法处理的两条提示：Rolldown 对最慢的插件回调给出的 PLUGIN_TIMINGS 列表，以及 Vite 对浏览器包在 1000 kB 以下的代码块大小警告，Tifa 有意把浏览器包做成一个文件。超过 1000 kB 的浏览器入口仍然会得到警告。应用可以在自己的 Vite 配置里设置 `build.chunkSizeWarningLimit` 或 `build.rolldownOptions.checks` 来改变其中任何一条。
 
-SSR 包一开始会导入 `runtime/host.js`，它补上 slowjs 缺少的东西：`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么都不打印、调用 `error` 时会抛出异常的 `console`。在运行包里的模块之前，SSR 加载器会注册引擎的 `URL` 和 `URLSearchParams`（`github.com/liustack/slowjs/url`，它在 Go 里解析），注册用于取新鲜随机字节的 Go 函数，以及用于引擎的异步上下文的 Go 函数，后者是 promise 任务携带的一个对象，`AsyncLocalStorage` 把它的存储放在里面。所以对于在模块加载时就用到 `crypto` 和 `AsyncLocalStorage` 的依赖，它们已经准备好了。克隆完全在 JS 里运行，使用内置的品牌检查和 `Error.isError`，不读引擎的私有字段。它不提供 `crypto.subtle`、`fetch` 或 `Request`。[服务端渲染里有什么](../pages-and-data/server-render.zh-CN.md#what-the-server-render-has)列出了页面在那里能找到的一切。这个脚本已经预先打包进程序，所以应用不用安装构成它的那些包。它怎么构建，以及为什么其中两个包打了补丁，见 [宿主脚本](../internals/ssr-bundle-rewrites.md#the-host-script)。
+SSR 包一开始会导入 `runtime/host.js`，它补上 beastjs 缺少的东西：`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么都不打印、调用 `error` 时会抛出异常的 `console`。在运行包里的模块之前，SSR 加载器会注册引擎的 `URL` 和 `URLSearchParams`（`github.com/liustack/beastjs/url`，它在 Go 里解析），注册用于取新鲜随机字节的 Go 函数，以及用于引擎的异步上下文的 Go 函数，后者是 promise 任务携带的一个对象，`AsyncLocalStorage` 把它的存储放在里面。所以对于在模块加载时就用到 `crypto` 和 `AsyncLocalStorage` 的依赖，它们已经准备好了。克隆完全在 JS 里运行，使用内置的品牌检查和 `Error.isError`，不读引擎的私有字段。它不提供 `crypto.subtle`、`fetch` 或 `Request`。[服务端渲染里有什么](../pages-and-data/server-render.zh-CN.md#what-the-server-render-has)列出了页面在那里能找到的一切。这个脚本已经预先打包进程序，所以应用不用安装构成它的那些包。它怎么构建，以及为什么其中两个包打了补丁，见 [宿主脚本](../internals/ssr-bundle-rewrites.md#the-host-script)。
 
-Tifa 插件会改写 SSR 包里的许多 npm 包，比如 React DOM、TanStack Router、i18next，以及给组件加样式和绘图的库，让它们在 slowjs 里渲染得更快。它按代码的形态或文本找到要改的代码，而不是按包的版本，所以 `pnpm update` 不会弄坏构建。当某个发布版本改变了那段代码时，构建会打印一条警告，带上包的版本和文件，并让那段代码保持原样。页面仍然能渲染，只是慢一些。如果 React DOM 的某个发布版本，其字符串渲染器插件没有完整读过，会收到一条这样说明的警告，页面渲染结果相同，只是更慢。每条这样的警告都以 `tifa rewrite not recognized: ` 开头，所以 `grep` 能找到所有的警告。对 React DOM 的改动让它的文件里每一行都保持在原来的位置，所以渲染错误的堆栈给出的是 `node_modules` 里 React DOM 的原样行号。没有设置可以关掉这些改动：它们都不改变 HTML，只有服务器动作的键例外，而 Tifa 没有服务器动作。每处改动做什么，以及维护者怎样审查新版本，见 [SSR 包的改写](../internals/ssr-bundle-rewrites.md)。
+Tifa 插件会改写 SSR 包里的许多 npm 包，比如 React DOM、TanStack Router、i18next，以及给组件加样式和绘图的库，让它们在 beastjs 里渲染得更快。它按代码的形态或文本找到要改的代码，而不是按包的版本，所以 `pnpm update` 不会弄坏构建。当某个发布版本改变了那段代码时，构建会打印一条警告，带上包的版本和文件，并让那段代码保持原样。页面仍然能渲染，只是慢一些。如果 React DOM 的某个发布版本，其字符串渲染器插件没有完整读过，会收到一条这样说明的警告，页面渲染结果相同，只是更慢。每条这样的警告都以 `tifa rewrite not recognized: ` 开头，所以 `grep` 能找到所有的警告。对 React DOM 的改动让它的文件里每一行都保持在原来的位置，所以渲染错误的堆栈给出的是 `node_modules` 里 React DOM 的原样行号。没有设置可以关掉这些改动：它们都不改变 HTML，只有服务器动作的键例外，而 Tifa 没有服务器动作。每处改动做什么，以及维护者怎样审查新版本，见 [SSR 包的改写](../internals/ssr-bundle-rewrites.md)。
 
-包可能会导入 slowjs 没有的 Node 模块。插件给依赖对一个 Node 模块的每个静态导入一个它自己的替身模块。它导出 Node 给这个模块的那些名字（向运行构建的那个 Node 询问得到），以及导入方要求的每个其他名字，每一个都是一个函数，每次使用都会抛出一个错误，错误里点出这个导出、这个模块和这个包（见[导入 Node 模块的包](../pages-and-data/server-render.zh-CN.md#packages-that-import-node-modules)）。这些替身没有副作用，所以没有代码用到的名字会离开包，构建会对仍然留着替身的模块给出警告。对 `node:async_hooks` 的导入会得到 host 的 `AsyncLocalStorage` 和 `AsyncResource`，而只要求这些的导入，没有替身，也没有警告。对 Node 模块的 `require` 或 `import()` 保持原样，构建会对它给出警告。页面代码导入 Node 模块会让构建失败。
+包可能会导入 beastjs 没有的 Node 模块。插件给依赖对一个 Node 模块的每个静态导入一个它自己的替身模块。它导出 Node 给这个模块的那些名字（向运行构建的那个 Node 询问得到），以及导入方要求的每个其他名字，每一个都是一个函数，每次使用都会抛出一个错误，错误里点出这个导出、这个模块和这个包（见[导入 Node 模块的包](../pages-and-data/server-render.zh-CN.md#packages-that-import-node-modules)）。这些替身没有副作用，所以没有代码用到的名字会离开包，构建会对仍然留着替身的模块给出警告。对 `node:async_hooks` 的导入会得到 host 的 `AsyncLocalStorage` 和 `AsyncResource`，而只要求这些的导入，没有替身，也没有警告。对 Node 模块的 `require` 或 `import()` 保持原样，构建会对它给出警告。页面代码导入 Node 模块会让构建失败。
 
 ### i18next 缓存 {#i18next-cache}
 
-用 i18next 翻译一次，在 slowjs 里要花几十微秒，商店的一个店面页面每次渲染要做约 126 次，大多数是每次都相同的文本和相同的值。所以 Tifa 插件在 SSR 包里给 i18next 加了一个缓存。`getFixedT` 返回的 `t`（react-i18next 的 `useTranslation` 把它交出来）会保存它给出的每个字符串，之后用同样的键和选项调用，不用再翻译一次就能得到那个字符串。每个 VM 有它自己的缓存。它默认是开启的。在项目文件里设置 `build.i18next_cache: false` 可以关闭它，包就和没有这个缓存时一模一样，一个字节都不差。
+用 i18next 翻译一次，在 beastjs 里要花几十微秒，商店的一个店面页面每次渲染要做约 126 次，大多数是每次都相同的文本和相同的值。所以 Tifa 插件在 SSR 包里给 i18next 加了一个缓存。`getFixedT` 返回的 `t`（react-i18next 的 `useTranslation` 把它交出来）会保存它给出的每个字符串，之后用同样的键和选项调用，不用再翻译一次就能得到那个字符串。每个 VM 有它自己的缓存。它默认是开启的。在项目文件里设置 `build.i18next_cache: false` 可以关闭它，包就和没有这个缓存时一模一样，一个字节都不差。
 
 一次调用按实例、语言、命名空间、键和选项来查找，只有值都是普通值的调用才会被保存，其余的照旧翻译。应用通过 i18next 的 API 改变翻译时（添加资源、再次 `init`、加载命名空间或语言、`use` 等），缓存会清空，每个 VM 里它最多保存约 1 MB。调用很少被缓存答中的键，会不再使用缓存。完整的规则见 [i18next 缓存](../internals/ssr-bundle-rewrites.md#the-i18next-cache)。
 
@@ -524,7 +524,7 @@ Tifa 用应用自己的 Vite 打包前端，因为有页面的应用是一个 Re
 - **修改立刻可见。** 在 `tifa dev` 下，React Fast Refresh 会就地替换被改动的组件并保留它们的状态，新的 CSS 会替换旧的，都不用重新加载（见 [dev.md](dev.zh-CN.md#vite)）。
 - **它已经认识的插件。** Tailwind CSS 就是 `@tailwindcss/vite`，其他任何 Vite 插件，按它自己的文档说的方式放进 `vite.config.ts`。Tifa 不去包装它们。
 - **任何 Vite 应用的设置。** `vite.config.ts`、`tsconfig.json` 的 `paths` 和 shadcn CLI 都按它们的文档所说的方式工作，没有只属于 Tifa 的形式。
-- **不用改包就能渲染得更快。** Tifa 插件在打包时改写 React DOM、i18next 和其他包，所以 SSR 包在 slowjs 里渲染得更快，而应用安装的是原样的包（见[前端输出](#frontend-output)）。
+- **不用改包就能渲染得更快。** Tifa 插件在打包时改写 React DOM、i18next 和其他包，所以 SSR 包在 beastjs 里渲染得更快，而应用安装的是原样的包（见[前端输出](#frontend-output)）。
 - **Tifa 不用维护的打包功能。** 按路由拆分、清单、带哈希的文件名和源映射都来自 Vite 和 Rolldown，React 世界会让它们保持最新。
 
 它的代价：
@@ -594,7 +594,7 @@ i18n.services.formatter?.addCached('currency', (lng, options) => {
 
   当构建 ID 不同时，服务器回答 409，并在响应头 `X-Tifa-Build` 里带上它自己的构建 ID，浏览器会为那个构建把当前页面重新加载一次（几个 409 只重新加载一次，预加载迟到的 409 不会跳到预加载的目标）。已经为那个构建重新加载过、又收到 409 的页面不会再重新加载：这一批里的每个 loader 都以 409 失败。浏览器把这一点记在 `sessionStorage` 里，键是 `tifa-reload:<build ID>`，见[部署时已打开的页面](deploy.zh-CN.md#pages-open-while-you-deploy)。如果浏览器仍然收到了 3xx（比如来自代理），它会把那个 URL 当作整页加载。
 - `route.gen` 模块的处理函数（见 [pages.md](../pages-and-data/pages.zh-CN.md#calling-method-handlers-from-the-browser)）会发送请求头 `X-Tifa-Call: 1`，并在 `X-Tifa-Build` 里带上它的页面的构建 ID，并且不让 `fetch` 跟随重定向。在 `OnRequest` 之后、处理函数之前，当两者不同时，带页面的服务器会回答 409，并在响应头 `X-Tifa-Build` 里带上它自己的构建 ID，浏览器会把页面重新加载一次，和数据请求一样。这个函数会抛出 `TifaError`，并且不会再次发送这个调用。应用的处理函数也可以返回 409，而那个回答没有 `X-Tifa-Build` 头，所以函数不会因它而重新加载任何东西。没有 `X-Tifa-Build` 的请求不会被检查。当处理函数或 `OnRequest` 返回 `tifa.Redirect` 时，这样的请求会得到 200、`Cache-Control: no-store`、`X-Tifa-Redirect: <3xx>`，以及和数据请求一样的 `{"redirect": "<URL>", "status": <3xx>}` 的回答。函数只在有那个头时才把它读作重定向，因为处理函数的结果可能有同样的形状。对成功的调用，其他每种回答都是 `{"result"?: ..., "session"?: ...}`（见[回答里的会话](#sessions-in-answers)），自己写响应的处理函数则原样传下去。来自 curl 或其他程序、没有 `X-Tifa-Call` 的请求，仍然得到 3xx。两种回答都带 `Vary: X-Tifa-Call`。
-- 整页把每个 `Load` 的数据放在路由器的脱水脚本里带给浏览器。Go 把每个成功的 `Load` 的数据，以它写出的 JSON 文本的形式交给渲染，作为它自己的 `startRender` 的一个参数（输入里它的结果的 `text` 给它编号，`js/runtime/server.tsx` 里的 `RenderResult`），渲染再解析那段文本。在这段文本里，Go 把 U+FFFF 以上的每个字符写成它的代理对的转义，比如 😀 写成 `😀`，它们代表同一个字符：把文本写进页面的 seroval 只对不含代理项的字符串使用 `JSON.stringify`，对其他任何字符串都一个码元一个码元地处理，这在 slowjs 里要慢得多。没有这些转义时，`examples/shop` 的订单列表数据里只要有一个 emoji，它的渲染就会慢 9%，在 1,000 行的表格里有一个就会慢 2.3 倍。对象或数组以同样的文本进入页面，作为一个 JSON 字符串，通过 TanStack 的序列化适配器（键 `tifa.data`），浏览器用 `JSON.parse` 把它读回来。VM 自己不把这个字符串写进页面。从 4,096 个码元起，它在原位置写一个槽，由一个 `~`、这次渲染的 nonce、一个点、文本的编号和一个点组成，`Pool.Render` 在 VM 重新空闲之后填入每个槽，文本按 seroval 在脚本里写字符串的方式写出：引号和反斜杠被转义，换行、制表符、退格和换页符写成字母，`<` 写成 `\x3C`，这样没有 `</script` 或 `<!--` 能结束或隐藏这个元素，U+2028 和 U+2029 写成转义，每个不是 UTF-8 的字节写成 U+FFFD。页面离开 VM 只有 `Pool.Render` 这一条路，所以每一条发送、缓存或压缩页面的路径得到的都是已经填好的页面。nonce 是 `Pool.Render` 在 Load 运行之后为每次渲染抽取的 128 个随机比特，所以没有任何数据能拼出一个槽，在不是完整的槽的任何地方含有 `~` 和 nonce 的页面不会被提供（`ssr.ErrSlot`）。槽只在 seroval 写它的地方才会被填：作为适配器调用 `$_TSR.t.get("tifa.data")("<slot>")` 的整个字符串参数，位于一个含有 JavaScript、并且还没有结束的 `<script>` 元素里面。JavaScript 字符串的转义在其他任何地方都是不对的，所以属性里的真正的槽，或组件把它复制进去的页面文本里的槽，或脚本的其他位置的槽，同样是 `ssr.ErrSlot`。这就是信任边界：页面的代码仍然可以写任何 HTML，就像它一直能做的那样，但它没办法让数据的文本被写进它选择的上下文里。这个检查查看每个槽之前的几 KB，在 221 KB 的页面上用时不到 1 µs。没有带 nonce 调用的包会像以前一样自己写文本。在 VM 里写这个字符串，每个字节的数据要用 100 到 180 条指令（扫描要转义的字符，带转义的复制，以及页面回到 Go 时又多一次复制）。Go 填一个槽要把页面再复制一次，130 KB 的页面约 60 µs，这就是为什么不到 4,096 个码元的文本留在 VM 里。路由器对超过 16K 个码元的文本会自己开一个脚本标签，所以带这样文本的页面比以前少两个脚本标签，因为短槽不再需要它们：页面小了 80 个字节，浏览器按同样的顺序运行同样的语句。
+- 整页把每个 `Load` 的数据放在路由器的脱水脚本里带给浏览器。Go 把每个成功的 `Load` 的数据，以它写出的 JSON 文本的形式交给渲染，作为它自己的 `startRender` 的一个参数（输入里它的结果的 `text` 给它编号，`js/runtime/server.tsx` 里的 `RenderResult`），渲染再解析那段文本。在这段文本里，Go 把 U+FFFF 以上的每个字符写成它的代理对的转义，比如 😀 写成 `😀`，它们代表同一个字符：把文本写进页面的 seroval 只对不含代理项的字符串使用 `JSON.stringify`，对其他任何字符串都一个码元一个码元地处理，这在 beastjs 里要慢得多。没有这些转义时，`examples/shop` 的订单列表数据里只要有一个 emoji，它的渲染就会慢 9%，在 1,000 行的表格里有一个就会慢 2.3 倍。对象或数组以同样的文本进入页面，作为一个 JSON 字符串，通过 TanStack 的序列化适配器（键 `tifa.data`），浏览器用 `JSON.parse` 把它读回来。VM 自己不把这个字符串写进页面。从 4,096 个码元起，它在原位置写一个槽，由一个 `~`、这次渲染的 nonce、一个点、文本的编号和一个点组成，`Pool.Render` 在 VM 重新空闲之后填入每个槽，文本按 seroval 在脚本里写字符串的方式写出：引号和反斜杠被转义，换行、制表符、退格和换页符写成字母，`<` 写成 `\x3C`，这样没有 `</script` 或 `<!--` 能结束或隐藏这个元素，U+2028 和 U+2029 写成转义，每个不是 UTF-8 的字节写成 U+FFFD。页面离开 VM 只有 `Pool.Render` 这一条路，所以每一条发送、缓存或压缩页面的路径得到的都是已经填好的页面。nonce 是 `Pool.Render` 在 Load 运行之后为每次渲染抽取的 128 个随机比特，所以没有任何数据能拼出一个槽，在不是完整的槽的任何地方含有 `~` 和 nonce 的页面不会被提供（`ssr.ErrSlot`）。槽只在 seroval 写它的地方才会被填：作为适配器调用 `$_TSR.t.get("tifa.data")("<slot>")` 的整个字符串参数，位于一个含有 JavaScript、并且还没有结束的 `<script>` 元素里面。JavaScript 字符串的转义在其他任何地方都是不对的，所以属性里的真正的槽，或组件把它复制进去的页面文本里的槽，或脚本的其他位置的槽，同样是 `ssr.ErrSlot`。这就是信任边界：页面的代码仍然可以写任何 HTML，就像它一直能做的那样，但它没办法让数据的文本被写进它选择的上下文里。这个检查查看每个槽之前的几 KB，在 221 KB 的页面上用时不到 1 µs。没有带 nonce 调用的包会像以前一样自己写文本。在 VM 里写这个字符串，每个字节的数据要用 100 到 180 条指令（扫描要转义的字符，带转义的复制，以及页面回到 Go 时又多一次复制）。Go 填一个槽要把页面再复制一次，130 KB 的页面约 60 µs，这就是为什么不到 4,096 个码元的文本留在 VM 里。路由器对超过 16K 个码元的文本会自己开一个脚本标签，所以带这样文本的页面比以前少两个脚本标签，因为短槽不再需要它们：页面小了 80 个字节，浏览器按同样的顺序运行同样的语句。
  所以浏览器读到的恰好是服务器渲染时的值，包括 `-0` 和 `__proto__` 键，用它们格式化出的文本，比如 Intl 给出的 `-¥0.00`，水合出来的和渲染时一样。对同样的数据，TanStack 的默认序列化器在 VM 里要花好几倍的时间。代价是页面稍微大一点，因为 JSON 字符串要转义它的引号：在 `examples/shop` 的页面上，压缩之前约大 3%。字符串、数字和其他单个的值走默认的序列化器。路由器的构造函数类型把适配器留给了 TanStack Start，在它自己的路由器上设置它们没有文档（TanStack/router#7796），所以 `TestGeneratedRouterBehaves` 检查页面使用 `tifa.data` 并且数据能经受住水合，而 `tifa build` 检查应用安装的是这些测试运行时用的那个 TanStack Router（见[应用的 tsconfig 和 Vite 配置](#the-apps-tsconfig-and-vite-config)）。
 - 浏览器从 TanStack 的脱水数据里得到构建 ID。
 - loader 为失败的 `Load` 抛出的 `TifaError`，通过 TanStack 的序列化适配器（键 `tifa.TifaError`）写进页面。水合之后它仍然是带 `status` 的 `TifaError`，所以 `ErrorBoundary` 组件在服务器和浏览器里看到的是同样的错误。
@@ -611,7 +611,7 @@ i18n.services.formatter?.addCached('currency', (lng, options) => {
 
 设置的来源，按优先级从高到低：命令行参数，环境变量，工作目录的 `.env` 文件，用 `-c`（或 `--config`）给出的文件，构建进程序的 `tifa.yaml` 的值，以及默认值。程序自己不读 `tifa.yaml`。不是设置的参数是错误。不是设置的变量和文件键会被放着不管。见[配置](config.zh-CN.md#where-settings-come-from)。
 
-在 VM 里，`Date` 的本地时间总是 UTC，不管程序是在哪个时区启动的，所以页面在每台机器上渲染的结果都相同。进程的时区不动：应用的 Go 代码里的 `time.Local` 是机器的时区或 `TZ`，和任何 Go 程序一样。VM 里的 Intl 和 Temporal 使用 slowjs 内置的时区数据，从不读系统的 zoneinfo。生成的 `main.go` 导入了 `time/tzdata`，所以应用的 Go 代码里的 `time.LoadLocation` 即使在系统没有 zoneinfo 的地方，比如 `scratch` 容器里，也能找到每个时区。它让程序大了约 450 KB。
+在 VM 里，`Date` 的本地时间总是 UTC，不管程序是在哪个时区启动的，所以页面在每台机器上渲染的结果都相同。进程的时区不动：应用的 Go 代码里的 `time.Local` 是机器的时区或 `TZ`，和任何 Go 程序一样。VM 里的 Intl 和 Temporal 使用 beastjs 内置的时区数据，从不读系统的 zoneinfo。生成的 `main.go` 导入了 `time/tzdata`，所以应用的 Go 代码里的 `time.LoadLocation` 即使在系统没有 zoneinfo 的地方，比如 `scratch` 容器里，也能找到每个时区。它让程序大了约 450 KB。
 
 `serve` 还有一个开发用的参数 `--dist <dir>`：它从那个文件夹读取前端输出，而不是嵌入的 `dist/`。[`tifa dev`](dev.zh-CN.md) 把它指向 `.tifa/dist`。只重新构建 SSR 包之后，开发用的程序（`server.DevMain`）会从那里重新加载这个包，不用重启，在其他的重新构建之后，`tifa dev` 会重启它。它不是设置，也没有环境变量。启动时，程序读取 `ssr.js`，编译它并预热 VM 池，并读取 `build.json` 来得到构建 ID 和 head 标签。
 
@@ -638,7 +638,7 @@ i18n.services.formatter?.addCached('currency', (lng, options) => {
 - `OnRequest` 返回了另一个错误：中间件说了算，这个错误按它自己的方式处理（重定向、`ErrNotFound` 和 `tifa.Error` 被直接处理，其他任何错误交给 `OnError`）。整页请求得到由 Go 写出的简单错误页面。数据请求得到 `{"error": message}` 和状态码，没有每个路由的数据。如果 `OnRequest` 自己写了响应，框架就不再写任何东西。
 - 当数据请求遇到针对整个请求的重定向时（`OnRequest` 返回 `tifa.Redirect`，或 URL 写成了非规范的形式），它回答 200 和 `{"redirect", "status"}`，不发送 3xx。这个 JSON 里的 URL，以及 `Load` 要求重定向的路由的 `location`，就是 3xx 会带的那个：像 `../list` 这样的相对 URL 会相对于请求的路径解析，和 `http.Redirect` 做的一样。
 - 不匹配的 URL，对有页面的应用的 GET 或 HEAD：Go 找到这个 URL 所匹配的最深的布局（规则见 [404](../pages-and-data/pages.zh-CN.md#404)），并把它的路径的参数设置到请求上。`next(c)` 从根布局一路运行 `Layout` 函数到它，并返回 `tifa.ErrNotFound`。整页请求用它们的结果和状态 404 渲染，或者在某个布局失败时用那个布局的状态，和在页面上一样。导航数据请求运行其中被列出的那些，并以 404 回答它们的结果，当其中一个失败时回答 200，和在页面上一样。列出不在其中的路由会回答 400。其他方法，以及没有页面的应用，得到 JSON 404。
-- VM 渲染失败（包括组件在渲染时抛出异常：字符串渲染器把它吞进 Suspense 边界，并留下一个 `<!--$!-->` 标记，SSR 入口看到这个标记时就认为渲染失败了）算作意外错误。它会交给 `OnError` 一次，并且从不存进渲染 memo。然后页面会把错误放进路由树里再渲染一次，见下一点。当没有任何尝试渲染成功时，Go 写出一个简单的错误页面，带状态和公开的消息，不暴露内部的错误。在 `tifa dev`（`DevMain`）下，这个页面还会点出请求，显示完整的错误，并加载开发客户端，一旦重新构建提供了修复，它就会重新加载一次。`OnError` 得到的错误就是代码抛出的那个，即使 React 把它吞掉了也一样，它的堆栈跟踪的前 64 帧由 `dist/ssr.js.map` 给出源文件里的位置。当代码调用了 slowjs 没有的 `require` 时，错误还会点出这个包和位置，并说明该怎么做：从 `.client` 文件导入这个包，在 `useEffect` 里调用它，或使用这个包的一个不需要 Node 的构建。当包在加载时就失败了，也就是在任何页面渲染之前，导入本身就失败，把调用移进 `useEffect` 没有用，所以预热的错误会说要从 `.client` 文件导入这个包，或使用另一个构建。一个会因一直不会完成的工作而挂起的组件，不管是抛出 promise，还是作为加载不了的 `React.lazy` 组件，都会以同样的方式让渲染失败，因为服务器没有定时器，也不做 I/O。它的错误会说要用 `Load` 把数据给页面，并且以静态方式导入组件，或者设置 `SSR = false`。服务器看不到某个懒导入为什么失败。显示它的 `Load` 函数的错误（包括 404）的页面，在它的渲染失败时，也会经过同样的几次尝试。
+- VM 渲染失败（包括组件在渲染时抛出异常：字符串渲染器把它吞进 Suspense 边界，并留下一个 `<!--$!-->` 标记，SSR 入口看到这个标记时就认为渲染失败了）算作意外错误。它会交给 `OnError` 一次，并且从不存进渲染 memo。然后页面会把错误放进路由树里再渲染一次，见下一点。当没有任何尝试渲染成功时，Go 写出一个简单的错误页面，带状态和公开的消息，不暴露内部的错误。在 `tifa dev`（`DevMain`）下，这个页面还会点出请求，显示完整的错误，并加载开发客户端，一旦重新构建提供了修复，它就会重新加载一次。`OnError` 得到的错误就是代码抛出的那个，即使 React 把它吞掉了也一样，它的堆栈跟踪的前 64 帧由 `dist/ssr.js.map` 给出源文件里的位置。当代码调用了 beastjs 没有的 `require` 时，错误还会点出这个包和位置，并说明该怎么做：从 `.client` 文件导入这个包，在 `useEffect` 里调用它，或使用这个包的一个不需要 Node 的构建。当包在加载时就失败了，也就是在任何页面渲染之前，导入本身就失败，把调用移进 `useEffect` 没有用，所以预热的错误会说要从 `.client` 文件导入这个包，或使用另一个构建。一个会因一直不会完成的工作而挂起的组件，不管是抛出 promise，还是作为加载不了的 `React.lazy` 组件，都会以同样的方式让渲染失败，因为服务器没有定时器，也不做 I/O。它的错误会说要用 `Load` 把数据给页面，并且以静态方式导入组件，或者设置 `SSR = false`。服务器看不到某个懒导入为什么失败。显示它的 `Load` 函数的错误（包括 404）的页面，在它的渲染失败时，也会经过同样的几次尝试。
 - 出现失败时，SSR 入口会报告 `levels`：匹配的路由里，从它显示到的最深的那个一直到根路由，有多少个能显示这个错误。服务器会再次渲染，输入里带着 `error: {status, message, level}`，也就是 `OnError` 给出的状态和公开消息。然后入口在路由器脱水之前，把在显示到的最深路由之上 `level` 层的匹配，换成一个持有 `TifaError` 的失败的匹配，这样那个路由的 `errorComponent` 就会显示这个错误，浏览器会水合同样的树。第一次尝试的 level 是 0，每次失败的尝试向上移一层。响应带 `OnError` 的状态、`Cache-Control: no-store`，没有 ETag。在 `tifa dev` 下，开发客户端会把错误显示在页面上。失败的渲染会让它的 VM 退役，所以每次尝试都在一个全新的 VM 上运行。所有的尝试共享第一次渲染开始之后 `ssr.timeout` 的期限，当其中一次用完了时间、发现每个 VM 都忙，或请求被取消时，它们就会停止，第一次渲染也一样。用光了 `ssr.vm_memory` 的渲染不报告 levels，所以服务器会尝试页面有多少个路由就尝试多少次，再加上根路由和一个添加的路由的两次。两者都不是的失败会立刻停止。
 - 当路由器把 URL 写成不同的样子时（`/%61` 写成 `/a`），VM 返回一个重定向，服务器用状态 308 回答那个重定向，不带 ETag。当 URL 匹配某个页面时，渲染 memo 会像保存页面那样保存这个重定向，所以对这个 URL 的下一个请求不用渲染。这个重定向会把渲染没有看到的查询参数按请求里的样子放回去。末尾的斜杠（`/a/` 对应 `/a`）也会被重定向，但这样的 URL 不匹配任何页面，会渲染某个布局的 404，所以它的重定向不会被保存，和 404 一样。这个 URL 只是页面的另一种写法，所以重定向是永久的：搜索引擎把永久重定向当作规范的 URL，而不是临时的，并且 308 保留请求方法。ServeMux 对它清理过的路径（`/a//b`、`/a/./b`）或补上斜杠的路径写 307，服务器对这些也回答 308。`Load` 或 `OnRequest` 用 `tifa.Redirect` 要求的重定向保留它给出的状态。渲染只取决于构建 ID、SSR 包、它渲染的 URL 和数据，所以同一个 ETag 永远不会既属于 200 又属于重定向，客户端也永远不会得到会把这个重定向变成 304 的 ETag。
 - 非 GET 请求、API 路由和没有页面的应用仍然回答 JSON。
