@@ -330,6 +330,10 @@ echo the app said goodbye`)
 	oldLow := lowPortFile
 	lowPortFile = filepath.Join(home, ".run", "lowport")
 	t.Cleanup(func() { lowPortFile = oldLow })
+	// ufw is there and on when a test writes .run/ufw.conf and the program .run/ufw.
+	oldConf, oldProgram := ufwConf, ufwProgram
+	ufwConf, ufwProgram = filepath.Join(home, ".run", "ufw.conf"), filepath.Join(home, ".run", "ufw")
+	t.Cleanup(func() { ufwConf, ufwProgram = oldConf, oldProgram })
 	// This machine reaches a port of the server when the test wrote .run/open-<port>.
 	oldAnswers := portAnswers
 	portAnswers = func(_ context.Context, host string, port int) bool {

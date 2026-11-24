@@ -177,6 +177,9 @@ type serverState struct {
 	// PortsConf says the server has portsConf, which setup wrote.
 	LowPort   int
 	PortsConf bool
+	// UFW is "on" when ufw is installed and on at boot, "off" when it is installed and off, and
+	// empty without it. Only root reads its rules: see deployufw.go.
+	UFW string
 	// Listen are the TCP ports something listens on, with the programs ss names: all of them as
 	// root, only those of the deploy user as the deploy user. UserSockets are the sockets the
 	// systemd of the deploy user holds, with the service each one starts.
@@ -307,6 +310,12 @@ func parseServerState(out string) (serverState, error) {
 			s.LowPort = p
 		case "ports-conf":
 			s.PortsConf = true
+		case "ufw":
+			if v := strings.TrimSpace(value); v == "on" || v == "off" {
+				s.UFW = v
+			} else {
+				return s, fmt.Errorf("the server gave the state of ufw as %q", value)
+			}
 		case "unit-socket":
 			s.SocketSum = strings.TrimSpace(value)
 		case "unit-service":
@@ -534,10 +543,12 @@ echo "arch $(uname -m)"
 echo "machine $(hostname -s)-$(head -c 8 /etc/machine-id 2>/dev/null)"
 if [ -r "$lowport_file" ]; then echo "lowport $(cat "$lowport_file")"; fi
 ss -Hltnp | sed 's/^/listen /'
-`
+` + ufwProbe
 
 // setupProbeScript is setupProbeBody.
-func setupProbeScript() string { return script(setupProbeBody, "lowport_file", lowPortFile) }
+func setupProbeScript() string {
+	return script(setupProbeBody, "lowport_file", lowPortFile, "ufw_conf", ufwConf, "ufw_program", ufwProgram)
+}
 
 // listenersBody runs as root and lists the TCP ports something listens on, with the programs, which
 // the deploy user cannot see.
@@ -724,7 +735,7 @@ fi
 if [ -s "$d/https" ]; then echo "https $(cat "$d/https")"; fi
 if [ -r "$lowport_file" ]; then echo "lowport $(cat "$lowport_file")"; fi
 if [ -f ` + portsConf + ` ]; then echo "ports-conf yes"; fi
-# ss names only the programs of this user. systemd names the sockets it holds for this user.
+` + ufwProbe + `# ss names only the programs of this user. systemd names the sockets it holds for this user.
 ss -Hltnp 2>/dev/null | sed 's/^/listen /'
 if [ -e "$rt/bus" ]; then
 	XDG_RUNTIME_DIR="$rt" systemctl --user list-sockets --no-legend --plain 2>/dev/null | sed 's/^/usock /'
@@ -765,12 +776,12 @@ exit 0
 
 // probeScript is probeBody for app.
 func probeScript(app string) string {
-	return script(probeBody, "app", app, "health", "", "lowport_file", lowPortFile)
+	return script(probeBody, "app", app, "health", "", "lowport_file", lowPortFile, "ufw_conf", ufwConf, "ufw_program", ufwProgram)
 }
 
 // statusScript is probeBody for app that also asks the service for healthPath.
 func statusScript(app string) string {
-	return script(probeBody, "app", app, "health", healthPath, "lowport_file", lowPortFile)
+	return script(probeBody, "app", app, "health", healthPath, "lowport_file", lowPortFile, "ufw_conf", ufwConf, "ufw_program", ufwProgram)
 }
 
 // uploadBody runs as the deploy user with the program, gzipped, on its input. It writes the new

@@ -138,6 +138,9 @@ true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF
 *"tifa: who listens"*) echo "listeners $user" >> "$d/calls"; [ "$user" = root ] && [ -f "$d/rootdenied" ] && { echo "root@vps: Permission denied (publickey)." >&2; exit 255; }; cat "$d/rootfacts" 2>/dev/null; true ;;
 *"tifa: open ports"*) echo "ports $user" >> "$d/calls"; echo "net.ipv4.ip_unprivileged_port_start was 1024, now 80" ;;
 *"tifa: close ports"*) echo "unports $user" >> "$d/calls"; echo "net.ipv4.ip_unprivileged_port_start is 1024 again" ;;
+*"tifa: read ufw"*) echo "ufwread $user" >> "$d/calls"; [ "$user" = root ] && [ -f "$d/rootdenied" ] && { echo "root@vps: Permission denied (publickey)." >&2; exit 255; }; cat "$d/ufw" ;;
+*"tifa: allow in ufw"*) echo "ufwallow $user" >> "$d/calls"; echo "Rule added" ;;
+*"tifa: delete from ufw"*) echo "ufwdelete $user" >> "$d/calls"; echo "Rule deleted" ;;
 *'apt-get purge'*) echo "untunnel $user" >> "$d/calls"; echo "stopped tifa-tunnel" ;;
 *'disable --quiet $units'*) [ -f "$d/removefail" ] && { echo "tifa: cannot stop the units" >&2; exit 1; }; echo "removeapp $user" >> "$d/calls" ;;
 *useradd*) echo "server $user" >> "$d/calls"; rm -f "$d/denied"; printf 'bus yes\nlinger yes\n' >> "$d/facts" ;;
@@ -322,7 +325,7 @@ func TestSetupFreshServer(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("got %v", err)
 	}
-	for _, want := range []string{"Plan for shop on vps", "add     server: the user tifa", "add     app: /srv/tifa/shop with an empty shared/.env, serving visitors itself on port 80, over plain HTTP since site.url names no domain, the systemd socket and service tifa-shop", "Visitors need port 80 of the server open. Tifa does not change the firewall"} {
+	for _, want := range []string{"Plan for shop on vps", "add     server: the user tifa", "add     app: /srv/tifa/shop with an empty shared/.env, serving visitors itself on port 80, over plain HTTP since site.url names no domain, the systemd socket and service tifa-shop", "Visitors need port 80 of the server open. Tifa does not change the firewall or the security groups of your provider"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plan lacks %q:\n%s", want, out)
 		}
@@ -366,7 +369,7 @@ func TestSetupNothingToChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"ok      server:", "ok      app: /srv/tifa/shop, port 80, systemd units", "shop serves visitors itself on port 80 of the server. Tifa does not change the firewall: port 80 must be open to them"} {
+	for _, want := range []string{"ok      server:", "ok      app: /srv/tifa/shop, port 80, systemd units", "shop serves visitors itself on port 80 of the server. If the firewall or a security group of your provider blocks it, open it there"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
@@ -1217,7 +1220,7 @@ func TestSetupAllInOrderOneLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if out != "shop on vps matches tifa.yaml: 2 things checked (--all lists them).\nshop serves visitors itself on port 80 of the server. Tifa does not change the firewall: port 80 must be open to them, in ufw and at your provider.\n" {
+	if out != "shop on vps matches tifa.yaml: 2 things checked (--all lists them).\nshop serves visitors itself on port 80 of the server. If the firewall or a security group of your provider blocks it, open it there: Tifa does not change those.\n" {
 		t.Errorf("out: %q", out)
 	}
 }
@@ -1239,7 +1242,7 @@ func TestSetupCannotListedLast(t *testing.T) {
 		t.Fatalf("err %v\n%s", err, out)
 	}
 	want := "Plan for shop on vps\n\nAlready right: server 1, app 1 (--all lists them)\n\nYou need to do 1 thing that setup cannot:\n  1. github: deploys from GitHub Actions\n     gh is not logged in: run gh auth login (gh auth status: You are not logged into any GitHub hosts).\n     Or without gh: make a fine-grained personal access token.\n     Open https://github.com/settings/personal-access-tokens/new?"
-	if !strings.HasPrefix(out, want) || !strings.HasSuffix(out, "in the .env at the root of the app (git ignores it, and tifa only reads it)\n\nshop serves visitors itself on port 80 of the server. Tifa does not change the firewall: port 80 must be open to them, in ufw and at your provider.\n") || strings.Contains(out, "cannot  ") || strings.Contains(out, "Apply this plan") {
+	if !strings.HasPrefix(out, want) || !strings.HasSuffix(out, "in the .env at the root of the app (git ignores it, and tifa only reads it)\n\nshop serves visitors itself on port 80 of the server. If the firewall or a security group of your provider blocks it, open it there: Tifa does not change those.\n") || strings.Contains(out, "cannot  ") || strings.Contains(out, "Apply this plan") {
 		t.Errorf("out:\n%s", out)
 	}
 }
