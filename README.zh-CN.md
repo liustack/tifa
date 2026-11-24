@@ -151,13 +151,18 @@ go tool tifa build
 
 ## 配合编程 agent 使用
 
-[skills/tifa](skills/tifa) 是给 Claude Code 用的 agent skill。它告诉 agent 一个 Tifa 应用怎么组织、哪些写法会被构建或服务端渲染拒绝，以及怎么测试和部署。在你的应用里，按应用所用的 Tifa 版本把它写进 `.claude/skills/tifa/`，同时刷新 `AGENTS.md` 里由 Tifa 管理的那部分。新应用已经带着这两样，`go tool tifa upgrade` 把应用升到新版 Tifa 时会重新写一遍，不升级时 `go tool tifa agents` 也能做同样的事：
+`tifa new` 给每个应用写两样给编程 agent 的东西，都来自应用所用的 Tifa 版本：
+
+- `AGENTS.md`：大多数编程 agent 会自己读的说明，讲约定、命令，以及这个版本的文档在哪里。
+- `.claude/skills/tifa/` 里的 Tifa skill（[skills/tifa](skills/tifa)），讲得更细，并链到文档。Claude Code、Cursor 和 GitHub Copilot 会在这里找到它。Codex 和 Gemini CLI 读的是 `.agents/skills/`：把这个文件夹复制过去，升级之后再复制一次。
+
+`go tool tifa upgrade` 把应用升到新版 Tifa 时会重新写这两样。不升级时 `go tool tifa agents` 也能做同样的事，应用里还没有这两样时也可以用：
 
 ```sh
 go tool tifa agents
 ```
 
-`tifa new` 生成的应用本来就带一份 `AGENTS.md`。这个 skill 讲的是同一批内容，更细，并链到文档。
+详见 [和编程 agent 一起用 Tifa](docs/start/agents.zh-CN.md)。
 
 ## 文档
 
@@ -167,6 +172,7 @@ go tool tifa agents
 | 做法：[表单](docs/guides/forms.zh-CN.md)、[上传](docs/guides/uploads.zh-CN.md)、[登录](docs/guides/sign-in.zh-CN.md)、[数据库](docs/guides/database.zh-CN.md)、[后台任务](docs/guides/jobs.zh-CN.md)、[邮件](docs/guides/email.zh-CN.md)、[多语言](docs/guides/i18n.zh-CN.md)、[搜索引擎和大模型](docs/guides/seo.zh-CN.md)、[流式输出](docs/guides/streaming.zh-CN.md)、[环境变量的值](docs/guides/environment.zh-CN.md)、[日志](docs/guides/logs.zh-CN.md) | 要加一个常见功能，想要一套实测过的写法 |
 | [哲学](docs/start/philosophy.zh-CN.md) | 想知道 Tifa 应用为什么这样组织 |
 | [应用的代码结构](docs/start/structure.zh-CN.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
+| [和编程 agent 一起用 Tifa](docs/start/agents.zh-CN.md) | 用 Claude Code、Codex、Cursor 或别的编程 agent 开发应用 |
 | [应用怎么写](docs/start/app.zh-CN.md) | 安排目录，弄清目录怎么变成 URL，以及接下来该读哪篇 |
 | 应用的各个部分：[路由](docs/pages-and-data/routes.zh-CN.md)、[页面](docs/pages-and-data/pages.zh-CN.md)、[渲染开关与缓存](docs/pages-and-data/ssr-and-cache.zh-CN.md)、[服务端渲染](docs/pages-and-data/server-render.zh-CN.md)、[样式](docs/pages-and-data/styles.zh-CN.md)、[钩子](docs/pages-and-data/hooks.zh-CN.md)、[测试](docs/pages-and-data/testing-apps.zh-CN.md) | 写路由的 Go 和 React 代码、Layout、404、head 标签、给 CDN 用的 `Cache`、服务端有什么、CSS、启动代码和 Go 测试 |
 | [会话](docs/pages-and-data/sessions.zh-CN.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |

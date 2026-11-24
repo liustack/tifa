@@ -151,13 +151,18 @@ go tool tifa build
 
 ## Use it with a coding agent
 
-[skills/tifa](skills/tifa) is an agent skill for Claude Code. It tells the agent how a Tifa app is laid out, which mistakes the build and the server render punish, and how to test and deploy. In your app, write it into `.claude/skills/tifa/` from the Tifa version the app uses. This also refreshes the notes Tifa manages in `AGENTS.md`. A new app already has both, and `go tool tifa upgrade` writes them again when it moves the app to a newer Tifa, and `go tool tifa agents` does the same without an upgrade:
+`tifa new` gives every app two things for coding agents, both from the Tifa version the app uses:
+
+- `AGENTS.md`, notes most coding agents read on their own: the conventions, the commands, and where the docs of this version are.
+- The Tifa skill ([skills/tifa](skills/tifa)) in `.claude/skills/tifa/`, with more detail and links to the docs. Claude Code, Cursor and GitHub Copilot find it there. Codex and Gemini CLI look in `.agents/skills/`: copy the folder there, and again after an upgrade.
+
+`go tool tifa upgrade` writes both again when it moves the app to a newer Tifa. `go tool tifa agents` does it without an upgrade, also in an app that has neither yet:
 
 ```sh
 go tool tifa agents
 ```
 
-A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same ground with more detail and links to the docs.
+More in [Use Tifa with a coding agent](docs/start/agents.md).
 
 ## Documentation
 
@@ -167,6 +172,7 @@ A new app also gets an `AGENTS.md` from `tifa new`. The skill covers the same gr
 | Guides: [forms](docs/guides/forms.md), [uploads](docs/guides/uploads.md), [sign-in](docs/guides/sign-in.md), [database](docs/guides/database.md), [background work](docs/guides/jobs.md), [email](docs/guides/email.md), [languages](docs/guides/i18n.md), [search engines and language models](docs/guides/seo.md), [streaming](docs/guides/streaming.md), [values from the environment](docs/guides/environment.md), [logs](docs/guides/logs.md) | Adding a common feature and you want a tested way to do it |
 | [Philosophy](docs/start/philosophy.md) | You want to know why a Tifa app is organized the way it is |
 | [Structuring an app](docs/start/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
+| [Use Tifa with a coding agent](docs/start/agents.md) | Working on an app with Claude Code, Codex, Cursor or another coding agent |
 | [Writing an app](docs/start/app.md) | Laying out folders, how they become URLs, and which doc to read next |
 | The parts of an app: [routes](docs/pages-and-data/routes.md), [pages](docs/pages-and-data/pages.md), [render switches and caches](docs/pages-and-data/ssr-and-cache.md), [server render](docs/pages-and-data/server-render.md), [styles](docs/pages-and-data/styles.md), [hooks](docs/pages-and-data/hooks.md), [testing](docs/pages-and-data/testing-apps.md) | Writing the Go and React code of a route, Layouts, 404 pages, head tags, `Cache` for CDNs, what the server render has, CSS, startup code and Go tests |
 | [Sessions](docs/pages-and-data/sessions.md) | Signing users in and out, keeping sessions in Redis or SQL, or showing who is signed in |
