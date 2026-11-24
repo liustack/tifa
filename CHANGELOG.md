@@ -17,6 +17,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
   Upgrading: the next `go tool tifa deploy setup` moves an app with `front: none` from the loopback to ports 80 and 443. If your own proxy (Caddy, nginx) holds those ports in front of it, setup stops and names it: stop the proxy and keep it from starting at boot, or set `deploy.front: cloudflare`. With several apps of `front: none` on one server, only one can move, and the others need `front: cloudflare`. When ufw is on, the plan of setup opens ports 80 and 443 (or 80 without a domain) there. Open them in the firewall or security group of your provider if it blocks them.
 
+### Fixed
+
+- On Windows, a rebuild of `tifa dev` right after the app started could fail with "rename ... bin\tifa-dev.exe ...: The process cannot access the file because it is being used by another process" while another program, such as a virus scanner, read the new program. `tifa dev` now waits up to 2 seconds for it, as the go command does.
+
 ## [0.4.2] - 2026-11-24
 
 ### Added
