@@ -69,6 +69,14 @@ func checkShopSignIn(t *testing.T, exe, buildID string) {
 			t.Errorf("GET %s signed out: %d", path, status)
 		}
 	}
+	// The root Layout runs for every URL, the 404 page included, so a visitor who is not signed in
+	// must not get the projects of the workbench there, in the HTML or in the navigation data.
+	for _, url := range []string{"/nope", dataURL("/nope", buildID, "1")} {
+		status, _, body := send("GET", url, "", "")
+		if status != 404 || strings.Contains(body, "山海工作室") || strings.Contains(body, "周末小店") {
+			t.Errorf("GET %s signed out: %d, shows the projects: %.300s", url, status, body)
+		}
+	}
 	_, _, login := send("GET", "/login?next=%2Fprojects%2Fstudio", "", "")
 	if !strings.Contains(login, "Demo account") {
 		t.Errorf("sign-in page: %.400s", login)
@@ -104,6 +112,11 @@ func checkShopSignIn(t *testing.T, exe, buildID string) {
 	status, _, page := send("GET", "/projects/studio", cookie, "")
 	if status != 200 || !strings.Contains(page, `data-session="in"`) || !strings.Contains(rendered(page), demoName) || !strings.Contains(rendered(page), "Sign out") {
 		t.Errorf("workbench signed in: %d, lacks the account", status)
+	}
+	for _, url := range []string{"/nope", dataURL("/nope", buildID, "1")} {
+		if status, _, body := send("GET", url, cookie, ""); status != 404 || !strings.Contains(body, "山海工作室") {
+			t.Errorf("GET %s signed in: %d, lacks the projects: %.300s", url, status, body)
+		}
 	}
 	// The storefront pages are not shared: the signed-in visitor gets their own
 	// HTML there, and nothing of it reaches the next visitor.
