@@ -41,6 +41,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - Files and folders of `public/` whose names start with a dot, such as `.DS_Store` or a `.env` left there by mistake, are no longer copied into the program and served. `.well-known` is still copied. A dot file that an earlier build copied is removed by the next one.
 - `tifa build` and `tifa dev` no longer run without end on an app that imports a package whose functions name each other in many ways, such as Ant Design: the build step that writes out the calls of small functions looked at a function once for every way to reach it, and now looks at it once.
 - The `schema.sql` of a new app says that editing a `CREATE TABLE` there changes no table that exists, and where the migrations are described.
+- `tifa build` no longer warns of a query parameter read in the list of dependencies of `useEffect` or `useLayoutEffect`, such as `useEffect(() => ..., [search.tab])`: that list only tells React when to run the effect again, and renders nothing.
 
 ## [0.5.2] - 2026-11-25
 

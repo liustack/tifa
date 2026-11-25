@@ -2,7 +2,7 @@
 summary: '渲染记忆是什么，以及它和 Cache 有什么不同：`ssr.memo_size`、ETag、查询参数、登录后的页面'
 audience: app
 order: 1
-translatedFrom: 4292b962c4f5
+translatedFrom: 8439667041fc
 read_when:
   - '想知道为什么叫记忆而不叫缓存，或者它会不会显示旧页面'
   - '想知道 `/sitemap.xml`、`/llms.txt` 或 `.md` 文件是不是每个请求都重新生成'
@@ -58,7 +58,7 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 - **空的数字或 bool 不在渲染里，数字按最短写法。** `?page=`，或者表单留空发出的 `?min=&max=`，和不带它们的页面得到同一个键：对数字、bool 或它们的列表字段来说，空就是没传。`?page=007` 和 `?page=7` 也是同一个键，因为渲染看到的是 `?page=7`。服务端返回 200，不重定向，页面加载之后地址栏会去掉空的，把其他写法改写，也不请求数据。
 - **跟踪参数不会增加键，也不会触发服务端渲染。** 页面上的 `?utm_source=mail`、`?fbclid=...` 或 `?x=random` 和不带它们的页面得到同一个键，memo 直接回答。`Load` 仍然在每个请求上运行。参数顺序不同，键也相同。
 - **要按某个参数来渲染，就在 `Load` 里读它。** 没有任何 `Load` 读的参数改变不了数据，所以渲染不需要它。在组件里按名字读，比如用 `route.gen` 里该路由的 `useSearch` 写 `page.useSearch().q`。这个 `useSearch` 带有 `Load` 读取的那些参数的类型，同时放行其他任何参数，所以它不会让别的参数变得安全。见 [Link 和 navigate 里的查询参数](../pages-and-data/navigation.zh-CN.md#query-parameters-in-link-and-navigate)。
-- **读取其他参数的组件，水合时结果会不同。** 服务器渲染时没有这个参数，浏览器里有，所以 React 会报水合错误，并在浏览器里把这部分重新渲染。`tifa build` 会发出警告，带上文件和行号，指出这些渲染时的读取：服务器渲染那段代码时没有的参数，按名字通过 `useLocation`、`useRouterState`、`useSearch({ strict: false })` 或路由的 `useSearch` 读取，以及读取位置的整个 `search`、`searchStr` 或 `href`。它拿 `page.tsx` 和 `layout.tsx` 对照它们自己的参数检查，对其他模块里的每一处这样的读取都警告，因为那些模块可能在任何页面下渲染。在 `useEffect` 或 `useLayoutEffect` 里读取只在浏览器里运行，可以通过。这项检查一次只看一个模块，所以它调用的辅助函数里的读取看不到。这样的参数要在 `Load` 里读，或者只有浏览器需要时在 effect 里读。
+- **读取其他参数的组件，水合时结果会不同。** 服务器渲染时没有这个参数，浏览器里有，所以 React 会报水合错误，并在浏览器里把这部分重新渲染。`tifa build` 会发出警告，带上文件和行号，指出这些渲染时的读取：服务器渲染那段代码时没有的参数，按名字通过 `useLocation`、`useRouterState`、`useSearch({ strict: false })` 或路由的 `useSearch` 读取，以及读取位置的整个 `search`、`searchStr` 或 `href`。它拿 `page.tsx` 和 `layout.tsx` 对照它们自己的参数检查，对其他模块里的每一处这样的读取都警告，因为那些模块可能在任何页面下渲染。在 `useEffect` 或 `useLayoutEffect` 里读取只在浏览器里运行，可以通过。写在它们的依赖数组里也可以通过，依赖数组只决定 React 什么时候再运行 effect。这项检查一次只看一个模块，所以它调用的辅助函数里的读取看不到。这样的参数要在 `Load` 里读，或者只有浏览器需要时在 effect 里读。
 - **重定向保留 URL。** 路由把一个 URL 的另一种写法（如 `/%61`）重定向到它自己的写法时，重定向会把渲染没有看到的参数补回去。
 - **没有 SSR 的页面**（`SSR = false`）不在服务器上渲染，它的文档带着原样的 URL。
 - **canonical 链接就是这个 URL。** 在设置了 `site.url` 的站点上，页面的 `<link rel="canonical">` 是 `site.url` 加上服务器渲染它时用的 URL，水合之后在浏览器里也是，所以 `?page=2` 会保留，`?utm_source=mail` 会去掉（见 [搜索引擎和语言模型](../guides/seo.zh-CN.md)）。没有 SSR 的页面从浏览器得到同样的链接。

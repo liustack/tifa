@@ -105,6 +105,9 @@ export function Fine() {
   const l = useLocation()
   useEffect(() => { console.log(l.search.utm, l.href) }, [l])
   React.useLayoutEffect(() => { console.log(l.searchStr) })
+  const w = useSearch({ strict: false })
+  useEffect(() => { console.log(w.tab) }, [w.tab, w, l.search.utm])
+  React.useLayoutEffect(() => {}, [w['tab'], l.searchStr])
   function inner(location: any) { return location.search }
   const t = useSearch({ strict: false }).q
   return [a, b, c, d, q, p, inner, t]
