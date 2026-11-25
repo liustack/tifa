@@ -21,9 +21,11 @@ fi
 
 if [ "$mode" = staged ]; then
 	base=$(git rev-parse -q --verify HEAD || git hash-object -t tree /dev/null)
-	binaries=$(git diff --cached --numstat --diff-filter=AM "$base" | awk '$1 == "-" { print $3 }')
+	# -z: git quotes and escapes a path with a double quote or a non-ASCII byte unless it is told not to.
+	binaries=$(git diff --cached -z --numstat --diff-filter=AM "$base" | tr '\0' '\n' | awk -F'\t' '$1 == "-" { print $3 }')
+	# tr, not read -d: dash has no read -d.
 	# A loop, not xargs -I: BSD xargs gives up when the command with the path in it passes 255 bytes.
-	big=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=AM "$base" |
+	big=$(git diff --cached --name-only -z --diff-filter=AM "$base" | tr '\0' '\n' |
 		while IFS= read -r f; do
 			s=$(git cat-file -s ":$f")
 			if [ "$s" -gt "$limit" ]; then echo "$s $f"; fi
@@ -37,7 +39,7 @@ fi
 bad=$(printf '%s\n' "$binaries" | grep -Ev "$allowed" | grep . || true)
 # Names that are never ours to track: secrets, credentials and profiles.
 if [ "$mode" = staged ]; then
-	names=$(git diff --cached --name-only --diff-filter=AM "$base")
+	names=$(git diff --cached --name-only -z --diff-filter=AM "$base" | tr '\0' '\n')
 else
 	names=$(git ls-tree -r --name-only HEAD)
 fi
