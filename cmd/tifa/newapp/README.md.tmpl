@@ -8,7 +8,7 @@ A [tifa](https://github.com/liustack/tifa) app, started with `tifa new`. {{if .E
 | `go tool tifa dev` | Run the app at http://127.0.0.1:9527, rebuilding on every change |
 | `go tool tifa check` | Check the routes, vet and test the Go code, and type-check the TypeScript, stopping at the first failure |
 | `go test ./...` | Test the Go code |
-| `{{.Run}} typecheck` | Check the TypeScript |
+| `{{.Run}} typecheck` | Write the generated types, then check the TypeScript |
 | `go tool tifa build` | Build the single executable into `bin/` |
 
 After cloning, run `{{.Install}}` (`node_modules` is not in git), then `go tool tifa dev`. Everything under `.tifa/` is build output that `tifa dev` and `tifa build` write again.

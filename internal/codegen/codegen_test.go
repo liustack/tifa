@@ -682,7 +682,8 @@ func TestRouteGenHoldsLayoutAndHandlersOfOneDirectory(t *testing.T) {
 // never when it has none or the app has no session.
 func TestSessionGen(t *testing.T) {
 	want := map[string]string{
-		"session": tsHeader + `
+		"session": tsHeader + `// Generated from the session type example.com/session/app/login.Account. If it changed, run ` + "`go tool tifa gen`" + `.
+
 // SessionEnabled is true when the app calls tifa.SetSession.
 export type SessionEnabled = true
 
@@ -695,14 +696,16 @@ export type Public = {
 // SessionData is what the Exposed method of the session type returns, as JSON.
 export type SessionData = Public
 `,
-		"plain": tsHeader + `
+		"plain": tsHeader + `// Generated from the session type example.com/plain/app/login.Account. If it changed, run ` + "`go tool tifa gen`" + `.
+
 // SessionEnabled is true when the app calls tifa.SetSession.
 export type SessionEnabled = true
 
 // The app has no session type with an Exposed method.
 export type SessionData = never
 `,
-		"bare": tsHeader + `
+		"bare": tsHeader + `// Generated from the calls of tifa.SetSession, of which the app has none. If it changed, run ` + "`go tool tifa gen`" + `.
+
 // SessionEnabled is true when the app calls tifa.SetSession.
 export type SessionEnabled = false
 
@@ -1067,5 +1070,35 @@ func TestRouteModuleStructNamedLikeExport(t *testing.T) {
 	}
 	if strings.Contains(got, "PageData = PageData") || strings.Count(got, "export type PageData") != 1 {
 		t.Errorf("PageData declared twice or aliased to itself:\n%s", got)
+	}
+}
+
+// Every route.gen.ts starts with the Go and TSX files it comes from and what to run when they
+// no longer match, so a reader of the types who sees them out of date knows what to do.
+func TestRouteModuleNamesItsSources(t *testing.T) {
+	pkg := types.NewPackage("example.com/app/app/home", "home")
+	res := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Home", nil), types.NewStruct(nil, nil), nil)
+	cases := []struct {
+		name string
+		g    *routeGen
+		want string
+	}{
+		{"go and page", &routeGen{dir: "app/home", pkg: pkg.Path(),
+			page: &tsNode{id: "app/home/route", file: "route", load: &analyze.Load{Result: res}, route: &tsRoute{routeID: "/home"}}},
+			"// Generated from app/home/route.go and app/home/page.tsx. If they changed, run `go tool tifa gen`.\n"},
+		{"page only", &routeGen{dir: "app/about", page: &tsNode{id: "app/about/route", file: "route", route: &tsRoute{routeID: "/about"}}},
+			"// Generated from app/about/page.tsx. If it changed, run `go tool tifa gen`.\n"},
+		{"layout and go", &routeGen{dir: "app", pkg: pkg.Path(),
+			layout: &tsNode{id: "app/layout", file: "layout", tsx: true, load: &analyze.Load{Result: res}, route: &tsRoute{routeID: "/"}}},
+			"// Generated from app/route.go and app/layout.tsx. If they changed, run `go tool tifa gen`.\n"},
+	}
+	for _, c := range cases {
+		out, err := routeModule(c.g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(out); !strings.HasPrefix(got, tsHeader+c.want) {
+			t.Errorf("%s:\n%s", c.name, got)
+		}
 	}
 }

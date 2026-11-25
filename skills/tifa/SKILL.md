@@ -59,7 +59,7 @@ myapp/
 | `page.tsx` | The page component (default export), and optional `head` and `ErrorBoundary` exports |
 | `layout.tsx` | The Layout component. It renders `<Outlet />` where the child page goes |
 | `layout_.tsx` | Like `layout.tsx`, but drops every Layout above it, the root one too |
-| `route.gen` | Generated typed module you import, never create it: `import { page, POST, type PageData } from './route.gen'` |
+| `route.gen` | Generated typed module you import, never create it: `import { page, POST, type PageData } from './route.gen'`. It is written from `route.go`, `page.tsx` and `layout.tsx`: after a batch of Go changes (a return or input type, or a page or Layout added or removed), run `go tool tifa gen` once before writing the TypeScript that uses the types. `tifa dev` does it while it runs |
 | `hooks.go` | Root only. Optional `OnStart`, `OnShutdown`, `OnRequest`, `OnError` |
 | `*.client.tsx` | A component loaded only in the browser, through `clientOnly` from `tifa/client` |
 

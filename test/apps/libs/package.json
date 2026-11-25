@@ -4,7 +4,7 @@
   "packageManager": "pnpm@10.33.0",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "go tool tifa gen && tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "7.0.6",

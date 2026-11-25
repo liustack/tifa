@@ -1071,6 +1071,34 @@ type routeGen struct {
 	languages []string
 }
 
+// sourcesComment is the comment under the header of a route.gen module: the files it comes from,
+// and what to run when they no longer match it.
+func sourcesComment(g *routeGen) string {
+	var files []string
+	hasGo := len(g.handlers) > 0
+	for _, n := range []*tsNode{g.layout, g.page} {
+		hasGo = hasGo || n != nil && n.load != nil
+	}
+	if hasGo {
+		files = append(files, g.dir+"/route.go")
+	}
+	if g.layout != nil && g.layout.tsx {
+		name := "layout.tsx"
+		if g.layout.replace {
+			name = "layout_.tsx"
+		}
+		files = append(files, g.dir+"/"+name)
+	}
+	if g.page != nil {
+		files = append(files, g.dir+"/page.tsx")
+	}
+	verb := "it changed"
+	if len(files) > 1 {
+		verb = "they changed"
+	}
+	return "// Generated from " + strings.Join(files, " and ") + ". If " + verb + ", run `go tool tifa gen`.\n"
+}
+
 // routeModule writes the route.gen module of a directory: page and layout for the hooks of its
 // page and Layout, PageData and LayoutData for the result of its Load and Layout functions,
 // Params for its path parameters, and a function per method handler, named after its method,
@@ -1111,7 +1139,7 @@ func routeModule(g *routeGen) ([]byte, error) {
 	}
 
 	var b strings.Builder
-	b.WriteString(tsHeader)
+	b.WriteString(tsHeader + sourcesComment(g))
 	if g.page != nil || g.layout != nil {
 		b.WriteString(`import { getRouteApi } from "@tanstack/react-router"` + "\n")
 	}
@@ -1261,7 +1289,11 @@ func urlTemplate(segs []pathSeg) string {
 // session type returns, and never when the app has no session or the type has no such method.
 func sessionModule(s *analyze.Session) ([]byte, error) {
 	var b strings.Builder
-	b.WriteString(tsHeader + "\n")
+	from := "the calls of tifa.SetSession, of which the app has none"
+	if s != nil {
+		from = "the session type " + s.Type
+	}
+	b.WriteString(tsHeader + "// Generated from " + from + ". If it changed, run `go tool tifa gen`.\n\n")
 	b.WriteString("// SessionEnabled is true when the app calls tifa.SetSession.\n")
 	fmt.Fprintf(&b, "export type SessionEnabled = %t\n\n", s != nil)
 	if s == nil || !s.Exposed {
