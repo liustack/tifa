@@ -1,10 +1,10 @@
 import { Bar, BarChart, LabelList, XAxis, YAxis } from 'recharts'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
-import type { PageData } from './route.gen'
+import type { ProductSales } from './route.gen'
 
 const config = { quantity: { label: 'Sales', color: 'var(--chart-2)' } } satisfies ChartConfig
 
-export default function ProductsChart({ products }: { products: PageData['topProducts'] }) {
+export default function ProductsChart({ products }: { products: ProductSales[] }) {
   return (
     <ChartContainer config={config} className="aspect-auto h-64 w-full">
       <BarChart data={products} layout="vertical" margin={{ right: 32 }}>
