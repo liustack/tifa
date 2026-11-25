@@ -772,3 +772,13 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 **Why not.** How an agent is set up is its user's business. Tifa gives an agent notes and a skill to read, and changes nothing about what the agent runs.
 
 **Instead.** The notes and the skill say to run `go tool tifa gen` once after a batch of Go changes. The `typecheck` script of an app runs it before `tsc`, `go tool tifa check` writes `.tifa/` again before it runs `tsc`, and each `route.gen.ts` names the files it comes from: [`tifa gen`](../build-and-deploy/build.md#tifa-gen).
+
+### Summaries of the docs in the AGENTS.md of an app
+
+**Turned down (2026-11-25).** The docs index of the `AGENTS.md` that `tifa new` writes holding a line per doc with its whole summary, as it did for a day.
+
+**Why not.** An agent reads the whole file at the start of every session, and the file was 3,780 tokens, of which the index was 1,150. The budget for the whole file is 4,000 tokens, and most sessions need two or three docs.
+
+**Instead.** The index names the files, one line per section folder, and `go tool tifa docs` prints the summary of each doc. An agent runs that command anyway to learn where the folder is. A test keeps the whole file at 12,000 bytes, about 3,250 tokens: when a new note does not fit, another one is shortened or moved to the docs.
+
+**Reopen when** agents that start from `tifa new` are seen to skip the docs they needed because the file names did not tell them.
