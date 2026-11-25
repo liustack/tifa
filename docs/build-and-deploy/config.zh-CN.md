@@ -2,7 +2,7 @@
 summary: '每一项设置的含义和设置位置：tifa.yaml、参数、环境变量、.env、server.csp、HTTPS、跨站写入'
 audience: app
 order: 4
-translatedFrom: 958c54945677
+translatedFrom: 358012b8ca29
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -141,7 +141,7 @@ Cloud Run、Heroku、Render、Railway 和 Fly 这样的托管平台，通过 `PO
 | `ssr.timeout` | `3s` | `--ssr-timeout`、`SSR_TIMEOUT` | 一次渲染的时间预算。运行更久的渲染会被停止，并作为意外错误处理，交给 `OnError`。页面代码捕获不了它 |
 | `ssr.queue_limit` | `32` | `--ssr-queue-limit`、`SSR_QUEUE_LIMIT` | 允许等待 VM 的渲染数，不含已经在运行的渲染。`0` 表示没有空闲 VM 时立刻拒绝。队列满了会以 503 回答，带 `Retry-After: 1` |
 | `ssr.wait_timeout` | `3s` | `--ssr-wait-timeout`、`SSR_WAIT_TIMEOUT` | 等待 VM 的最长时间。到期会以 503 回答，带 `Retry-After: 1`，不启动也不替换 VM。它和 `ssr.timeout` 是分开的，后者在拿到 VM 之后才开始计时 |
-| `ssr.memo_size` | `64MiB` | `--ssr-memo-size`、`SSR_MEMO_SIZE` | 渲染记忆 memo 的大小，按它保存的字节数算：每个页面一种形式，开了 `server.compress` 时是它的 gzip 形式，否则是它的 HTML（见[压缩](build.zh-CN.md#compression)）。满了之后最近最少使用的页面会被丢掉。`0` 会关掉它，不过同时没命中同一个页面的请求仍然共用一次渲染。memo 是什么、为什么安全：[渲染记忆 memo](../reference/memo.zh-CN.md)。页面可以用 `Memo = false` 为自己关掉 memo（见 [SSR 与缓存](../pages-and-data/ssr-and-cache.zh-CN.md#ssr-and-cache)） |
+| `ssr.memo_size` | `64MiB` | `--ssr-memo-size`、`SSR_MEMO_SIZE` | 渲染记忆 memo 的大小，按它保存的字节数算：每个页面和每个站点文件（比如 `llms-full.txt`）一种形式，开了 `server.compress` 时是它的 gzip 形式，否则是它的 HTML（见[压缩](build.zh-CN.md#compression)）。满了之后最近最少使用的条目会被丢掉。`0` 会关掉它，不过同时没命中同一个页面或文件的请求仍然共用一次渲染。memo 是什么、为什么安全：[渲染记忆 memo](../reference/memo.zh-CN.md)。页面可以用 `Memo = false` 为自己关掉 memo（见 [SSR 与缓存](../pages-and-data/ssr-and-cache.zh-CN.md#ssr-and-cache)） |
 | `cache.s_maxage` | `1m` | `--cache-s-maxage`、`CACHE_S_MAXAGE` | 写了 `const Cache = true` 的页面的 `s-maxage`：程序前面的共享缓存（比如 CDN）可以保存它多久。见[给 CDN 用的缓存](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns) |
 | `session.cookie` | `__Host-tifa_session` | `--session-cookie`、`SESSION_COOKIE` | 会话 cookie 的名字。在 `tifa dev` 下会去掉 `__Host-` 前缀，见[会话](../pages-and-data/sessions.zh-CN.md) |
 | `session.max_age` | `720h` | `--session-max-age`、`SESSION_MAX_AGE` | 会话从 `tifa.SetSession` 创建它的那一刻起能持续多久，至少一秒。它不会续期 |
