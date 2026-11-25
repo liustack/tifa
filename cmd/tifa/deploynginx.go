@@ -122,6 +122,8 @@ type nginxState struct {
 	// Certbot is where certbot is, Plugin says it has the nginx plugin.
 	Certbot string
 	Plugin  bool
+	// BrokenCertbot are the packages of certbot and its plugin that dpkg has but did not install cleanly.
+	BrokenCertbot []string
 	// Default says the welcome site of the package is on. Active says nginx runs.
 	Default, Active bool
 	// Sites are the site files of Tifa: the app, the hash of its file and its host, "-" for none.
@@ -212,6 +214,8 @@ func parseNginxState(out string) (nginxState, error) {
 			s.Certbot = value
 		case "plugin":
 			s.Plugin = true
+		case "certbot-broken":
+			s.BrokenCertbot = append(s.BrokenCertbot, value)
 		case "default":
 			s.Default = true
 		case "active":
@@ -257,6 +261,11 @@ m="$etc/tifa/nginx"
 if [ -f "$m" ]; then
 	echo "tifa yes"
 	awk '$1 == "installed" && $2 == "nginx" { print "tifa-nginx " $3 } $1 == "installed" && $2 == "certbot" { print "tifa-certbot " $3 }' "$m"
+fi
+if command -v dpkg-query >/dev/null 2>&1; then
+	dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' certbot python3-certbot-nginx 2>/dev/null | while read -r st rest; do
+		case "$st" in ii|un|"") ;; *) echo "certbot-broken $rest" ;; esac
+	done
 fi
 if c=$(command -v certbot); then
 	echo "certbot $c"
@@ -325,7 +334,7 @@ if [ ! -e "$policy_file" ]; then
 	chmod 755 "$policy_file"
 	policy_made=$policy_file
 fi
-apt-get install -y -q $nginx_pkgs $certbot_pkgs </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; exit 1; }
+apt-get install -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold $nginx_pkgs $certbot_pkgs </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; exit 1; }
 rm -f "$policy_made" "$etc/nginx/sites-enabled/default"
 if [ -n "$nginx_pkgs" ]; then systemctl enable --quiet nginx; fi
 echo "installed $nginx_pkgs $certbot_pkgs"
@@ -496,10 +505,10 @@ func nginxPackages(ns nginxState, domain bool) (nginxPkgs, certbotPkgs []string)
 		nginxPkgs = []string{"nginx"}
 	}
 	if domain {
-		if ns.Certbot == "" {
+		if ns.Certbot == "" || slices.Contains(ns.BrokenCertbot, "certbot") {
 			certbotPkgs = append(certbotPkgs, "certbot")
 		}
-		if !ns.Plugin {
+		if !ns.Plugin || slices.Contains(ns.BrokenCertbot, "python3-certbot-nginx") {
 			certbotPkgs = append(certbotPkgs, "python3-certbot-nginx")
 		}
 	}

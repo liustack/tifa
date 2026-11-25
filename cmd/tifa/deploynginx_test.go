@@ -285,7 +285,8 @@ func TestNginxInstallMarksWhatItInstalls(t *testing.T) {
 	if !strings.Contains(b.calls(), "start blocked") || exists(filepath.Join(b.etc, "policy-rc.d")) {
 		t.Errorf("start blocking: %q, file there %v", b.calls(), exists(filepath.Join(b.etc, "policy-rc.d")))
 	}
-	if !strings.Contains(b.calls(), "systemctl enable --quiet nginx") {
+	// A configuration file that is already there stays: apt must not stop at a question.
+	if !strings.Contains(b.calls(), "-o Dpkg::Options::=--force-confold") || !strings.Contains(b.calls(), "systemctl enable --quiet nginx") {
 		t.Errorf("calls:\n%s", b.calls())
 	}
 	if ns := b.state(); !ns.Tifa || ns.foreign() {
