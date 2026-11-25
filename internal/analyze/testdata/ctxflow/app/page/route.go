@@ -36,12 +36,12 @@ func Load(c *tifa.Ctx) (string, error) {
 	x := c
 	x = c
 	global = c
-	g := global.Query("g")
+	g := global.Header("g")
 	defer x.SetBodyLimit(1)
 	defer takeAny(c)
 	got, _ := twice(c)
 	ret := func() *tifa.Ctx { return c }
 	s := takeAny(c) + generic(c) + generic[*tifa.Ctx](c)
 	_, _, _ = i, n, ret
-	return q.Query("x") + a + g + s + got.Query("ok"), nil
+	return q.Query("x") + a + g + s + got.Header("ok"), nil
 }

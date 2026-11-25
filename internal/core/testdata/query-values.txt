@@ -1,0 +1,211 @@
+# Cases for the value of one query parameter. The Go decoder (internal/core) reads this file, and so
+# will the decoder of the browser, which must give the same answer for every line.
+#
+# Columns, separated by one tab:
+#   type    string, bool, int, int8, int32, uint, uint8, uint32, or float (the type of the field)
+#   input   the value as a JSON string
+#   result  ok when the value is a valid way to write one, x when it is not
+#   bits    for ok: the 64 bits of the decoded number as 16 hex digits, 1 or 0 for a bool, - for a string
+#
+# A valid value is the only way to write it: decoding it and writing the result gives the text back.
+# Every integer must also be at most 2^53-1 in size, the largest a browser holds exactly.
+# What an empty value means (the field was not passed) is decided for the whole field, not here.
+int	"0"	ok	0000000000000000
+int	"-0"	x	-
+int	"+0"	x	-
+int	"00"	x	-
+int	"01"	x	-
+int	"-01"	x	-
+int	"1"	ok	3ff0000000000000
+int	"-1"	ok	bff0000000000000
+int	"+1"	x	-
+int	"007"	x	-
+int	"12345"	ok	40c81c8000000000
+int	"2"	ok	4000000000000000
+int	"10"	ok	4024000000000000
+int	" 1"	x	-
+int	"1 "	x	-
+int	"1\n"	x	-
+int	"\n1"	x	-
+int	" 1"	x	-
+int	""	x	-
+int	"-"	x	-
+int	"+"	x	-
+int	"0x10"	x	-
+int	"0b1"	x	-
+int	"1e3"	x	-
+int	"1E3"	x	-
+int	"1.0"	x	-
+int	"1."	x	-
+int	".5"	x	-
+int	"1_000"	x	-
+int	"1,000"	x	-
+int	"１"	x	-
+int	"٣"	x	-
+int	"NaN"	x	-
+int	"Infinity"	x	-
+int	"-Infinity"	x	-
+int	"null"	x	-
+int	"true"	x	-
+int	"9007199254740990"	ok	433ffffffffffffe
+int	"9007199254740991"	ok	433fffffffffffff
+int	"9007199254740992"	x	-
+int	"9007199254740993"	x	-
+int	"9007199254740994"	x	-
+int	"-9007199254740991"	ok	c33fffffffffffff
+int	"-9007199254740992"	x	-
+int	"-9007199254740993"	x	-
+int	"2147483647"	ok	41dfffffffc00000
+int	"2147483648"	ok	41e0000000000000
+int	"-2147483648"	ok	c1e0000000000000
+int	"-2147483649"	ok	c1e0000000200000
+int	"4294967295"	ok	41efffffffe00000
+int	"4294967296"	ok	41f0000000000000
+int	"9223372036854775807"	x	-
+int	"9223372036854775808"	x	-
+int	"-9223372036854775808"	x	-
+int	"18446744073709551615"	x	-
+int	"18446744073709551616"	x	-
+int	"99999999999999999999"	x	-
+int	"100000000000000000000"	x	-
+int	"1000000000000000000000"	x	-
+float	"0"	ok	0000000000000000
+float	"-0"	x	-
+float	"+0"	x	-
+float	"0.0"	x	-
+float	"-0.0"	x	-
+float	"0.5"	ok	3fe0000000000000
+float	"-0.5"	ok	bfe0000000000000
+float	"0.50"	x	-
+float	"00.5"	x	-
+float	".5"	x	-
+float	"-.5"	x	-
+float	"5."	x	-
+float	"1."	x	-
+float	"1.0"	x	-
+float	"10.0"	x	-
+float	"10"	ok	4024000000000000
+float	"-10"	ok	c024000000000000
+float	"010"	x	-
+float	"+1.5"	x	-
+float	"0.1"	ok	3fb999999999999a
+float	"0.2"	ok	3fc999999999999a
+float	"0.3"	ok	3fd3333333333333
+float	"0.30000000000000004"	x	-
+float	"0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"	x	-
+float	"0.1234567890123456"	x	-
+float	"0.123456789012345"	ok	3fbf9add3746f62e
+float	"0.12345678901234"	ok	3fbf9add3746f4c6
+float	"1.1"	ok	3ff199999999999a
+float	"2.675"	ok	4005666666666666
+float	"1.005"	ok	3ff0147ae147ae14
+float	"4.35"	ok	4011666666666666
+float	"3.14159"	ok	400921f9f01b866e
+float	"100.5"	ok	4059200000000000
+float	"1.15"	ok	3ff2666666666666
+float	"8.2"	ok	4020666666666666
+float	"0.7"	ok	3fe6666666666666
+float	"0.07"	ok	3fb1eb851eb851ec
+float	"1e3"	x	-
+float	"1E3"	x	-
+float	"1e-3"	x	-
+float	"1.5e3"	x	-
+float	"1e21"	x	-
+float	"1e-7"	x	-
+float	"5e-324"	x	-
+float	"1.7976931348623157e308"	x	-
+float	"0.000001"	ok	3eb0c6f7a0b5ed8d
+float	"0.0000001"	x	-
+float	"0.00000123"	ok	3eb4a2cf4d5aa6c0
+float	"0.000000123456789012345"	x	-
+float	"0.0000009999999"	x	-
+float	"0.00001"	ok	3ee4f8b588e368f1
+float	"1000000"	ok	412e848000000000
+float	"100000000000000000000"	x	-
+float	"1000000000000000000000"	x	-
+float	"123456789012345000000"	x	-
+float	"999999999999999900000"	x	-
+float	"999999999999999"	ok	430c6bf52633fff8
+float	"9999999999999999"	x	-
+float	"99999999999999999"	x	-
+float	"123456789012345"	ok	42dc12218377de40
+float	"1234567890123456"	x	-
+float	"12345678901234.5"	ok	42a674e79c5fe500
+float	"123456789012345.5"	x	-
+float	"1234567890123.45"	ok	4271f71fb04cb733
+float	"12345678901234567"	x	-
+float	"9007199254740991"	x	-
+float	"9007199254740992"	x	-
+float	"9007199254740993"	x	-
+float	"9007199254740993.5"	x	-
+float	"4503599627370497.5"	x	-
+float	"-9007199254740993"	x	-
+float	"NaN"	x	-
+float	"Infinity"	x	-
+float	"-Infinity"	x	-
+float	"inf"	x	-
+float	"1,5"	x	-
+float	"1 5"	x	-
+float	" 1.5"	x	-
+float	"1.5 "	x	-
+float	"1.5\n"	x	-
+float	"٣.٥"	x	-
+float	"１.５"	x	-
+float	"-"	x	-
+float	"+"	x	-
+float	"."	x	-
+float	"-."	x	-
+float	"0x1p3"	x	-
+float	"1_0.5"	x	-
+bool	"true"	ok	1
+bool	"false"	ok	0
+bool	"TRUE"	x	-
+bool	"True"	x	-
+bool	"FALSE"	x	-
+bool	"False"	x	-
+bool	"1"	x	-
+bool	"0"	x	-
+bool	"t"	x	-
+bool	"f"	x	-
+bool	"T"	x	-
+bool	"F"	x	-
+bool	"yes"	x	-
+bool	"no"	x	-
+bool	"on"	x	-
+bool	"off"	x	-
+bool	""	x	-
+bool	" true"	x	-
+bool	"true "	x	-
+bool	"null"	x	-
+int8	"127"	ok	405fc00000000000
+int8	"-128"	ok	c060000000000000
+int8	"0"	ok	0000000000000000
+int8	"128"	x	-
+int8	"-129"	x	-
+int32	"2147483647"	ok	41dfffffffc00000
+int32	"-2147483648"	ok	c1e0000000000000
+int32	"2147483648"	x	-
+int32	"-2147483649"	x	-
+uint	"0"	ok	0000000000000000
+uint	"9007199254740991"	ok	433fffffffffffff
+uint	"9007199254740992"	x	-
+uint	"18446744073709551615"	x	-
+uint	"-1"	x	-
+uint	"-0"	x	-
+uint8	"255"	ok	406fe00000000000
+uint8	"256"	x	-
+uint8	"-1"	x	-
+uint32	"4294967295"	ok	41efffffffe00000
+uint32	"4294967296"	x	-
+string	""	ok	-
+string	"a"	ok	-
+string	"01"	ok	-
+string	"TRUE"	ok	-
+string	"1.0"	ok	-
+string	" a b "	ok	-
+string	"é中"	ok	-
+float	"--5"	x	-
+float	"-0-5"	x	-
+float	"-"	x	-
+int	"--5"	x	-
+int	"1-"	x	-

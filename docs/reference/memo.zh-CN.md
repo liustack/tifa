@@ -2,7 +2,7 @@
 summary: '渲染记忆是什么，以及它和 Cache 有什么不同：`ssr.memo_size`、ETag、查询参数、登录后的页面'
 audience: app
 order: 1
-translatedFrom: cecf0c73bb46
+translatedFrom: 83d81741577d
 read_when:
   - '想知道为什么叫记忆而不叫缓存，或者它会不会显示旧页面'
   - '想知道被记住的页面会不会把一位访客的数据显示给另一位，或者到达 CDN'
@@ -52,7 +52,7 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 
 ## 查询参数 {#query-parameters}
 
-页面能看到的查询参数，是它的 `Load` 和上面的布局函数用 `c.Query` 或 `c.QueryValues` 读取的那些。`tifa build` 会找出它们。服务端渲染只拿到路径和这些参数，按名字排序，同名参数的多个值保持请求里的顺序，键里放的也是同样的内容。其他每个参数在渲染之前就被丢掉，也不在键里。地址栏里每个参数都保持访客写的样子（`a%20b` 还是 `a%20b`），不管是一种语言还是几种。`OnRequest`、`Load` 和方法处理函数看到的是原样的请求。
+页面能看到的查询参数，是它的 `Load` 和上面的布局函数作为第二个参数接收的那些（见[查询参数](../pages-and-data/loading-data.zh-CN.md#query-parameters)）。`tifa build` 从结构体里读出它们的名字。服务端渲染只拿到路径和这些参数，按名字排序，同名参数的多个值保持请求里的顺序，键里放的也是同样的内容。其他每个参数在渲染之前就被丢掉，也不在键里。地址栏里每个参数都保持访客写的样子（`a%20b` 还是 `a%20b`），不管是一种语言还是几种。`OnRequest`、`Load` 和方法处理函数看到的是原样的请求。
 
 - **跟踪参数不会增加键，也不会触发服务端渲染。** 页面上的 `?utm_source=mail`、`?fbclid=...` 或 `?x=random` 和不带它们的页面得到同一个键，memo 直接回答。`Load` 仍然在每个请求上运行。参数顺序不同，键也相同。
 - **要按某个参数来渲染，就在 `Load` 里读它。** 没有任何 `Load` 读的参数改变不了数据，所以渲染不需要它。在组件里按名字读，比如用 `route.gen` 里该路由的 `useSearch` 写 `page.useSearch().q`。这个 `useSearch` 带有 `Load` 读取的那些参数的类型，同时放行其他任何参数，所以它不会让别的参数变得安全。见 [Link 和 navigate 里的查询参数](../pages-and-data/navigation.zh-CN.md#query-parameters-in-link-and-navigate)。

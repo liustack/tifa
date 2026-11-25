@@ -234,7 +234,7 @@
   "/zh-CN/store/products/dish-cloths",
   "/zh-CN/store/products?q=%E6%9D%AF"
  ],
- "/zh-CN/store/products?min=100&max=300&stock=1&sort=price-desc": [
+ "/zh-CN/store/products?min=100&max=300&stock=true&sort=price-desc": [
   "/zh-CN/store",
   "/zh-CN/store/products",
   "/zh-CN/store/journal",
@@ -3697,7 +3697,7 @@
   "/store/products/dish-cloths",
   "/store/products?q=cup"
  ],
- "/store/products?min=100&max=300&stock=1&sort=price-desc": [
+ "/store/products?min=100&max=300&stock=true&sort=price-desc": [
   "/store",
   "/store/products",
   "/store/journal",

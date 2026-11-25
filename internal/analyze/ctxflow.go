@@ -116,8 +116,8 @@ func (a *analyzer) ctxUse(info *types.Info, e ast.Expr, t types.Type, parents []
 				}
 				return ""
 			}
-			if paramMethod(sel.Obj()) != "" {
-				return "" // checkDirectCalls reports c.Param and c.Query taken as values
+			if paramMethod(sel.Obj()) == "Param" {
+				return "" // checkDirectCalls reports c.Param taken as a value
 			}
 			return fmt.Sprintf("%s has its method %s taken as a value", text, sel.Obj().Name())
 		}
@@ -205,7 +205,7 @@ func (a *analyzer) ctxArg(info *types.Info, call *ast.CallExpr, arg ast.Node, t 
 	case *types.Builtin:
 		return fmt.Sprintf("%s is passed to the builtin %s", text, callee.Name())
 	case *types.Func:
-		framework := callee.Pkg() != nil && isFrameworkPath(callee.Pkg().Path())
+		framework := callee.Pkg() != nil && a.isFramework(callee.Pkg().Path())
 		if !framework {
 			if _, ok := a.funcs[callee.Origin().FullName()]; !ok {
 				return "" // loadWalk reports interface methods and functions outside the module

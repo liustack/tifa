@@ -303,7 +303,7 @@ export function missing(Error: ComponentType<ErrorComponentProps> & { preload?: 
   return NotFound
 }
 
-// parseSearch reads the query the way c.Query does: every value is a string, and a key given
+// parseSearch reads the query the way Go does: every value is a string, and a key given
 // more than once holds the array of its values. The object has no prototype, so a key such as
 // __proto__ is a parameter like any other. Like Go's url.ParseQuery it skips an empty part, a part
 // with a semicolon and a part with a % that two hex digits do not follow, so the server, which

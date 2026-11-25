@@ -78,7 +78,7 @@ func TestTheLinksOfAListAreSpelledAsTheRouterSpellsThem(t *testing.T) {
 	}
 	// The query of a link holds what is not empty or the default, in the order of the page.
 	v := listValues{query: "tea cup", category: "drinkware", colors: []string{"moss", "mist"}, materials: []string{"wood"}, badges: []string{"sale", "new"}, rating: "46", min: "100", max: "300", inStock: true, sort: "price-desc"}
-	if got, want := v.href("zh-CN", 2), "/zh-CN/store/products?q=tea+cup&category=drinkware&color=moss&color=mist&material=wood&badge=sale&badge=new&rating=46&min=100&max=300&stock=1&sort=price-desc&page=2"; got != want {
+	if got, want := v.href("zh-CN", 2), "/zh-CN/store/products?q=tea+cup&category=drinkware&color=moss&color=mist&material=wood&badge=sale&badge=new&rating=46&min=100&max=300&stock=true&sort=price-desc&page=2"; got != want {
 		t.Errorf("the link is %s, want %s", got, want)
 	}
 	if got := (listValues{sort: "featured"}).href("en-US", 1); got != "/store/products" {
@@ -163,7 +163,7 @@ func TestTheListModelTellsPlainLinksFromLinksOfTheRouter(t *testing.T) {
 	for part, want := range map[string][]string{
 		ListPartBreadcrumb: {"/zh-CN/store", base},
 		// New is on, so its link takes it away, and the others add their filter.
-		ListPartQuick:    {base + "?category=drinkware", base + "?category=drinkware&badge=new&badge=sale", base + "?category=drinkware&badge=new&rating=48", base + "?category=drinkware&badge=new&stock=1"},
+		ListPartQuick:    {base + "?category=drinkware", base + "?category=drinkware&badge=new&badge=sale", base + "?category=drinkware&badge=new&rating=48", base + "?category=drinkware&badge=new&stock=true"},
 		ListPartCategory: {base + "?badge=new", base + "?category=drinkware&badge=new", base + "?category=textiles&badge=new", base + "?category=stationery&badge=new", base + "?category=fragrance&badge=new", base + "?category=outdoor&badge=new"},
 		ListPartChosen:   {base + "?badge=new", base + "?category=drinkware"},
 		ListPartClear:    {base},
@@ -352,7 +352,7 @@ func TestTheListModelIsTheListOfTheShop(t *testing.T) {
 	urls := listSample(1, 600)
 	for _, l := range StoreLangs {
 		for _, q := range slices.Concat(StoreListQueries, []string{
-			"color=moss&color=mist&page=2&sort=price-asc&min=x&max=-3&rating=zz", "q=%20Cup%20&category=nope", "sort=nope&stock=0&page=-1",
+			"color=moss&color=mist&page=2&sort=price-asc&max=-3", "q=%20Cup%20&category=nope", "sort=nope&stock=false&page=-1",
 			"q=" + strings.Repeat("a", 61), "min=300&max=100", "badge=", "q=it%27s+a+%22cup%22+%26+more",
 			// The trim of the form is the one of JavaScript: U+FEFF goes and U+0085 stays, at the limit of 60
 			// characters too, which are code points.

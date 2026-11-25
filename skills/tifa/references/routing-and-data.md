@@ -104,14 +104,15 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 - A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in a POST, PUT or PATCH input holds uploaded files (`Blob | null` and `Blob[]` in TypeScript). The generated function then sends a multipart form, and a JSON body gets 415. The other fields of that input follow the GET rules. Files only go in fields of the input itself: anywhere else fails the build. Check the bytes, not the name or Content-Type, and copy the file before the handler returns. Guide: uploads (`docs/guides/uploads.md`).
 - `c.SetBodyLimit(20 << 20)` and `c.SetReadTimeout(5 * time.Minute)` in `OnRequest`, before anything reads the body, replace `server.body_limit` and `server.read_timeout` for that request. Match `c.Pattern()` and the method (not the GET of a page). `BodyLimit` and `ReadTimeout` constants in `route.go` fail the build. They are going away in the next minor version: write `c.SetBodyLimit(20 << 20)` and `c.SetReadTimeout(5 * time.Minute)` in `OnRequest` instead, for the route's `c.Pattern()` and the POST method (`c.Request().Method == http.MethodPost`), before anything reads the body, and return the error of either call. Either may be a var, such as a `tifa.Size` setting. 408 when the body is too slow.
 - A body that does not decode answers 400 (413 over the body limit, 415 for another content type, 408 when it does not arrive in time). The handler does not run.
-- A handler that writes its own response reads input with `c.Bind(&in)` or `c.BindQuery(&in)`, and answers with `c.JSON`, `c.Text` or `c.NoContent`.
+- A handler that writes its own response reads input with `c.Bind(&in)` or `c.BindQuery(&in)`, and answers with `c.JSON`, `c.Text` or `c.NoContent`. A handler with an input parameter has its response written by the framework.
 - A POST, PUT, PATCH or DELETE sent by a browser from another site gets 403 before your code runs. See [build-and-deploy.md](build-and-deploy.md) for letting chosen origins through.
 
 ## Ctx
 
 | Method | What it does |
 | --- | --- |
-| `c.Param(name)`, `c.Query(name)`, `c.QueryValues(name)` | Path parameter, first query value (`""` when absent), every value of a repeated query key |
+| `c.Param(name)` | Path parameter |
+| `c.Query(name)`, `c.QueryValues(name)` | First query value (`""` when absent), every value of a repeated query key. Method handlers, `Validate` and `OnRequest` only. `Load` and `Layout` take query parameters as a second parameter |
 | `c.Header(name)`, `c.Cookie(name)` | Request header, request cookie |
 | `c.Context()`, `c.WithContext(ctx)` | Request context, and a copy of `c` that carries another one (`c` does not change) |
 | `c.Pattern()` | The matched route, such as `/projects/{project}` |
@@ -119,24 +120,42 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Path()` | Path of the page as in the address bar: escaped, language prefix included, no query. Same for a page load and a navigation data request. A handler gets its own path. Not in `Layout` |
 | `c.SetHeader(k, v)`, `c.SetCookie(cookie)` | Response header and cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Write the response. Not allowed in `Load` or `Layout` |
-| `c.Bind(&v)`, `c.BindQuery(&v)` | Decode body or query into a struct. Not in `Load` |
+| `c.Bind(&v)`, `c.BindQuery(&v)` | Decode body or query into a struct, for a handler that writes its own response. Not in `Load` or `Layout` |
 | `c.Request()`, `c.Writer()` | Raw request and writer. Method handlers and `OnRequest` only |
 
 Request-scoped values (the signed-in user) ride on the standard context: `OnRequest` passes `c.WithContext(context.WithValue(...))` to `next` and a domain package offers a typed getter. Domain code takes `context.Context`, not `*tifa.Ctx`.
 
 ## What Load and Layout may do with Ctx
 
-At build time Tifa reads `Load`, `Layout` and the module functions they call, to find which path parameters, query parameters and Layouts each page depends on. That decides when the browser must fetch data again. So:
+A `Load` or `Layout` takes its query parameters as a second parameter, a struct with a field for each one, and Tifa reads the names from it:
 
-- Pass `c.Param`, `c.Query` and `c.QueryValues` a constant string: `c.Param("order")`. A variable name fails the build.
-- Call them and `tifa.Use` directly. Storing the method in a variable or passing it as a value fails.
-- Do not call `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`. Read each query value with `c.Query("name")`. A body does not exist in a page load. The path of the page is `c.Path()` (not in a `Layout`, whose data is shared by the pages below it).
+```go
+type Filter struct {
+	Tab  string   `json:"tab"`
+	Tags []string `json:"tag"`
+	Page int      `json:"page"`
+}
+
+func Load(c *tifa.Ctx, q Filter) (Page, error) { return page(c, q.Tab, q.Page) }
+```
+
+- Fields are strings, bools, whole numbers, floats and slices of them, named by the `json` tag or the Go name, with no embedded fields. The struct has no `Validate`: check in `Load` and return `tifa.Error{Status: 400, Message: "..."}`.
+- A value is valid in one way of writing only. `?page=02`, `?page=+2`, `?on=1` (a `bool` takes `true` or `false`), `?price=1.0` and a scalar name given twice answer 400 before `Load` runs. `?page=` counts as not passed. A parameter no field names is ignored.
+- A name that a Layout and a page below it both declare has one type in both.
+- A test calls `Load(c, Filter{Tab: "a"})`.
+- `c.Query` and `c.QueryValues` in `Load`, `Layout` or a function they call fail the build.
+
+At build time Tifa also reads `Load`, `Layout` and the module functions they call, to find which path parameters and Layouts each page depends on. That decides when the browser must fetch data again. So:
+
+- Pass `c.Param` a constant string: `c.Param("order")`. A variable name fails the build.
+- Call it and `tifa.Use` directly. Storing the method in a variable or passing it as a value fails.
+- Do not call `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`. A body does not exist in a page load. The path of the page is `c.Path()` (not in a `Layout`, whose data is shared by the pages below it).
 - `*tifa.Ctx` may be passed to a plain (non-generic) function of this module or of Tifa, or used for a direct method call. Converting it, returning it, putting it in a slice, map or channel, assigning to an existing variable, `go` or `defer` with it, passing it to an interface, a function variable, a generic function or a library function all fail the build, and the error names the file and line.
 - If a helper needs only the context, pass `c.Context()`.
 
 ```go
 // fine
-func Load(c *tifa.Ctx) (Page, error) { return page(c, c.Query("tab")) }
+func Load(c *tifa.Ctx, q Filter) (Page, error) { return page(c, q.Tab) }
 func page(c *tifa.Ctx, tab string) (Page, error) { return build(c.Context(), c.Param("order"), tab) }
 
 // fails the build: the name is not a constant
@@ -165,7 +184,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 
 - `./route.gen` is generated for each folder with a page, Layout or method handler. It exports `page` and `layout` (only when the folder has them), `PageData`, `LayoutData`, `PageSearch`, `LayoutSearch`, `Params`, `POSTInput`/`POSTOutput` style types, one function per method handler, and each Go struct the data uses, under its Go name (`type Item struct` is `Item`, so write `import { type Item } from './route.gen'` instead of `PageData['items'][number]`). A struct that shares its name with another package's gets the package name in front (`CartOrder`), and one named like a `route.gen` export gets `Go` in front (`GoParams`). To read a Layout above you, import `layout` from that folder's `route.gen`, such as `'../../route.gen'`. `go tool tifa build` or `tifa dev` writes them, and `tsc` needs them, so run one first. They are written from `route.go`, `page.tsx` and `layout.tsx` and are old after a change there, so after a batch of Go changes (a return or input type, a page or Layout added or removed) run `go tool tifa gen` once, then write the TypeScript that uses the types. Do not run it after every file. While `tifa dev` runs it rewrites them after each saved change, and `gen` then leaves them alone. `pnpm typecheck` and `go tool tifa check` run it first.
 - Links are typed from the folders: `<Link to="/todos/$todo" params={{ todo: '1' }}>` from `@tanstack/react-router`.
-- The query parameters a `Load` or `Layout` reads are typed on `Link`, `navigate` and `useSearch`: every key is `string | string[]` and optional, since a key can come more than once in a URL (`c.Query` in Go takes the first). Pass strings (`page: String(n)`). To read one value as Go does, take the first: `[search.sort].flat()[0]`. Other keys are open, so a misspelled key is not caught.
+- The query parameters of the struct of a `Load` or `Layout` are typed on `Link`, `navigate` and `useSearch`: every key is `string | string[]` and optional, since a key can come more than once in a URL (Go answers 400 for a name that comes twice when its field is not a slice). Pass strings in the form Go reads back (`page: String(n)`, `stock: 'true'`). To read one value as Go does, take the first: `[search.sort].flat()[0]`. Other keys are open, so a misspelled key is not caught.
 - Pages are UI only. Data comes from `Load`.
 - Exports of `page.tsx`: the default component, `head`, `ErrorBoundary`. See [errors-and-404.md](errors-and-404.md) and [rendering.md](rendering.md).
 - Each `page.tsx` and non-root `layout.tsx` is its own chunk in the browser. Its top-level code runs when its route first loads, not at app start. Put setup every page needs (an i18n instance, say) in the root Layout or a module it imports.

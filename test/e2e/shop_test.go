@@ -555,9 +555,20 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 			t.Errorf("the storefront carries %s, or the workbench lacks it", owner)
 		}
 	}
-	// A page past the last shows the last, from the 145th product on.
-	if status, _, list := get(t, base+"/zh-CN/store/products?page=9223372036854775807"); status != 200 || !strings.Contains(rendered(list), "第 145 到") {
+	// A page past the last shows the last, from the 145th product on. The largest page a browser holds
+	// exactly is valid, and a larger one answers 400 like any value that is not written the one way.
+	if status, _, list := get(t, base+"/zh-CN/store/products?page=9007199254740991"); status != 200 || !strings.Contains(rendered(list), "第 145 到") {
 		t.Errorf("a page past the last of the list: %d", status)
+	}
+	for _, query := range []string{"page=9223372036854775807", "page=02", "min=x", "stock=1", "page=1&page=2"} {
+		if status, _, _ := get(t, base+"/zh-CN/store/products?"+query); status != 400 {
+			t.Errorf("?%s: %d, want 400", query, status)
+		}
+	}
+	for _, query := range []string{"page=", "min=&max=&stock=", "utm_source=mail"} {
+		if status, _, _ := get(t, base+"/zh-CN/store/products?"+query); status != 200 {
+			t.Errorf("?%s: %d, want 200", query, status)
+		}
 	}
 
 	// A request that fails makes no cart, and a cart ID the server did not make is not kept.
@@ -711,7 +722,7 @@ func TestBuildReportsViolations(t *testing.T) {
 		{"layoutparam", "app/projects/route.go:8:"},
 		{"usenonancestor", "app/shop/route.go:11:"},
 		{"badtype", "app/page/route.go:56:"},
-		{"bindquery", "app/list/route.go:12:"},
+		{"badquery", "app/pointer/route.go:7:"},
 	} {
 		dir := filepath.Join(repoRoot(t), "internal", "analyze", "testdata", tc.fixture)
 		cmd := exec.Command(cli(t), "build", "--dir", dir, "-o", filepath.Join(t.TempDir(), "app"))

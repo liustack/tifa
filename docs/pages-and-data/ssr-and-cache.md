@@ -46,7 +46,7 @@ A page and its navigation data have different URLs, so a cache that keys by URL 
 
 ### Query parameters in the server render
 
-The server renders a page with its path and the query parameters its `Load` and the Layouts above it read with `c.Query` or `c.QueryValues`, and no others. Tracking parameters such as `?utm_source=mail` add no key to the memo and no server render. How to read a parameter in a component, and the warning of `tifa build` for a read that hydrates differently, are in [Query parameters](../reference/memo.md#query-parameters).
+The server renders a page with its path and the query parameters its `Load` and the Layouts above it take as their second parameter, and no others. Tracking parameters such as `?utm_source=mail` add no key to the memo and no server render. How to read a parameter in a component, and the warning of `tifa build` for a read that hydrates differently, are in [Query parameters](../reference/memo.md#query-parameters).
 
 ### Cache for CDNs
 

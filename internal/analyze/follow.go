@@ -13,9 +13,9 @@ import (
 )
 
 // fixHint tells the user how to change a call the analyzer cannot follow.
-const fixHint = `read the values with c.Param("name") and c.Query("name") in Load, or in a function the analyzer follows, and pass the values instead, or pass c.Context() when only the request context is needed`
+const fixHint = `read the path parameters with c.Param("name") in Load, or in a function the analyzer follows, and pass the values instead, take the query parameters as the second parameter of Load and pass its fields, or pass c.Context() when only the request context is needed`
 
-// loadWalk collects what one Load reads: the c.Param and c.Query names and the tifa.Use calls in
+// loadWalk collects what one Load reads: the c.Param names and the tifa.Use calls in
 // its body and in every function it passes the Ctx to, followed through any number of calls
 // inside the module. Each Load gets its own walk, so a helper shared by several Loads counts for
 // each of them.
@@ -92,6 +92,14 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		return
 	}
 	if method := ctxMethod(info, call); method != "" {
+		if method != "Param" && !w.validate {
+			what := "Load"
+			if w.layout {
+				what = "Layout"
+			}
+			a.errorAt(call.Pos(), "c.%s cannot be used in Load, Layout or the functions they call: they take their query parameters as a second parameter, which the build and the browser can read. Declare the parameters in a struct and take it as the second parameter, for example type Filter struct { Sort string `json:\"sort\"` } and func %s(c *tifa.Ctx, q Filter) (T, error), then read q.Sort. c.%s is for method handlers, Validate and OnRequest", method, what, method)
+			return
+		}
 		if len(call.Args) != 1 {
 			return
 		}
@@ -133,7 +141,7 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	switch callee := typeutil.Callee(info, call).(type) {
 	case *types.Builtin:
 	case *types.Func:
-		if callee.Pkg() != nil && isFrameworkPath(callee.Pkg().Path()) {
+		if callee.Pkg() != nil && a.isFramework(callee.Pkg().Path()) {
 			return
 		}
 		if recv := callee.Signature().Recv(); recv != nil && types.IsInterface(recv.Type()) {
@@ -252,6 +260,10 @@ func containsCtxSeen(t types.Type, seen map[types.Type]bool) bool {
 
 // isFrameworkPath reports whether an import path belongs to tifa itself, whose functions read
 // no parameters on the application's behalf.
+func (a *analyzer) isFramework(path string) bool {
+	return isFrameworkPath(path) && !a.modulePkgs[path]
+}
+
 func isFrameworkPath(path string) bool {
 	return path == tifaPath || strings.HasPrefix(path, tifaPath+"/")
 }
@@ -278,11 +290,11 @@ func refusedInLoad(fn *types.Func) string {
 	}
 	switch fn.Name() {
 	case "Request", "Writer":
-		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which parameters are read: in Load and the functions it calls, use c.Param, c.Query, c.QueryValues, c.Header, c.Cookie, c.Path (the path of the page) or c.Context() instead. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
+		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which path parameters are read: in Load and the functions it calls, use c.Param, c.Header, c.Cookie, c.Path (the path of the page) or c.Context() instead, and take the query parameters as the second parameter of Load. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
 	case "BindQuery":
-		return `c.BindQuery reads query parameters the analyzer cannot name, so the page would not load again when they change: in Load and the functions it calls, read each one with c.Query("name"), or c.QueryValues("name") for a repeated one. c.BindQuery is for the GET, POST, PUT, PATCH and DELETE handlers`
+		return `c.BindQuery decodes the query string in a method handler, where the response is the handler's own: Load and Layout take their query parameters as the second parameter, for example type Filter struct { Page int ` + "`json:\"page\"`" + ` } and func Load(c *tifa.Ctx, q Filter) (T, error)`
 	case "Bind":
-		return `c.Bind reads the request body, which a page load and the data request of a navigation do not have: in Load and the functions it calls, read query parameters with c.Query("name") or c.QueryValues("name"). c.Bind is for the POST, PUT, PATCH and DELETE handlers`
+		return `c.Bind reads the request body, which a page load and the data request of a navigation do not have: in Load and the functions it calls, take the query parameters as the second parameter, func Load(c *tifa.Ctx, q Filter) (T, error). c.Bind is for the POST, PUT, PATCH and DELETE handlers`
 	}
 	return ""
 }

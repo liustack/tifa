@@ -2,7 +2,7 @@
 summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: c56382576f0e
+translatedFrom: 8bf9fbf3d316
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -490,9 +490,9 @@ Tifa 插件会改写 SSR 包里的许多 npm 包，比如 React DOM、TanStack R
 - 每个布局路由都有一个 `notFoundComponent`，它显示这个布局的 `ErrorBoundary`，或最近的祖先布局的，带一个状态为 404 的 `TifaError`（运行时里是 `missing`）。路由器以 `notFoundMode: 'fuzzy'` 运行：对于没有任何路由匹配的 URL，它加载匹配 URL 开头部分的那些路由，并在其中最深的、有 `notFoundComponent` 的那个路由的 `Outlet` 里显示它。所以 404 显示在 URL 所匹配的最深的布局里面，服务器找到的也是这一个（见 [404](../pages-and-data/errors.zh-CN.md#404)）。
 - 页面路径是它的文件夹相对于它的布局的文件夹的部分。位于布局自己的文件夹里的页面，是那个布局的 index 路由 `/`，路由 ID 是 `/_app/projects/$project/`。`name+` 变成 `$name`，`name++` 变成 `$`（参数名是 `_splat`）。字面的文件夹名只包含 ServeMux、路由器和 URL 读起来含义相同的字符，所以按原样写出。
 - 如果任何两个生成的路由最终得到同一个 TanStack ID，构建会失败。
-- 带 `Load` 的路由会得到一个 `loader`，并对它的数据多久算新鲜使用 TanStack 的默认值：立即过期（`staleTime: 0`），预加载的数据重用 30 秒，再次访问时显示缓存的数据，同时在后台重新加载（`defaultStaleReloadMode: 'background'`）。运行时里没有任何东西会在写入之后重新加载数据，见 [handlers.md](../pages-and-data/handlers.zh-CN.md#calling-method-handlers-from-the-browser)。`loaderDeps` 只包含 `AllQuery` 里的查询参数，也就是用 `c.Query` 或 `c.QueryValues` 读取的那些。`remountDeps` 是 `Load` 读取的路径参数（包括通过 `tifa.Use` 使用的布局所读取的），没有查询参数：另一个查询会重新加载数据，并保留组件和它的状态，就像 TanStack Router 默认做的那样。当路径里变化的参数没有任何 `Load` 读取时，组件也不会被重新挂载。没有 `Load` 的路由从不会被重新挂载。
+- 带 `Load` 的路由会得到一个 `loader`，并对它的数据多久算新鲜使用 TanStack 的默认值：立即过期（`staleTime: 0`），预加载的数据重用 30 秒，再次访问时显示缓存的数据，同时在后台重新加载（`defaultStaleReloadMode: 'background'`）。运行时里没有任何东西会在写入之后重新加载数据，见 [handlers.md](../pages-and-data/handlers.zh-CN.md#calling-method-handlers-from-the-browser)。`loaderDeps` 只包含 `AllQuery` 里的查询参数，也就是 `Load` 的查询结构体的字段。`remountDeps` 是 `Load` 读取的路径参数（包括通过 `tifa.Use` 使用的布局所读取的），没有查询参数：另一个查询会重新加载数据，并保留组件和它的状态，就像 TanStack Router 默认做的那样。当路径里变化的参数没有任何 `Load` 读取时，组件也不会被重新挂载。没有 `Load` 的路由从不会被重新挂载。
 - 当 `Load` 失败，包括 404 时，loader 会抛出一个带状态和公开消息的 `TifaError`，由这个路由的 `errorComponent` 显示。页面路由的 `errorComponent` 是它自己的 `ErrorBoundary`，或最近的祖先布局的。布局路由的是它的父布局的，所以失败的布局会显示上一层的 `ErrorBoundary`。
-- 路由器把路径当作区分大小写的，和 ServeMux 一样。查询参数按 `c.Query` 的含义解析：值是字符串，重复的键是字符串数组，没有东西会被当作 JSON 解析。写回 URL 时，它们遵循浏览器和表单的风格（空格变成 `+`），常见的 URL 保持原样。Go 的 `url.ParseQuery` 会读成不同含义的字符（`;&=+%#`）总是被百分号编码，所以重新加载时 `c.Query` 得到同样的值。
+- 路由器把路径当作区分大小写的，和 ServeMux 一样。查询参数按 Go 读查询字符串的方式解析：值是字符串，重复的键是字符串数组，没有东西会被当作 JSON 解析。写回 URL 时，它们遵循浏览器和表单的风格（空格变成 `+`），常见的 URL 保持原样。Go 的 `url.ParseQuery` 会读成不同含义的字符（`;&=+%#`）总是被百分号编码，所以重新加载时 Go 得到同样的值。
 - 一个路由，如果它的 `Load` 或 `Layout` 读取查询参数，就会得到 `validateSearch: searchTypes<PageSearch>()`（或 `LayoutSearch`），也就是这些参数给 `Link`、`navigate` 和 `useSearch` 用的类型，见[Link 和 navigate 里的查询参数](../pages-and-data/navigation.zh-CN.md#query-parameters-in-link-and-navigate)。`searchTypes` 返回 `undefined`，所以不会对查询运行任何代码：TanStack 会跳过值为 `undefined` 的 `validateSearch`，路由会像上面那样读取每个参数，包括 Go 不读的那些。
 - 服务器在路由之前，就会响应 public 文件夹里的文件，以及 `/assets/` 或 `/__tifa/` 之下的任何东西，但是 `app/` 根部的参数文件夹（比如 `app/lang+`）也会匹配像 `/favicon.svg` 这样的路径。所以 `routes.tsx` 里有 `publicPaths`，即 public 文件夹里文件的 URL 路径（`tifa build` 和 `tifa dev` 读取 `build.public` 文件夹），根路由会把每一次导航到其中之一、或到 `/assets/` 或 `/__tifa/` 之下路径的导航，变成一次文档加载，不请求导航数据。这涵盖 `<Link>`、`router.navigate` 和 `router.preloadRoute`（预加载什么都不做）。每个有 `page.tsx` 的路由都带 `staticData: { page: true }`，运行时里的 `isPage(router, pathname)` 只对被页面完整匹配的路径为真，对上面的路径、API 路由和显示 404 的 URL 为假。
 - 为不匹配任何页面的 URL 添加了两种路由。在一个自己的 URL 上没有页面的布局之下，有一个 index 路由，它的 loader（`unmatched`）抛出 404，这样那个 URL 就在这个布局里面显示 404。在根布局之下，有一个路由 `$`，对应路径的其余部分，它的 `params.parse`（`outside`）只接受这样的 URL：根布局之下或某个 `layout_.tsx` 之下没有任何路由以它开头。根布局没有路径，所以路由器会只用根路由去匹配这样的 URL，而不带根布局。它的 loader 同样抛出 404。这些路由没有组件，也没有 `Load`，Go 里没有它们的路由。

@@ -70,7 +70,7 @@ func AnalyzeWith(dir string, opts Options) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &analyzer{root: root, opts: opts, dirs: map[string]*dirInfo{}, used: usedLoads{}, identity: map[*Load][]identityRead{}}
+	a := &analyzer{root: root, opts: opts, dirs: map[string]*dirInfo{}, used: usedLoads{}, identity: map[*Load][]identityRead{}, queryAt: map[*Load][]queryAt{}}
 	if a.module, err = modulePath(root); err != nil {
 		return nil, err
 	}
@@ -145,6 +145,7 @@ type analyzer struct {
 	errs                Errors
 	used                usedLoads
 	identity            map[*Load][]identityRead // the reads of cookies, headers and the session by each Load
+	queryAt             map[*Load][]queryAt      // the fields of the query struct of each Load, with where they are declared
 }
 
 // dirInfo records the convention files found in one directory under app/. replaceTSX is a
@@ -394,7 +395,7 @@ func hasPos(e packages.Error) bool { return e.Pos != "" && e.Pos != "-" }
 
 // packageError converts a load or type error, whose position is a "file:line:col" string.
 func (a *analyzer) packageError(e packages.Error) Error {
-	e.Msg = a.explainCycle(e.Msg)
+	e.Msg = explainUse(a.explainCycle(e.Msg))
 	if !hasPos(e) {
 		return Error{Msg: e.Msg}
 	}
@@ -410,6 +411,20 @@ func (a *analyzer) packageError(e packages.Error) Error {
 	}
 	pos.Filename = a.relFile(pos.Filename)
 	return Error{Pos: pos, Msg: e.Msg}
+}
+
+// layoutWithQueryRe finds a function with a second parameter after the Ctx in the message the type
+// checker gives for tifa.Use called with it.
+var layoutWithQueryRe = regexp.MustCompile(`func\([^()]*\*tifa\.Ctx, [^()]*\)`)
+
+// explainUse says what a type error of a tifa.Use call means when the function passed takes a second
+// parameter: a Layout with query parameters cannot be used by another Load. The checker only says the
+// types do not match.
+func explainUse(msg string) string {
+	if !strings.Contains(msg, "tifa.Use") || !layoutWithQueryRe.MatchString(msg) {
+		return msg
+	}
+	return msg + ". A Layout with a second parameter, which holds query parameters, cannot be passed to tifa.Use: tifa.Use takes a Layout function of the form func(c *tifa.Ctx) (T, error). Take the data this Load needs from a Layout without query parameters, or read the parameters in this Load"
 }
 
 var importCycleRe = regexp.MustCompile(`^(could not import (\S+)) \(import cycle: \[([^\]]*)\]\)$`)
@@ -529,6 +544,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkDirectCalls()
 	a.checkBindTags()
 	a.propagateQuery(routes, layouts)
+	a.checkQueryTypes(routes, layouts)
 	a.checkCacheIdentity(routes, layouts)
 
 	i18n := a.i18n(routes, layouts)
@@ -847,8 +863,8 @@ func typeString(t types.Type) string {
 }
 
 // readLoad reads the function that loads the data of a route (Load) or Layout (Layout): its
-// result type and the constant parameter names passed to c.Param and c.Query in its body.
-// owner is the directory of the route or Layout.
+// result type, the fields of its query struct, the second parameter, and the constant parameter
+// names passed to c.Param in its body. owner is the directory of the route or Layout.
 func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, []paramUse) {
 	obj := pkg.Types.Scope().Lookup(name)
 	if obj == nil {
@@ -858,18 +874,22 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	sig := (*types.Signature)(nil)
 	if ok {
 		sig = fn.Signature()
+		params := sig.Params()
 		ok = sig.TypeParams().Len() == 0 && !sig.Variadic() &&
-			slices.Equal(tupleTypes(sig.Params()), []string{ctxType}) &&
+			(params.Len() == 1 || params.Len() == 2) && typeString(params.At(0).Type()) == ctxType &&
 			sig.Results().Len() == 2 && typeString(sig.Results().At(1).Type()) == "error"
 	}
 	if !ok {
-		a.errorAt(obj.Pos(), "%s must have the signature func(c *tifa.Ctx) (T, error)", name)
+		a.errorAt(obj.Pos(), "%s must have one of the signatures func(c *tifa.Ctx) (T, error) or func(c *tifa.Ctx, q Filter) (T, error), where Filter is a struct with a field for each query parameter the page reads", name)
 		return nil, nil
 	}
 	result := sig.Results().At(0).Type()
 	load := &Load{Type: typeString(result), Result: result}
 
 	decl := a.funcDecl(pkg, fn)
+	if sig.Params().Len() == 2 {
+		a.readQuery(load, name, sig.Params().At(1).Type(), fieldTypePos(decl.Type.Params, 1))
+	}
 	problems, html := checkTSHTML(result)
 	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", problems)
 	load.HTML = html
@@ -888,18 +908,115 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	for _, u := range uses {
 		if u.method == "Param" {
 			load.Params = append(load.Params, u.name)
-		} else {
-			if u.name == reservedQuery {
-				a.errorAt(u.pos, "the query parameter %q is reserved for tifa: the browser asks for the data of a navigation with it, and the server removes it before any code sees the request. Rename the parameter", u.name)
-			}
-			load.Query = append(load.Query, u.name)
 		}
 	}
 	slices.Sort(load.Params)
 	load.Params = slices.Compact(load.Params)
+	return load, uses
+}
+
+// queryAt is a field of the query struct of a Load, with where it is declared.
+type queryAt struct {
+	QueryField
+	typ types.Type
+	pos token.Pos
+}
+
+// readQuery reads the second parameter of a Load or Layout, the struct that the query string of
+// the page is decoded into: the names of its fields are the query parameters of the page, and
+// their types say how the values are read. what is "Load" or "Layout" and pos the place of the
+// parameter type.
+func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Pos) {
+	st, isStruct := q.Underlying().(*types.Struct)
+	if !isStruct || isNamed(q, multipartPath, "FileHeader") {
+		a.errorAt(pos, "the second parameter of %s, %s, must be a struct, not a pointer or another type: it holds the query parameters, one field for each. For example type Filter struct { Page int `json:\"page\"` } and func %s(c *tifa.Ctx, q Filter) (T, error)", what, typeString(q), what)
+		return
+	}
+	load.Input = typeString(q)
+	label := what + " query"
+	if !a.checkQueryStruct(label, q, st, nil, pos, "a "+what+" query comes from the query string") {
+		return
+	}
+	// Validate belongs to the input of a method handler. A Load checks its values itself, where it can
+	// answer in its own words.
+	if fn, _, _ := types.LookupFieldOrMethod(q, true, nil, "Validate"); fn != nil {
+		if _, isFunc := fn.(*types.Func); isFunc {
+			a.errorAt(pos, "%s %s has a Validate method, which tifa runs only for the input of a method handler: check the values in %s and return tifa.Error{Status: 400, Message: \"page must be at least 1\"} or tifa.ErrNotFound for one that is not allowed", label, types.TypeString(q, shortQualifier), what)
+			return
+		}
+	}
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		name := jsonName(st.Tag(i))
+		if name == "-" || !f.Exported() {
+			continue
+		}
+		if name == "" {
+			name = f.Name()
+		}
+		field := QueryField{Name: name, Type: typeString(f.Type())}
+		t := f.Type().Underlying()
+		if s, ok := t.(*types.Slice); ok {
+			field.List, t = true, s.Elem().Underlying()
+		}
+		field.Kind = queryKind(t.(*types.Basic)) // checkQueryStruct accepted the type
+		load.Fields = append(load.Fields, field)
+		load.Query = append(load.Query, name)
+		a.queryAt[load] = append(a.queryAt[load], queryAt{QueryField: field, typ: f.Type(), pos: f.Pos()})
+	}
+	slices.SortFunc(load.Fields, func(x, y QueryField) int { return strings.Compare(x.Name, y.Name) })
 	slices.Sort(load.Query)
 	load.Query = slices.Compact(load.Query)
-	return load, uses
+}
+
+// queryKind names the kind of a basic type as the manifest says it, an alias such as byte or rune by
+// the type it stands for.
+func queryKind(b *types.Basic) string {
+	switch b.Kind() {
+	case types.Byte:
+		return "uint8"
+	case types.Rune:
+		return "int32"
+	}
+	return b.Name()
+}
+
+// checkQueryStruct checks the struct the query string of a page is decoded into, the second
+// parameter of a Load or Layout. See checkFlatInput for what it holds. files is nil: a page cannot
+// hold a file.
+// The name _tifa is the one the browser asks for the data of a navigation with, which the server
+// removes before any code sees the request.
+func (a *analyzer) checkQueryStruct(label string, in types.Type, st *types.Struct, files map[*types.Var]bool, pos token.Pos, why string) bool {
+	ok := a.checkFlatInput(label, in, st, files, pos, why)
+	named := map[string]*types.Var{}
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		if f.Embedded() || !f.Exported() || jsonName(st.Tag(i)) == "-" {
+			continue
+		}
+		name := jsonName(st.Tag(i))
+		if name == "" {
+			name = f.Name()
+		}
+		if first := named[name]; first != nil {
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: the fields %s and %s are both the query parameter %q, and one value cannot fill two: give the parameter one field, or the other field its own json tag", label, first.Name(), f.Name(), name), f))
+			ok = false
+		} else {
+			named[name] = f
+		}
+		if name == reservedQuery {
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: the query parameter %q is reserved for tifa: the browser asks for the data of a navigation with it, and the server removes it before any code sees the request. Rename the field, or its json tag", label, name), f))
+			ok = false
+		}
+		if files[f] {
+			continue
+		}
+		if files == nil && holdsFile(f.Type()) {
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file, which comes in a request body, and %s: take files in a POST, PUT or PATCH handler", label, rootLabel(in), f.Name(), why), f))
+			ok = false
+		}
+	}
+	return ok
 }
 
 func (a *analyzer) funcDecl(pkg *packages.Package, fn *types.Func) *ast.FuncDecl {
@@ -965,10 +1082,11 @@ func calleeIdent(call *ast.CallExpr) *ast.Ident {
 	return nil
 }
 
-// checkDirectCalls requires c.Param, c.Query, c.QueryValues and tifa.Use to be called directly, in every loaded
-// package. The analyzer reads parameter names and Use arguments at the call site, so a method
-// value (f := c.Query), a method expression ((*tifa.Ctx).Query(c, "x")) or tifa.Use stored in a
-// variable or passed as an argument would hide them.
+// checkDirectCalls requires c.Param and tifa.Use to be called directly, in every loaded package.
+// The analyzer reads parameter names and Use arguments at the call site, so a method value
+// (f := c.Param), a method expression ((*tifa.Ctx).Param(c, "x")) or tifa.Use stored in a variable
+// or passed as an argument would hide them. c.Query and c.QueryValues are not read by name: a Load
+// that calls them is refused whatever the way, and one the analyzer cannot see is stopped when it runs.
 func (a *analyzer) checkDirectCalls() {
 	for _, pkg := range a.pkgs {
 		for _, f := range pkg.Syntax {
@@ -1000,7 +1118,7 @@ func (a *analyzer) checkDirectCallsIn(info *types.Info, root ast.Node) {
 		method := paramMethod(obj)
 		var name string
 		switch {
-		case method != "":
+		case method == "Param":
 			name = "c." + method
 			if sel := selectors[id]; sel != nil && info.Selections[sel] != nil && info.Selections[sel].Kind() == types.MethodExpr {
 				a.errorAt(sel.Pos(), "%s is a method expression: call c.%s(...) directly, the analyzer reads parameter names at the call", types.ExprString(sel), method)
@@ -1435,6 +1553,46 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 					why = "c.Header sees only Host, Accept-Encoding, If-None-Match, If-Modified-Since, Cache-Control, Pragma, Content-Length, Connection, Origin and Sec-Fetch-* here, every other header is always empty"
 				}
 				a.errorAt(read.pos, "%s: %s has Cache, so its requests are anonymous and the answer is kept for everyone. Remove Cache from %s, or move what depends on the visitor into the browser, where the page can read it after it loads", why, r.Dir, r.Dir)
+			}
+		}
+	}
+}
+
+// checkQueryTypes requires a query parameter that a Layout and a page below it, or two Layouts of one
+// chain, both declare to have the same type. The browser reads the query string once for the whole
+// chain, and a Layout hands its values on to the routes below it, so one name has one meaning.
+func (a *analyzer) checkQueryTypes(routes []*route, layouts []*layout) {
+	byID := map[string]*layout{}
+	for _, l := range layouts {
+		byID[l.ID] = l
+	}
+	type pair struct{ outer, inner token.Pos }
+	reported := map[pair]bool{}
+	for _, r := range routes {
+		if r.broken {
+			continue
+		}
+		var chain []*Load
+		for _, id := range r.Layouts {
+			if l := byID[id]; l != nil && l.Load != nil {
+				chain = append(chain, l.Load)
+			}
+		}
+		if r.Page && r.Load != nil {
+			chain = append(chain, r.Load)
+		}
+		for i, inner := range chain {
+			for _, outer := range chain[:i] {
+				for _, in := range a.queryAt[inner] {
+					for _, out := range a.queryAt[outer] {
+						if in.Name != out.Name || types.Identical(in.typ, out.typ) || reported[pair{out.pos, in.pos}] {
+							continue
+						}
+						reported[pair{out.pos, in.pos}] = true
+						at := a.fset.Position(out.pos)
+						a.errorAt(in.pos, "the query parameter %q has the type %s here and %s at %s:%d: a Layout and the pages below it read one query string, so a name they share must have one type. Change one of the fields to the type of the other", in.Name, types.TypeString(in.typ, shortQualifier), types.TypeString(out.typ, shortQualifier), a.relFile(at.Filename), at.Line)
+					}
+				}
 			}
 		}
 	}

@@ -70,7 +70,7 @@ function search(v: FilterValues, page = 1) {
     ...(v.rating ? { rating: v.rating } : {}),
     ...(v.min ? { min: v.min } : {}),
     ...(v.max ? { max: v.max } : {}),
-    ...(v.inStock ? { stock: '1' } : {}),
+    ...(v.inStock ? { stock: 'true' } : {}),
     ...(v.sort !== 'featured' ? { sort: v.sort } : {}),
     ...(page > 1 ? { page: String(page) } : {}),
   }

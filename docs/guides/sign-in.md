@@ -300,7 +300,7 @@ func SignInRedirect(next string) error {
 
 `c.Path()` is the path of the page as the visitor sees it in the address bar: the language prefix is in it, and the query is not. It is the same when the page is loaded whole and when a link click asks for its data, and for a handler it is the path of the handler. `c.Request()` is not for this: `Load` may not call it, and on a link click the request is a data request, not the page. `RequireUser` works in `OnRequest`, in a `Load` and in the functions they call.
 
-The query is left out of the `next` that `RequireUser` makes. A page that keeps its state in query parameters puts them back in its own `Load`, such as `signin.SignInRedirect(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`. A guard shared by many pages cannot do it for all of them, because `Load` may only read the query parameters it names (see [How Load may use Ctx](../pages-and-data/loading-data.md#how-load-may-use-ctx)). `OnRequest` is different: a hook may read the request, so the guard below keeps the whole query. The server takes `_tifa`, the parameter of a data request, off the URL before `OnRequest` runs, so `c.Request().URL.RawQuery` is the query the visitor wrote for a page load and for a link click alike.
+The query is left out of the `next` that `RequireUser` makes. A page that keeps its state in query parameters puts them back in its own `Load`, such as `signin.SignInRedirect(c.Path()+"?tab="+url.QueryEscape(q.Tab))`. A guard shared by many pages cannot do it for all of them, because a `Load` only has the query parameters its own struct names (see [Query parameters](../pages-and-data/loading-data.md#query-parameters)). `OnRequest` is different: a hook may read the request, so the guard below keeps the whole query. The server takes `_tifa`, the parameter of a data request, off the URL before `OnRequest` runs, so `c.Request().URL.RawQuery` is the query the visitor wrote for a page load and for a link click alike.
 
 The `Layout` function of the root Layout runs for every URL, the 404 page and the sign-in page included, and a guard that names paths in `OnRequest` does not cover them. Return nothing from it that a visitor who is not signed in may not see, or read the session in it first. See [Decide who may do what](security.md#decide-who-may-do-what).
 
@@ -372,8 +372,13 @@ type View struct {
 	Next string `json:"next"`
 }
 
-func Load(c *tifa.Ctx) (View, error) {
-	return View{Next: safeNext(c.Query("next"))}, nil
+// Query is the query string of the page.
+type Query struct {
+	Next string `json:"next"`
+}
+
+func Load(c *tifa.Ctx, q Query) (View, error) {
+	return View{Next: safeNext(q.Next)}, nil
 }
 
 // Credentials is the form.

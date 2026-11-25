@@ -26,7 +26,7 @@ var siteLoads atomic.Int32
 
 func loadSite(c *tifa.Ctx) (site, error) {
 	siteLoads.Add(1)
-	if c.Query("site") == "missing" {
+	if c.Request().URL.Query().Get("site") == "missing" {
 		return site{}, tifa.ErrNotFound
 	}
 	return site{Name: "shop"}, nil

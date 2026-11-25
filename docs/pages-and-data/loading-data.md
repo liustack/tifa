@@ -46,6 +46,44 @@ In `Load` you can only set response headers and cookies. Calling `c.JSON`, `c.Te
 
 What `Load` returns when it fails is in [What an error you return becomes](errors.md#what-an-error-you-return-becomes).
 
+## Query parameters
+
+A `Load` or `Layout` that reads the query string takes a struct as its second parameter, with a field for each query parameter:
+
+```go
+type Filter struct {
+	Sort  string   `json:"sort"`
+	Color []string `json:"color"`
+	Page  int      `json:"page"`
+}
+
+func Load(c *tifa.Ctx, q Filter) (products.List, error) {
+	return products.Find(q.Sort, q.Color, q.Page)
+}
+```
+
+A `Load` that reads none takes only the Ctx. The second parameter is a struct value, not a pointer, and the type may be named or written in place.
+
+- A field is named by its `json` tag, then by its Go name. A field with `json:"-"` and an unexported field are left out. No field may be named `_tifa`, which Tifa keeps for navigation.
+- Tifa reads the names from the struct when it builds. The page loads again when one of them changes, the server renders the page with these parameters and no others (a `?utm_source=` is left out), and `Link`, `navigate` and `useSearch` know the names (see [Navigation](navigation.md#query-parameters-in-link-and-navigate)).
+- A field is a string, a `bool`, a whole number, a float, or a slice of one of them. Embedded fields, pointers, maps and types with `MarshalText` or `UnmarshalText` fail the build, and the message names the field. Pages that share parameters write the fields again in each struct.
+- A value is valid only in the one way to write it, so that reading it and writing it again gives the same text:
+
+| Type | Valid | Not valid |
+| --- | --- | --- |
+| `string` | any text, empty too | |
+| whole numbers | `0`, or digits with no leading zero and an optional `-`, in the range of the type and at most 2^53-1 | `+1`, `01`, `-0`, `1.0`, `1e3`, a space |
+| `bool` | `true` and `false` | `1`, `TRUE`, `yes` |
+| floats | digits with an optional point, no `0` at the end of the fraction, at most 15 digits, and `0` or between 1e-6 and 1e21 in size | `.5`, `1.0`, `0.50`, `-0`, `1e3` |
+| a slice | one element for each parameter of that name, in order, each valid for the element type | |
+
+- A value that is not valid answers 400 with `invalid query parameter "page"`, before `Load` runs. The data request of a navigation gets the 400 for that page. A query string that does not parse answers 400 with `invalid query string`. A name that comes twice for a field that is not a slice is not valid either.
+- An empty value (`?page=`) of a field that is not a string counts as not passed, and the field keeps its zero value, so a form that sends its empty fields works. An empty element of a list of numbers or bools is skipped. For a string, empty is a value.
+- A parameter that no field names is ignored.
+- A visitor who types a number into a plain `<form method="get">`, with no JavaScript, can send `10.50` or `007`, and the page answers 400. Declare a field for such an input as a `string` and parse it in `Load`. These rules are for the query string of a page only: the input of a `GET` or `DELETE` handler is decoded as before, by `c.BindQuery`.
+- The struct has no `Validate`: the build fails for a struct that has one. Check the values in `Load` and return `tifa.Error{Status: 400, Message: "page must be at least 1"}` or `tifa.ErrNotFound`.
+- A test calls the function with the struct: `Load(c, Filter{Sort: "price"})` (see [Testing the app](testing-apps.md)).
+
 ## page.tsx
 
 ```tsx
@@ -119,15 +157,15 @@ export default function PostPage() {
 
 ## How Load may use Ctx
 
-This section covers `Load`, `Layout` and the functions they call. At build time, Tifa starts from each `Load` and `Layout` function and finds the route parameters (`c.Param`), query parameters (`c.Query` and `c.QueryValues`) and Layouts (`tifa.Use`) it reads. When `Load` passes `*tifa.Ctx` to a function in this module, Tifa follows the call level by level, across packages too, and counts every parameter it finds toward that `Load`. A helper called by several `Load` functions counts toward each of them. Tifa does not follow into its own functions.
+This section covers `Load`, `Layout` and the functions they call. At build time, Tifa starts from each `Load` and `Layout` function and finds the route parameters (`c.Param`) and Layouts (`tifa.Use`) it reads. The query parameters come from the second parameter (see [Query parameters](#query-parameters)). When `Load` passes `*tifa.Ctx` to a function in this module, Tifa follows the call level by level, across packages too, and counts every parameter it finds toward that `Load`. A helper called by several `Load` functions counts toward each of them. Tifa does not follow into its own functions.
 
-So that Tifa finds everything, Ctx may only be used where Tifa can see it. Pass `c.Param`, `c.Query` and `c.QueryValues` a constant string, such as `c.Param("order")`, and call them and `tifa.Use` directly: storing one in a variable or passing it as a value fails the build.
+So that Tifa finds everything, Ctx may only be used where Tifa can see it. Pass `c.Param` a constant string, such as `c.Param("order")`, and call it and `tifa.Use` directly: storing one in a variable or passing it as a value fails the build.
 
 The only types that may hold a Ctx are: `*tifa.Ctx`, `tifa.Ctx`, non-generic structs declared in this module (whose fields hold Ctx only through these types, directly, embedded or indirectly), and pointers to such structs.
 
 A value that holds a Ctx may only appear in these five places:
 
-1. As the receiver of a direct method call, such as `c.Query("tab")` or `req.Page()`.
+1. As the receiver of a direct method call, such as `c.Param("order")` or `req.Page()`.
 2. As an argument to a non-generic function from this module or from Tifa, where the parameter has exactly the same type. A function literal called in place also counts.
 3. In a composite literal of a struct that holds Ctx, for a field of exactly the same type.
 4. Assigned with `:=` or `var x T = ...` to a new local variable of exactly the same type. That variable follows the same rules.
@@ -135,11 +173,11 @@ A value that holds a Ctx may only appear in these five places:
 
 Any other use fails the build and names the file and line. For example: converting it to another type or an interface, assigning it to an existing variable, assigning several values at once, `return`ing it, putting it in a slice, map, array or channel, `range`, package-level variables, `defer`, `go` statements, or passing it to a generic function, an interface method, a function variable or a function outside the module (the standard library and third-party libraries).
 
-`Load`, `Layout` and the functions they call must not call `c.Request()` or `c.Writer()`. Tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Query`, `c.QueryValues`, `c.Header`, `c.Cookie` or `c.Context()` instead. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
+`Load`, `Layout` and the functions they call must not call `c.Request()` or `c.Writer()`. Tifa cannot see parameters read through the raw request. Use `c.Param`, `c.Header`, `c.Cookie` or `c.Context()` instead, and take query parameters as the second parameter. `c.Request()` and `c.Writer()` are only for method handlers and `OnRequest`.
 
-`c.Path()` is the way to get the path of the page in `Load`, such as for a `next` address in a redirect to a sign-in page. It is the path the visitor asked for, with the language prefix and without the query, for a page load and for the data request of a navigation alike, so it is no reason to call `c.Request()`. A `Load` that needs a query parameter in that address reads it with `c.Query("name")`. A `Layout` and the functions it calls must not call `c.Path()`: the data of a Layout is shared by every page below it and is not loaded again when the visitor goes from one of them to another, so it would keep the path of the page that loaded it first. Call it in the `Load` of the page, in `OnRequest`, or in a method handler.
+`c.Path()` is the way to get the path of the page in `Load`, such as for a `next` address in a redirect to a sign-in page. It is the path the visitor asked for, with the language prefix and without the query, for a page load and for the data request of a navigation alike, so it is no reason to call `c.Request()`. A `Load` that needs a query parameter in that address takes it from its second parameter. A `Layout` and the functions it calls must not call `c.Path()`: the data of a Layout is shared by every page below it and is not loaded again when the visitor goes from one of them to another, so it would keep the path of the page that loaded it first. Call it in the `Load` of the page, in `OnRequest`, or in a method handler.
 
-They must not call `c.BindQuery` or `c.Bind` either. Tifa cannot name the query parameters a struct decodes, so the page would not load again when they change, and a page load or the data request of a navigation has no body. Read each query parameter with `c.Query("name")`, or `c.QueryValues("name")` for a repeated one.
+They must not call `c.Query`, `c.QueryValues`, `c.Bind` or `c.BindQuery` either: a query parameter is a field of the second parameter, so that Tifa and the browser know it without reading the code, and a page load has no body to bind. The build fails on a call it can see. For `c.Query`, `c.QueryValues` and `c.BindQuery`, one it cannot see, such as a Ctx kept in a global variable, panics when it runs, and the error goes to `OnError` like any other error of the `Load`. These methods stay for method handlers (`c.Query` and `c.QueryValues` also for `Validate` and `OnRequest`).
 
 When you hit one of these errors, call Ctx methods directly, or pass it to a plain function. If you only need the request context, pass `c.Context()`. A helper that only calls `c.Context()` (such as `auth.User(c)`) collects nothing when Tifa follows it.
 

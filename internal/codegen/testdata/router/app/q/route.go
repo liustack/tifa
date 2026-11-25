@@ -6,6 +6,12 @@ import (
 	"github.com/liustack/tifa"
 )
 
-func Load(c *tifa.Ctx) (string, error) {
-	return c.Query("q") + c.Query("__proto__") + strings.Join(c.QueryValues("tag"), ","), nil
+type Params struct {
+	Q     string   `json:"q"`
+	Proto string   `json:"__proto__"`
+	Tag   []string `json:"tag"`
+}
+
+func Load(c *tifa.Ctx, p Params) (string, error) {
+	return p.Q + p.Proto + strings.Join(p.Tag, ","), nil
 }

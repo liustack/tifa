@@ -127,7 +127,7 @@ A folder has one handler for each method, so a write is a method and a folder. T
 
 Each write then has an address, an input type and a result type of its own. `OnRequest` can decide who may do it from the method and `c.Pattern()`, and a proxy, a rate limit and the log tell the writes apart by method and path alone.
 
-Tifa does not check any of this. A handler may also read `c.Query("action")` and do one of several things, but those then share one address, one input type and one result type. Why Tifa has no functions that the browser calls by name is in [Philosophy](../start/philosophy.md#one-address-for-each-write).
+Tifa does not check any of this. A handler may also take an `action` field in its input and do one of several things, but those then share one address, one input type and one result type. Why Tifa has no functions that the browser calls by name is in [Philosophy](../start/philosophy.md#one-address-for-each-write).
 
 ## Calling method handlers from the browser
 

@@ -3,7 +3,6 @@
 package project
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/liustack/tifa"
@@ -13,9 +12,11 @@ import (
 
 // Load returns a page of the orders that the query string keeps, with numbers over all of them.
 // The filters are status, carrier, period, amount and q (a search in order numbers and customers),
-// sort (placedAt or totalCents) and dir (asc or desc), and page counts from 1. A filter or a sort that is not one of the choices is left out, as if it were
-// not there. The days of its cards start at midnight in the time zone of the shop.
-func Load(c *tifa.Ctx) (orders.OrderList, error) {
+// sort (placedAt or totalCents) and dir (asc or desc), and page counts from 1: the fields of
+// orders.ListQuery. A filter or a sort that is not one of the choices is left out, as if it were
+// not there, and a page that is not a whole number answers 400. The days of its cards start at
+// midnight in the time zone of the shop.
+func Load(c *tifa.Ctx, q orders.ListQuery) (orders.OrderList, error) {
 	p, err := tifa.Use(c, Layout)
 	if err != nil {
 		return orders.OrderList{}, err
@@ -24,17 +25,7 @@ func Load(c *tifa.Ctx) (orders.OrderList, error) {
 	if err != nil {
 		return orders.OrderList{}, err
 	}
-	page, _ := strconv.Atoi(c.Query("page"))
-	return orders.ListOrders(p.ID, zone, orders.ListQuery{
-		Status:  c.Query("status"),
-		Carrier: c.Query("carrier"),
-		Period:  c.Query("period"),
-		Amount:  c.Query("amount"),
-		Search:  c.Query("q"),
-		Sort:    c.Query("sort"),
-		Dir:     c.Query("dir"),
-		Page:    page,
-	}), nil
+	return orders.ListOrders(p.ID, zone, q), nil
 }
 
 func Layout(c *tifa.Ctx) (projects.Project, error) {

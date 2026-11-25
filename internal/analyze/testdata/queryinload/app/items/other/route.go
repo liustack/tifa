@@ -3,7 +3,7 @@ package other
 import (
 	"strings"
 
-	"example.com/follow/db"
+	"example.com/queryinload/db"
 	"github.com/liustack/tifa"
 )
 

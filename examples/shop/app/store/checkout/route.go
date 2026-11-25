@@ -27,12 +27,17 @@ type View struct {
 	Placed *cart.Placed `json:"placed"`
 }
 
-func Load(c *tifa.Ctx) (View, error) {
+// Query is the query string of the page.
+type Query struct {
+	Placed string `json:"placed"`
+}
+
+func Load(c *tifa.Ctx, q Query) (View, error) {
 	l, err := storekit.FindLocale(c.Language())
 	if err != nil {
 		return View{}, err
 	}
-	if id := c.Query("placed"); id != "" {
+	if id := q.Placed; id != "" {
 		p, err := cart.GetPlaced(id, cart.ID(c), l)
 		if err != nil {
 			return View{}, err

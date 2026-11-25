@@ -61,7 +61,11 @@ func newAltEnv(t *testing.T, always bool) *altEnv {
 		// Every page of the area exists in each of its languages.
 		Route{ID: "app/store/items", Path: "/store/items/{id}", Page: true, SSR: true, Languages: allLanguages, Layouts: []string{"app/layout"},
 			Query: []string{"page"},
-			Load:  func(c *tifa.Ctx) (any, error) { return c.Param("id") + c.Query("page"), nil }},
+			Load: LoadInput(func(c *tifa.Ctx, q struct {
+				Page string `json:"page"`
+			}) (any, error) {
+				return c.Param("id") + q.Page, nil
+			})},
 		Route{ID: "app/store/plain", Path: "/store/plain", Page: true, SSR: false, Languages: allLanguages, Layouts: []string{"app/layout"}},
 		// An entry with its own slug in each language and a version that may be missing.
 		Route{ID: "app/store/journal", Path: "/store/journal/{slug}", Page: true, SSR: true, Languages: allLanguages, Layouts: []string{"app/layout"},
@@ -282,7 +286,12 @@ func TestEveryPageOfASiteHasItsCanonicalURL(t *testing.T) {
 	app.SiteURL = "https://blog.example.com/"
 	app.Routes = append(app.Routes, Route{ID: "app/list", Path: "/list", Page: true, SSR: true, Layouts: []string{"app/layout"},
 		Query: []string{"page", "sort"},
-		Load:  func(c *tifa.Ctx) (any, error) { return c.Query("page") + c.Query("sort"), nil }})
+		Load: LoadInput(func(c *tifa.Ctx, q struct {
+			Page []string `json:"page"`
+			Sort string   `json:"sort"`
+		}) (any, error) {
+			return strings.Join(q.Page, "") + q.Sort, nil
+		})})
 	s, r := newFrontServer(t, app)
 	last := func() string {
 		r.mu.Lock()

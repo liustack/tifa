@@ -11,13 +11,18 @@ type Overview struct {
 	Items []string `json:"items"`
 }
 
-func Load(c *tifa.Ctx) (Overview, error) {
+// Query is the query string of the page.
+type Query struct {
+	Sort string `json:"sort"`
+}
+
+func Load(c *tifa.Ctx, q Query) (Overview, error) {
 	s, err := tifa.Use(c, Layout)
 	if err != nil {
 		return Overview{}, err
 	}
 	items := []string{"apple"}
-	if c.Query("sort") == "desc" {
+	if q.Sort == "desc" {
 		slices.Reverse(items)
 	}
 	return Overview{Shop: s.Name, Items: items}, nil

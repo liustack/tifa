@@ -7,12 +7,18 @@ import (
 
 const Memo = false
 
-func Load(c *tifa.Ctx) ([]string, error) {
+// Filter is the query string of the page.
+type Filter struct {
+	Sort string   `json:"sort"`
+	Tag  []string `json:"tag"`
+}
+
+func Load(c *tifa.Ctx, q Filter) ([]string, error) {
 	p, err := tifa.Use(c, Layout)
 	if err != nil {
 		return nil, err
 	}
-	return append([]string{p.ID, c.Query("sort")}, c.QueryValues("tag")...), nil
+	return append([]string{p.ID, q.Sort}, q.Tag...), nil
 }
 
 type Project struct {
@@ -26,5 +32,5 @@ func Layout(c *tifa.Ctx) (Project, error) {
 	if err != nil {
 		return Project{}, err
 	}
-	return Project{ID: c.Param("projectId"), Name: site.Name + c.Query("currency")}, nil
+	return Project{ID: c.Param("projectId"), Name: site.Name}, nil
 }

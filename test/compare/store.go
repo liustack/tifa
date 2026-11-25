@@ -142,7 +142,7 @@ var StoreListQueries = []string{
 	"q=%E6%9D%AF",
 	"color=moss&color=mist&sort=price-asc",
 	"material=wood&material=metal&badge=sale&badge=new&rating=46",
-	"min=100&max=300&stock=1&sort=price-desc",
+	"min=100&max=300&stock=true&sort=price-desc",
 	"sort=newest",
 	"sort=rating&category=textiles",
 	"page=2",
@@ -289,13 +289,13 @@ func StoreScenarios() []StoreScenario {
 		for _, slug := range StoreProducts() {
 			pages = append(pages, storeGET(l, "/products/"+slug, storeProduct))
 		}
-		for _, n := range []string{"1", "2", "3", "99", "0", "-4", "x"} {
+		for _, n := range []string{"1", "2", "3", "99", "0", "-4"} {
 			pages = append(pages, storeGET(l, "/products/oak-tray?reviews="+n, storeProduct))
 		}
 		pages = append(pages,
-			storeGET(l, "/products?color=moss&color=mist&page=2&sort=price-asc&min=x&max=-3&rating=zz", storeList),
+			storeGET(l, "/products?color=moss&color=mist&page=2&sort=price-asc&max=-3", storeList),
 			storeGET(l, "/products?q=%20Cup%20&category=nope", storeList),
-			storeGET(l, "/products?sort=nope&stock=0&page=-1", storeList),
+			storeGET(l, "/products?sort=nope&stock=false&page=-1", storeList),
 			storeGET(l, "/checkout?placed=SS-NOSUCHORDER", storeCheckout),
 			storeMineGET(l),
 		)

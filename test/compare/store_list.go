@@ -137,7 +137,7 @@ func listFilterOf(page string) listFilter {
 	}
 	f := listFilter{
 		Lang: lang, Query: v.Get("q"), Category: v.Get("category"), Colors: v["color"], Materials: v["material"], Badges: v["badge"],
-		Rating: number(v.Get("rating")), Min: number(v.Get("min")), Max: number(v.Get("max")), InStock: v.Get("stock") == "1",
+		Rating: number(v.Get("rating")), Min: number(v.Get("min")), Max: number(v.Get("max")), InStock: v.Get("stock") == "true",
 		Sort: v.Get("sort"), Asked: v.Get("sort"), Page: number(v.Get("page")),
 	}
 	if !slices.Contains(listSorts, f.Sort) {
@@ -517,7 +517,7 @@ func (v listValues) href(lang string, page int) string {
 		add("max", v.max)
 	}
 	if v.inStock {
-		add("stock", "1")
+		add("stock", "true")
 	}
 	if v.sort != "featured" {
 		add("sort", v.sort)

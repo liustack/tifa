@@ -1,5 +1,5 @@
 ---
-summary: 'What is settled in the design of Tifa and why: names, conventions, defaults and ideas that were turned down, each with what would reopen it'
+summary: 'What is settled in the design of Tifa and why: names, conventions, defaults and ideas that were turned down, each with what would reopen it, reading query parameters with a call in Load, the browser guessing the type of a query value, a Layout with query parameters passed to tifa.Use'
 audience: dev
 order: 3
 read_when:
@@ -214,6 +214,38 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 - They are no second decoder: the second parameter is decoded by the same code.
 
 **Instead.** Both stay, for handlers only. In `Load`, `Layout` and `Validate` they fail the build.
+
+### Reading query parameters with a call in Load
+
+**Turned down (2026-11-25).** `Load(c)` reads each query parameter with `c.Query("name")`, and Tifa follows the Ctx through the functions `Load` calls to find the names. The other way, `c.BindQuery(&q)` in `Load`, was refused before for the same reason.
+
+**Why not.**
+- The names come from reading the code, so a Ctx the build cannot follow (a helper outside the module, an interface, a stored Ctx) hides a parameter. The page does not load again when it changes, and the server render and the memo key do not see it. The runtime also gave `Load` the whole query string, whatever the build found.
+- A parameter had no type, so every page parsed its own numbers, and a value that did not parse was left out without a word.
+
+**Instead.** `Load(c, q Filter)` and `Layout(c, q Filter)`: the parameters are the fields of the struct in the signature, which the build reads without following anything, and the runtime gives `Load` the declared ones only. The types, the loading again on a change, the render URL, the memo key and the canonical link all come from the same fields. `c.Query`, `c.QueryValues` and `c.BindQuery` are for method handlers (and `Validate`, `OnRequest` for the first two), and a call in `Load` or `Layout` fails the build, or panics when the build could not see it.
+
+**Reopen when** an app needs query parameters whose names are not known when it is built, such as a free list of filters. A field that holds the rest of them would be the first thing to try.
+
+### The browser guessing the type of a query value
+
+**Turned down (2026-11-25).** The router parses `?page=2` as the number 2 and `?stock=true` as a bool, as TanStack Router does by default, and the page uses what it finds.
+
+**Why not.** A guess by the look of the value gives a different type for the same parameter on different URLs: `?q=1.0` became the number 1 and `?q=007` became 7, so a search for those words changed (commit 665a754d turned it off for this reason). Go and the browser would have to guess alike for every text, floats included, or the server render and the hydration would differ.
+
+**Instead.** The Go struct of the `Load` says the type of each field, and the browser converts by that declaration and by nothing else. A value is valid only in the one way to write it, so Go and the browser read the same text the same way, and one table of cases tests both (`internal/core/testdata/query-values.txt`). This is for the query string of a page: a handler has no address to keep and no memo key, so `c.BindQuery` and the input of a `GET` or `DELETE` handler decode as they did. The browser does not convert yet and keeps the values as strings.
+
+**Reopen when** a type that the rules cannot say is needed in a query string, such as a date or an id with its own text form.
+
+### A Layout with query parameters passed to tifa.Use
+
+**Not done (2026-11-25).** `tifa.Use(c, Layout)` for a Layout that takes a second parameter, `Layout(c, q Filter)`.
+
+**Why not.** `tifa.Use` takes `func(*Ctx) (T, error)`, and Go cannot infer a generic function from two signatures. A second function name, such as `tifa.UseWith(c, Layout, q)`, is a new name to learn for a case no app has yet: every `tifa.Use` in the apps and tests of the repository passes a Layout that reads only path parameters. The build explains the type error of the compiler when a call does not compile.
+
+**Instead.** A Layout whose result other `Load` functions need takes no query parameters, and the `Load` of the page reads them.
+
+**Reopen when** an app needs the result of a Layout that depends on query parameters from another `Load`. Then add the second function name.
 
 ## Head, setup and page exports
 

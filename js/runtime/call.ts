@@ -175,7 +175,7 @@ async function failure(response: Response): Promise<TifaError> {
   return new TifaError(response.status, message, fields)
 }
 
-// encodeQuery writes the fields of a GET or DELETE input the way Ctx.BindQuery reads them: one
+// encodeQuery writes the fields of a GET or DELETE input the way the server reads them (BindQuery in the server package): one
 // parameter per value, a repeated one per element of an array, null and undefined left out.
 function encodeQuery(input: Record<string, unknown>) {
   const query = new URLSearchParams()
@@ -205,7 +205,7 @@ function movedPath(value: string) {
   return new Error(`the path parameter ${JSON.stringify(value)} would send the request to another path`)
 }
 
-// encodeForm writes the input of a handler that takes files the way Ctx.Bind reads a multipart
+// encodeForm writes the input of a handler that takes files the way the server reads a multipart
 // form: a file per Blob, the other fields as text, an array as one part per element, and null and
 // undefined left out, as encodeQuery does.
 function encodeForm(input: Record<string, unknown>) {

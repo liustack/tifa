@@ -32,7 +32,7 @@ export function loadList(params: { lang: string }, query: URLSearchParams): List
     newFilter({
       query: query.get('q') ?? '', category: query.get('category') ?? '', colors: values('color'), materials: values('material'),
       badges: values('badge'), rating: number(query.get('rating') ?? ''), min: number(query.get('min') ?? ''), max: number(query.get('max') ?? ''),
-      inStock: query.get('stock') === '1', sort: query.get('sort') ?? '', page: number(query.get('page') ?? ''),
+      inStock: query.get('stock') === 'true', sort: query.get('sort') ?? '', page: number(query.get('page') ?? ''),
     }),
     l,
   )

@@ -37,7 +37,7 @@ Never edit `.tifa/`. It is generated.
 - A typed handler: `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`. Tifa decodes `in` from a JSON or form body (the query string for `GET` and `DELETE`), runs `in.Validate()` when it exists and writes the result as JSON. `func POST(c *tifa.Ctx) error` writes its own answer.
 - Data, inputs and results travel as JSON, and Tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null`, so write `?? []`. An integer above 9007199254740991 is refused where a page reads it: add `json:",string"` or send milliseconds.
 - The build fails with the file and line when `Load` or `Layout`:
-  - calls `c.Param`, `c.Query` or `c.QueryValues` other than directly with a constant string, such as `c.Query("tab")`,
+  - calls `c.Query` or `c.QueryValues` (take `q Filter`, a struct, as the second parameter instead), or `c.Param` other than directly with a constant string,
   - calls `tifa.Use` with anything but a package-level `Layout` that wraps the caller,
   - passes `c` anywhere but a plain function or method of this module or of Tifa,
   - calls `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`.

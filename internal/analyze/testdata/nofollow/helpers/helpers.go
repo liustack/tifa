@@ -19,7 +19,7 @@ func Indirect(c *tifa.Ctx) string {
 
 // MethodValue hides the parameter name behind a method value.
 func MethodValue(c *tifa.Ctx) string {
-	f := c.Query
+	f := c.Param
 	return f("x")
 }
 
