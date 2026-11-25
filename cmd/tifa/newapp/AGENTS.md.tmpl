@@ -17,7 +17,7 @@ Before you change code, read the docs that apply. [Docs](#docs) at the end of th
 | `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build, those of the browser too. Run it after a change and after you open the pages you changed. Exits with 1 when there are errors |
 | `go tool tifa check` | The one command to run before you finish: the routing conventions, `.tifa/`, `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end and build `bin/` |
-| `go tool tifa routes` | List the routes and their URLs, and the addresses Tifa answers itself (sitemap, robots.txt, session, assets, public files) |
+| `go tool tifa routes` | List the routes, their URLs and the addresses Tifa answers itself |
 | `go tool tifa docs` | Print the docs folder of this Tifa version and its docs |
 | `go tool tifa agents` | Write this block and the skill in `.claude/skills/tifa/` again for the Tifa in `go.mod` |
 | `go tool tifa upgrade [version]` | Move the app to a newer Tifa (not a hand-made `go get`) and print the `Upgrading:` notes to act on |
