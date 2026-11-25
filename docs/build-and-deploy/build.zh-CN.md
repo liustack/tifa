@@ -2,7 +2,7 @@
 summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: 47b4533898de
+translatedFrom: 317d1325c841
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -343,7 +343,26 @@ AGENTS.md and .claude/skills/tifa are up to date (Tifa v0.0.11)
 tifa routes [--dir app-root] [--json]
 ```
 
-运行和 `tifa build` 相同的静态分析，不生成也不构建任何东西，并打印路由：文件夹、URL、布局、方法（页面用 `page`），以及 `SSR` 和 `Memo` 开关，然后是各个布局。违反约定的错误和 `tifa build` 的打印方式相同。`--json` 改为打印路由清单，其中有每个 `Load` 结果以及每个处理函数的输入和结果的 Go 类型。
+运行和 `tifa build` 相同的静态分析，不生成也不构建任何东西，并打印三张表。第一张是路由：文件夹、URL、布局、方法（页面用 `page`），以及 `SSR` 和 `Memo` 开关。第二张是各个布局。第三张 `BUILT IN` 是程序会响应、但不是 `app/` 下某个文件夹的地址，以及每个地址在什么时候存在。违反约定的错误和 `tifa build` 的打印方式相同。`--json` 改为打印路由清单，其中有每个 `Load` 结果以及每个处理函数的输入和结果的 Go 类型。清单里没有内置地址。
+
+```
+BUILT IN                             WHEN
+/sitemap.xml                         site.url is set
+/sitemap-<n>.xml                     site.url is set and the sitemap has more than 50000 URLs or 50 MiB
+/robots.txt                          site.url is set, but public/robots.txt answers instead
+/llms.txt                            site.url is set
+/llms-full.txt                       site.url is set
+/<path>.md                           site.url is set and tifa.SetSitemap lists a page with Content
+/__tifa/session                      the app calls tifa.SetSession
+/assets/<file>                       the app has a page
+/<file>                              public/ has 1 file
+/.well-known/acme-challenge/<token>  server.tls_domains is set, on server.http_addr only
+```
+
+- `site.url` 可以在程序启动时用选项或环境变量设置，`tifa routes` 看不到这一点。所以站点相关的行始终会列出来，`tifa.yaml` 里没有 `site.url` 时，`site.url is set` 后面会跟 `(not in tifa.yaml)`。
+- `public/` 里的文件，或应用在同一路径上的路由，会代替 Tifa 来响应，这一行会写明是哪一个。应用没有内容集合时，`.md` 那一行末尾是 `(no content collections)`。
+- `/__tifa/session`、`/assets/<file>` 和 `/<file>` 只在成立时才列出：应用调用了 `tifa.SetSession`，有 `page.tsx`，或者 `public/`（由 `build.public` 指定的文件夹）里有文件。`/<file>` 代表该文件夹里的每个文件，在它自己的路径上。
+- `/.well-known/acme-challenge/<token>` 在程序自己申请证书时，由 `server.http_addr` 响应（见 [HTTPS](config.zh-CN.md#https)）。它取决于运行中程序的设置，所以 `tifa routes` 始终会列出它。
 
 ## go.mod {#gomod}
 

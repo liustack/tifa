@@ -342,7 +342,26 @@ Each marker is alone on its line, appears once, and `tifa:begin` comes before `t
 tifa routes [--dir app-root] [--json]
 ```
 
-Runs the same static analysis as `tifa build`, without generating or building anything, and prints the routes: folder, URL, Layouts, methods (`page` for a page), and the `SSR` and `Memo` switches, then the Layouts. Convention errors are printed the same way as by `tifa build`. `--json` prints the route manifest instead, with the Go types of each `Load` result and each handler's input and result.
+Runs the same static analysis as `tifa build`, without generating or building anything, and prints three tables. The first has the routes: folder, URL, Layouts, methods (`page` for a page), and the `SSR` and `Memo` switches. The second has the Layouts. The third, `BUILT IN`, has the addresses the program answers that are not a folder of `app/`, and when each one is there. Convention errors are printed the same way as by `tifa build`. `--json` prints the route manifest instead, with the Go types of each `Load` result and each handler's input and result. It has no built-in addresses.
+
+```
+BUILT IN                             WHEN
+/sitemap.xml                         site.url is set
+/sitemap-<n>.xml                     site.url is set and the sitemap has more than 50000 URLs or 50 MiB
+/robots.txt                          site.url is set, but public/robots.txt answers instead
+/llms.txt                            site.url is set
+/llms-full.txt                       site.url is set
+/<path>.md                           site.url is set and tifa.SetSitemap lists a page with Content
+/__tifa/session                      the app calls tifa.SetSession
+/assets/<file>                       the app has a page
+/<file>                              public/ has 1 file
+/.well-known/acme-challenge/<token>  server.tls_domains is set, on server.http_addr only
+```
+
+- `site.url` can be set when the program starts, with an option or an environment variable, and `tifa routes` does not see that. So the site rows are always there, and `(not in tifa.yaml)` follows `site.url is set` when `tifa.yaml` has no `site.url`.
+- A file of `public/` or a route of the app at the same path answers instead of Tifa, and the row says which. `(no content collections)` ends the `.md` row when the app has none.
+- `/__tifa/session`, `/assets/<file>` and `/<file>` are listed only when they hold: the app calls `tifa.SetSession`, has a `page.tsx`, or has files in `public/` (the folder set by `build.public`). `/<file>` stands for each file of that folder at its own path.
+- `/.well-known/acme-challenge/<token>` is answered on `server.http_addr` while the program gets its own certificates (see [HTTPS](config.md#https)). It is read from the running program's settings, so `tifa routes` always lists it.
 
 ## go.mod
 
