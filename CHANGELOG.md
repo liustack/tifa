@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa routes` has a third table, `BUILT IN`, with the addresses the program answers that are not a folder of `app/`: `/sitemap.xml` and its parts, `/robots.txt`, `/llms.txt`, `/llms-full.txt`, the `.md` versions of content pages, `/__tifa/session`, `/assets/`, the files of `public/` and the ACME challenge. Each row says when the address is there, such as `site.url is set`, and says so when a file of `public/` or a route of the app answers in its place. See [Tifa routes](docs/build-and-deploy/build.md#tifa-routes).
+
 ### Changed
 
 - **Breaking.** A `Validate` method that returns a plain error is now answered like a handler that returns one: it goes to `OnError`, the answer is 500, and its text stays in the log. It was answered with 400 and the text of the error, so an error from a database or another service that `Validate` called reached the visitor. `tifa.Fields` and `tifa.Error` are answered as before. Upgrading: where a `Validate` returns `errors.New("message")` or `fmt.Errorf(...)` for the visitor to read, return `tifa.Fields{"field": "message"}` for a message under one input, or `tifa.Error{Status: 400, Message: "message"}`.

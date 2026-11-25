@@ -2,7 +2,7 @@
 summary: '搜索引擎和语言模型怎样找到 Tifa 站点：site.url、sitemap.xml、robots.txt、llms.txt、og 标签'
 audience: app
 order: 8
-translatedFrom: 4ac7dae270a3
+translatedFrom: 8d83d5178c3b
 read_when:
   - '设置页面的标题、描述或分享卡片（`og:title`、`og:image`、`twitter:card`），或者站点链接在聊天或信息流里不显示图片'
   - '让搜索引擎收录 Tifa 站点，或者添加 sitemap 或 robots.txt'
@@ -37,6 +37,8 @@ site:
 | `/llms.txt` | 站点的名字和每个页面一个链接，格式见 [llmstxt.org](https://llmstxt.org) |
 | `/llms-full.txt` | 每个显示内容条目的页面的 Markdown，一个接一个 |
 | `<path>.md` | 显示内容条目的页面的 Markdown 版本，比如 `/blog/hello.md` |
+
+`tifa routes` 会列出这些地址，并写明每个地址需要什么条件，这样你能看到应用有其中哪几个（见 [Tifa routes](../build-and-deploy/build.zh-CN.md#tifa-routes)）。
 
 每个页面还会得到带完整 URL 的 `<link rel="canonical">`：路径加上它的 `Load` 和布局读取的查询参数，也就是服务器渲染它时用的 URL（见 [查询参数](../reference/memo.zh-CN.md#query-parameters)）。其他参数会略去。所以当 `/store/products?page=2&utm_source=news` 的 `Load` 读取 `page` 时，它的 canonical URL 是 `/store/products?page=2`：列表的第 2 页是一个独立的页面，而带跟踪参数的链接不是副本。你在自己的 `head` 里写的 canonical 优先。404 页面和错误页面没有 canonical。
 
