@@ -61,7 +61,7 @@ A folder has at most three convention files: `route.go`, `page.tsx`, and `layout
 A file is in one of two classes, and one question decides which: does the URL change when the content changes?
 
 - **Import it. The file is in the bundle under `/assets/`.** Vite gives it a name with a content hash, and Tifa serves it with `Cache-Control: public, max-age=31536000, immutable`. The browser keeps it for good, and a new version has a new URL, so it is never stale. Images, fonts and icons that your pages use belong here.
-- **Put it in `public/`.** The file keeps its name, and Tifa serves it with `Cache-Control: no-cache` and an ETag, so each use asks the server and gets a 304 when nothing changed. With a fixed name, any cache time N means up to N of old content, so it is checked every time. Files and folders whose names start with a dot, such as `.DS_Store` and `.env`, are not copied into the program, except `.well-known`.
+- **Put it in `public/`.** The file keeps its name, and Tifa serves it with `Cache-Control: no-cache` and an ETag, so each use asks the server and gets a 304 when nothing changed. With a fixed name, any cache time N means up to N of old content, so it is checked every time. Files and folders whose names start with a dot, such as `.DS_Store` and `.env`, are not copied into the program, except `.well-known`. To copy one, such as `.nojekyll`, list it in `build.public_dotfiles` ([Configuration](../build-and-deploy/config.md)). `tifa build` says which ones it left out, apart from `.DS_Store`.
 
 Import what a page uses:
 

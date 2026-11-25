@@ -64,10 +64,12 @@ const clientEntry = ".tifa/client.ts"
 // which gets no bundles and needs no Node. The generated entries must exist under .tifa. The same
 // input gives the same files and ID.
 //
+// dotfiles is build.public_dotfiles, the dot names of public that are copied, see ScanPublic.
+//
 // c holds the content collections, nil without any: dist/content.json with their entries and the
 // bodies in dist/content/, which the tifa plugin converts during the browser build. They count in
 // the ID.
-func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
+func App(n *Node, root, public string, dotfiles []string, pages bool, c *Content) (string, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
@@ -113,7 +115,7 @@ func App(n *Node, root, public string, pages bool, c *Content) (string, error) {
 			return "", err
 		}
 	}
-	if err := syncDir(public, filepath.Join(dist, "public")); err != nil {
+	if err := syncDir(public, filepath.Join(dist, "public"), dotfiles); err != nil {
 		return "", err
 	}
 	if b.Public, err = publicHashes(filepath.Join(dist, "public")); err != nil {
@@ -307,17 +309,33 @@ func publicHashes(dir string) (map[string]string, error) {
 	return hashes, err
 }
 
-// syncDir makes the regular files under dst the files under src, following links: it copies the
-// ones that are new or whose size or modification time differ, and removes the ones src lacks,
-// with the folders that empties. A file that is up to date is not touched, so a folder of large
-// files costs a walk and not a copy. A copy keeps the modification time of its source, which is
-// what the next call compares. A missing src is a folder without files. The files of dst are
-// replaced by renaming a finished copy over them, so a reader sees the old file or the new one.
-// A file or folder whose name starts with a dot is skipped, apart from .well-known: a .DS_Store or
-// a .env left in public/ is not published.
-func syncDir(src, dst string) error {
-	files := map[string]fs.FileInfo{}
-	dirs := map[string]bool{}
+// PublicScan is what a public folder holds for tifa build and tifa dev: the files they copy and
+// the dot names they leave out.
+type PublicScan struct {
+	// Files and Dirs are the regular files and the folders to copy, by their paths from the public
+	// folder, with the folder itself as ".".
+	Files map[string]fs.FileInfo
+	Dirs  map[string]bool
+	// LeftOut lists the files and folders whose names start with a dot and that build.public_dotfiles
+	// does not name, by their paths from the public folder with /. A folder ends in / and counts
+	// once, its files are not listed. They are in the order of the walk. A .DS_Store is left out
+	// like the others and not listed.
+	LeftOut []string
+}
+
+// ScanPublic walks the public folder src, following links. It skips a file or folder whose name
+// starts with a dot, apart from .well-known and the paths in dotfiles (build.public_dotfiles):
+// a .DS_Store or a .env left in public/ is not published. A skipped folder is not entered, and a
+// folder that dotfiles names is, with its dot names inside it still skipped unless named too. A
+// missing src is a folder without files. It is an error when dotfiles names a path that is not in
+// src, or is in a dot folder that is not named. It is the one rule of which files of public/
+// count, also for tifa routes.
+func ScanPublic(src string, dotfiles []string) (*PublicScan, error) {
+	scan := &PublicScan{Files: map[string]fs.FileInfo{}, Dirs: map[string]bool{}}
+	named := map[string]bool{}
+	for _, p := range dotfiles {
+		named[p] = false
+	}
 	err := symwalk.Walk(src, func(path string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && path == src {
 			return filepath.SkipAll
@@ -329,14 +347,24 @@ func syncDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
+		rel = filepath.ToSlash(rel)
 		if name := d.Name(); path != src && strings.HasPrefix(name, ".") && name != ".well-known" {
-			if d.IsDir() {
+			if _, ok := named[rel]; ok {
+				named[rel] = true
+			} else if d.IsDir() {
+				scan.LeftOut = append(scan.LeftOut, rel+"/")
 				return filepath.SkipDir
+			} else {
+				// Finder writes a .DS_Store into every folder it shows, and nobody means to
+				// publish one: naming it in every build would teach people to skip the line.
+				if name != ".DS_Store" {
+					scan.LeftOut = append(scan.LeftOut, rel)
+				}
+				return nil
 			}
-			return nil
 		}
 		if d.IsDir() {
-			dirs[rel] = true
+			scan.Dirs[rel] = true
 			return nil
 		}
 		if !d.Type().IsRegular() {
@@ -346,12 +374,44 @@ func syncDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		files[rel] = info
+		scan.Files[rel] = info
 		return nil
 	})
 	if err != nil {
+		return nil, err
+	}
+	for _, p := range dotfiles {
+		if named[p] {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(src, filepath.FromSlash(p))); err != nil {
+			return nil, fmt.Errorf("build.public_dotfiles: %q is not in public/", p)
+		}
+		// It is there and was not reached: a dot folder above it is left out.
+		parts := strings.Split(p, "/")
+		for i := 1; i < len(parts); i++ {
+			if above := strings.Join(parts[:i], "/"); strings.HasPrefix(parts[i-1], ".") && parts[i-1] != ".well-known" && !slices.Contains(dotfiles, above) {
+				return nil, fmt.Errorf("build.public_dotfiles: %q is inside %q, which is left out unless build.public_dotfiles names it too", p, above)
+			}
+		}
+		return nil, fmt.Errorf("build.public_dotfiles: %q is not a file or folder tifa build copies", p)
+	}
+	return scan, nil
+}
+
+// syncDir makes the regular files under dst the files under src, following links: it copies the
+// ones that are new or whose size or modification time differ, and removes the ones src lacks,
+// with the folders that empties. A file that is up to date is not touched, so a folder of large
+// files costs a walk and not a copy. A copy keeps the modification time of its source, which is
+// what the next call compares. A missing src is a folder without files. The files of dst are
+// replaced by renaming a finished copy over them, so a reader sees the old file or the new one.
+// Which files count is ScanPublic: dot names are left out unless dotfiles names them.
+func syncDir(src, dst string, dotfiles []string) error {
+	scan, err := ScanPublic(src, dotfiles)
+	if err != nil {
 		return err
 	}
+	files, dirs := scan.Files, scan.Dirs
 	// Remove what src lacks, or has as the other kind: a file where it has a folder and the reverse.
 	err = filepath.WalkDir(dst, func(path string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && path == dst {
@@ -364,6 +424,7 @@ func syncDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
+		rel = filepath.ToSlash(rel) // the paths of ScanPublic are written with /
 		if d.IsDir() && dirs[rel] || d.Type().IsRegular() && files[rel] != nil {
 			return nil
 		}

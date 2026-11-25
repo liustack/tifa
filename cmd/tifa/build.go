@@ -43,6 +43,9 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkDeploySettings(root); err != nil {
 				return err
 			}
+			if err := checkPublic(root, cmd.ErrOrStderr()); err != nil {
+				return err
+			}
 			m, err := analyzeApp(cmd, root)
 			if err != nil {
 				return err
@@ -82,7 +85,7 @@ Vite and compiles the executable, which embeds .tifa/dist, with CGO_ENABLED=0.`,
 			if err := checkReact(root, pages); err != nil {
 				return err
 			}
-			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), pages, contentOf(m, m.Content, settings.Public, m.SiteURL))
+			id, err := bundle.App(node, root, filepath.Join(root, settings.Public), settings.PublicDotfiles, pages, contentOf(m, m.Content, settings.Public, m.SiteURL))
 			if err != nil {
 				return err
 			}

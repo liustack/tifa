@@ -67,7 +67,7 @@ func buildApp(t *testing.T, root string) string {
 	t.Helper()
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	id, err := App(n, root, filepath.Join(root, "public"), true, nil)
+	id, err := App(n, root, filepath.Join(root, "public"), nil, true, nil)
 	if err != nil {
 		t.Fatalf("App: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestAppWithoutPagesOrPublic(t *testing.T) {
 	// An application without pages starts no Node: a missing node_modules is no error.
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	id, err := App(n, root, filepath.Join(root, "public"), false, nil)
+	id, err := App(n, root, filepath.Join(root, "public"), nil, false, nil)
 	if err != nil {
 		t.Fatalf("App: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestAppWritesTheContentFile(t *testing.T) {
 	n := NewNode(root, io.Discard)
 	defer n.Close()
 	build := func(c *Content) string {
-		id, err := App(n, root, filepath.Join(root, "public"), false, c)
+		id, err := App(n, root, filepath.Join(root, "public"), nil, false, c)
 		if err != nil {
 			t.Fatalf("App: %v", err)
 		}
@@ -171,7 +171,7 @@ func TestAppWritesTheContentFile(t *testing.T) {
 		File:     content.File{"blog": {{ID: "a", File: "content/blog/a.html"}}},
 		Markdown: []content.Markdown{{Collection: "blog", ID: "a", Out: "content/blog/a.html"}},
 	}
-	_, err := App(n, root, filepath.Join(root, "public"), false, entries)
+	_, err := App(n, root, filepath.Join(root, "public"), nil, false, entries)
 	want := "the app has content collections, and tifa turns their Markdown into HTML with Vite: add package.json and vite.config.ts, which uses the tifa plugin:\n\n" +
 		"\timport tifa from './.tifa/vite.js'\n\texport default { plugins: [tifa()] }\n\n" +
 		"and install the packages:\n\n\tpnpm add -D vite unified@11 remark-parse@11 remark-gfm@4 remark-rehype@11 rehype-raw@7 rehype-stringify@10"
@@ -179,7 +179,7 @@ func TestAppWritesTheContentFile(t *testing.T) {
 		t.Errorf("entries without package.json:\n%v\nwant\n%s", err, want)
 	}
 	writeTree(t, root, map[string]string{"package.json": "{}"})
-	if _, err := App(n, root, filepath.Join(root, "public"), false, entries); err == nil || !strings.Contains(err.Error(), "add vite.config.ts, which uses") {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, false, entries); err == nil || !strings.Contains(err.Error(), "add vite.config.ts, which uses") {
 		t.Errorf("entries without vite.config.ts: %v", err)
 	}
 }
@@ -348,7 +348,7 @@ func TestAppReportsAConfigWithoutTheTifaPlugin(t *testing.T) {
 	writeTree(t, root, map[string]string{"vite.config.ts": "export default {}\n"})
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	_, err := App(n, root, filepath.Join(root, "public"), true, nil)
+	_, err := App(n, root, filepath.Join(root, "public"), nil, true, nil)
 	if err == nil || !strings.Contains(err.Error(), "does not use the tifa plugin") {
 		t.Fatalf("err = %v, want the missing plugin", err)
 	}
@@ -361,7 +361,7 @@ func TestAppReportsAMissingConfig(t *testing.T) {
 	}
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	_, err := App(n, root, filepath.Join(root, "public"), true, nil)
+	_, err := App(n, root, filepath.Join(root, "public"), nil, true, nil)
 	if err == nil || !strings.Contains(err.Error(), "no vite.config.ts, create it") {
 		t.Fatalf("err = %v, want the missing config", err)
 	}
@@ -488,7 +488,7 @@ func TestAppHashesPublicFiles(t *testing.T) {
 	})
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), false, nil); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, false, nil); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	hash := func(content string) string {
@@ -505,7 +505,7 @@ func TestAppHashesPublicFiles(t *testing.T) {
 	}
 	// Changing a file changes its hash and the ID of the build, and leaves the others.
 	writeTree(t, root, map[string]string{"public/robots.txt": "User-agent: bot"})
-	if _, err := App(n, root, filepath.Join(root, "public"), false, nil); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	want["robots.txt"] = hash("User-agent: bot")
@@ -518,7 +518,7 @@ func TestAppWithoutPublicFilesHasNoHashes(t *testing.T) {
 	root := t.TempDir()
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), false, nil); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if b := readBuild(t, root); len(b.Public) != 0 {

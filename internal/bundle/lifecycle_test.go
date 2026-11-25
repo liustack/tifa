@@ -40,7 +40,7 @@ func devParent(root string) {
 	if err != nil {
 		panic(err)
 	}
-	_, err = d.Build(context.Background(), filepath.Join(root, "public"), true)
+	_, err = d.Build(context.Background(), filepath.Join(root, "public"), nil, true)
 	fmt.Fprintln(os.Stderr, "the build ended:", err)
 	select {}
 }
@@ -130,7 +130,7 @@ func TestDevCloseEndsABuildThatNeverEnds(t *testing.T) {
 	}
 	built := make(chan error, 1)
 	go func() {
-		_, err := d.Build(context.Background(), filepath.Join(root, "public"), true)
+		_, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true)
 		built <- err
 	}()
 	pid := driverPid(t, marker)
@@ -174,7 +174,7 @@ func TestDevCloseKillsADriverThatDoesNotExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatal(err)
 	}
 	pid := driverPid(t, marker)
@@ -224,7 +224,7 @@ func TestDevBuildEndsWithItsContext(t *testing.T) {
 	defer cancel()
 	built := make(chan error, 1)
 	go func() {
-		_, err := d.Build(ctx, filepath.Join(root, "public"), true)
+		_, err := d.Build(ctx, filepath.Join(root, "public"), nil, true)
 		built <- err
 	}()
 	pid := driverPid(t, marker)

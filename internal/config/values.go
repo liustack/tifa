@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -660,3 +661,39 @@ func (v needsValue) Set(s string) error {
 }
 func (v needsValue) String() string { return *v.p }
 func (v needsValue) kind() string   { return "string" }
+
+// dotfilesValue is build.public_dotfiles: comma-separated paths in the public folder, relative to
+// it, written with / and ending in a name that starts with a dot, empty for none. Such a path
+// says which dot file or dot folder tifa build copies. A path that says nothing, such as one that
+// ends in a name without a dot, or that leaves the folder, is an error, and so is an empty item.
+// A path is stored cleaned, without a trailing slash, and once.
+type dotfilesValue struct{ p *[]string }
+
+func (v dotfilesValue) Set(s string) error {
+	items, err := splitList(s)
+	if err != nil {
+		return err
+	}
+	var paths []string
+	for _, item := range items {
+		switch {
+		case strings.Contains(item, `\`):
+			return fmt.Errorf("%q: separate folders with /", item)
+		case strings.HasPrefix(item, "/") || len(item) > 1 && item[1] == ':':
+			return fmt.Errorf("%q: write the path relative to public/, such as .nojekyll", item)
+		case slices.Contains(strings.Split(item, "/"), ".."):
+			return fmt.Errorf(`%q: no ".." in a path, it must stay inside public/`, item)
+		}
+		p := path.Clean(item)
+		if name := path.Base(p); !strings.HasPrefix(name, ".") || name == "." {
+			return fmt.Errorf("%q: a path that does not end in a name that starts with a dot is copied without being listed, such as .nojekyll or docs/.assets", item)
+		}
+		if !slices.Contains(paths, p) {
+			paths = append(paths, p)
+		}
+	}
+	*v.p = paths
+	return nil
+}
+func (v dotfilesValue) String() string { return strings.Join(*v.p, ",") }
+func (v dotfilesValue) kind() string   { return "string" }
