@@ -32,7 +32,7 @@ func newRoutesCmd() *cobra.Command {
 				_, err = cmd.OutOrStdout().Write(append(data, '\n'))
 				return err
 			}
-			return printTable(cmd, m)
+			return printTable(cmd, dir, m)
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
@@ -46,8 +46,9 @@ var nanoseconds = json.WithMarshalers(json.MarshalToFunc(func(enc *jsontext.Enco
 	return enc.WriteToken(jsontext.Int(int64(d)))
 }))
 
-// printTable names routes and Layouts by their directories, which is where people look for them.
-func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
+// printTable names routes and Layouts by their directories, which is where people look for them,
+// and then lists the addresses the program answers that are not a folder.
+func printTable(cmd *cobra.Command, root string, m *analyze.Manifest) error {
 	dirs := map[string]string{}
 	for _, l := range m.Layouts {
 		dirs[l.ID] = l.Dir
@@ -73,6 +74,15 @@ func printTable(cmd *cobra.Command, m *analyze.Manifest) error {
 	fmt.Fprintln(w, "LAYOUT\tPATH\tPARENT")
 	for _, l := range m.Layouts {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", l.Dir, l.Path, dash(dirs[l.Parent]))
+	}
+	rows, err := builtInRows(root, m)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "BUILT IN\tWHEN")
+	for _, r := range rows {
+		fmt.Fprintf(w, "%s\t%s\n", r.address, r.when)
 	}
 	return w.Flush()
 }

@@ -18,7 +18,7 @@ Every folder under `app/` is one URL segment. `app/` itself is `/`.
 - Name the Go package after the parameter: `project+` holds `package project`, and others import it as `project`.
 - A folder has at most one parameter folder. Two routes whose URLs overlap fail the build, as in `http.ServeMux`. A literal beats a parameter, so `items/new` next to `items/id+` is fine.
 - A folder with a Layout but no page shows a 404 inside that Layout for its own URL. Add the page, or leave it.
-- Run `go tool tifa routes` to see what the build understood.
+- Run `go tool tifa routes` to see what the build understood. Its last table, BUILT IN, lists the addresses Tifa answers that are not a folder, such as `/sitemap.xml`, `/robots.txt` and `/__tifa/session`, and when each one is there.
 
 ## route.go
 

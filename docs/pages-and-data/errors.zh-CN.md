@@ -1,28 +1,59 @@
 ---
-summary: '错误和 404：Go 返回什么、ErrorBoundary、哪一个会显示'
+summary: '你返回的错误会变成什么，谁能看到它的文字，404 和 ErrorBoundary'
 audience: app
 order: 7
-translatedFrom: 079ec7e199f5
+translatedFrom: d4754856516b
 read_when:
+  - '想知道访客能不能看到你返回的错误，以及怎么给他们一句话'
   - '从 `Load` 或处理函数返回错误，比如 `tifa.Fields`、`tifa.Redirect` 或 `tifa.ErrNotFound`'
   - '在页面里显示 404 或错误，或者想知道哪个 `ErrorBoundary` 会显示'
 ---
 
 # 错误和 404 {#errors-and-404}
 
-## Load 和处理函数返回的错误 {#errors-from-load-and-handlers}
+## 你返回的错误会变成什么 {#what-an-error-you-return-becomes}
 
-返回错误时：
+Tifa 为一个请求调用的每个函数都返回 `error`：`Load`、`Layout`、方法处理函数、`Validate` 方法和 `OnRequest`。它们的错误都走同一处。错误只有在它的类型表明可以公开时才会到访客那里。其他任何错误都算意外错误：它的文字只进日志，访客得到 500 和普通的状态文字。所以哪里都可以直接 `return err`。
 
-| 返回的内容 | 结果 |
-| --- | --- |
-| `tifa.ErrNotFound` | 404 |
-| `tifa.Redirect(url, status)` | 重定向。页面加载和导航都会跟随它，从浏览器调用的处理函数也会（见[在浏览器里调用方法处理函数](handlers.zh-CN.md#calling-method-handlers-from-the-browser)）。`status` 不是 3xx 时会 panic |
-| `tifa.Error{Status, Message}` | 以它的状态码和消息作为响应，不会交给 `OnError`。状态码在 400 到 599 之外时，按意外错误处理 |
-| `tifa.Fields{"carrier": "pick a carrier"}` | 422，按 json 名给每个输入字段一条消息，不会交给 `OnError` |
-| 其他任何错误，或 panic | 交给 `OnError`。没有 `OnError` 时，记入日志并以 500 响应 |
+| 返回的内容 | 状态码 | 访客看到的 | 是否交给 `OnError` |
+| --- | --- | --- | --- |
+| `tifa.ErrNotFound` | 404 | `Not Found` | 否 |
+| `tifa.Redirect(url, status)` | 重定向 | 重定向本身。页面加载和导航都会跟随它，从浏览器调用的处理函数也会（见[在浏览器里调用方法处理函数](handlers.zh-CN.md#calling-method-handlers-from-the-browser)）。`status` 不是 3xx 时会 panic | 否 |
+| `tifa.Error{Status, Message}` | 它的 `Status` | 它的 `Message`，`Message` 为空时是状态文字。状态码在 400 到 599 之外时，按意外错误处理 | 否 |
+| `tifa.Fields{"carrier": "pick a carrier"}` | 422 | 按 json 名给每个输入字段一条消息 | 否 |
+| 其他任何错误，或 panic | 500 | 状态文字，或 `OnError` 返回的内容 | 是 |
 
-失败的方法处理函数会响应 JSON：`{"error": "message"}`，对于 `tifa.Fields`，还会有 `"fields": {"carrier": "pick a carrier"}`。
+数据库或别的服务返回的错误，常常带着地址、用户名或查询语句。只有上面这些类型是公开的，所以这些文字不会意外到访客眼前。
+
+### 给访客一句话 {#giving-the-visitor-a-sentence}
+
+返回 `tifa.Error`，状态码和消息由你来写。消息属于某一个输入框时，返回 `tifa.Fields`。不要把 `err.Error()` 放进 `Message`，那样任何错误的文字都成了公开的。
+
+```go
+func POST(c *tifa.Ctx, in ShipInput) (Shipment, error) {
+	order, err := findOrder(c.Context(), in.OrderID)
+	if err != nil {
+		return Shipment{}, err // the visitor sees 500
+	}
+	if order.Shipped {
+		return Shipment{}, tifa.Error{Status: 409, Message: "This order has already shipped."}
+	}
+	return ship(c.Context(), order)
+}
+```
+
+- 包一层不改变结果。Tifa 用 `errors.Is` 和 `errors.As` 找这些类型，所以 `fmt.Errorf("ship: %w", tifa.Fields{...})` 仍然是 422。包了一层的 `tifa.Error`，访客只看到它的 `Message`，看不到外面那串文字。
+- `tifa.Fields` 是带 `Error` 方法的 map，所以空的 `tifa.Fields{}` 当作 `error` 返回时不是 nil。校验函数用 `return fields.Err()` 收尾（见[方法处理函数](handlers.zh-CN.md#method-handlers-with-input-and-result)）。
+- `Validate` 方法返回的普通错误是意外错误，和处理函数返回的一样。只有 `tifa.Error` 和 `tifa.Fields` 会到访客那里。
+- 请求体或查询串解码失败时，处理函数不会运行。Tifa 用固定的短句回答（400、413、415 或 408），里面没有 Go 的类型名（见[方法处理函数](handlers.zh-CN.md#method-handlers-with-input-and-result)）。
+
+### OnError {#onerror}
+
+`hooks.go` 里的 `OnError` 对每个意外错误只看到一次，`Load`、处理函数或 `OnRequest` 里的 panic 也一样。它返回访客看到的 `tifa.Error`。上报到错误跟踪服务和写日志都写在这里（见 [Hooks](hooks.zh-CN.md#hooksgo)）。没有 `OnError` 时，Tifa 记日志并以 500 响应。`OnError` 返回的状态码在 400 到 599 之外时，响应是 500，`Message` 为空时用状态文字。
+
+### 浏览器拿到什么 {#what-the-browser-gets}
+
+失败的方法处理函数响应 JSON：`{"error": "message"}`，对于 `tifa.Fields`，还会有 `"fields": {"carrier": "pick a carrier"}`。从页面发起的调用会抛出 `TifaError`，带 `status`、`message` 和 `fields`。失败的 `Load` 或 `Layout` 以同样的 `TifaError` 到达 `ErrorBoundary`（见[页面上的错误](#errors-on-a-page)）。`tifa dev` 会在失败的页面上显示原始错误，构建后的程序从不显示。
 
 ## 404 {#404}
 

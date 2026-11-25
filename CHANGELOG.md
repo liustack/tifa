@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa routes` has a third table, `BUILT IN`, with the addresses the program answers that are not a folder of `app/`: `/sitemap.xml` and its parts, `/robots.txt`, `/llms.txt`, `/llms-full.txt`, the `.md` versions of content pages, `/__tifa/session`, `/assets/`, the files of `public/` and the ACME challenge. Each row says when the address is there, such as `site.url is set`, and says so when a file of `public/` or a route of the app answers in its place. See [Tifa routes](docs/build-and-deploy/build.md#tifa-routes).
+
 ### Changed
 
 - **Breaking.** `Load` and `Layout` take their query parameters as a second parameter, a struct with a field for each one, and `c.Query` and `c.QueryValues` no longer work there. The build fails for a call it can see, and a call it cannot see panics when it runs, with a message that says what to write. The page loads again when a field changes, the server render and the memo see these fields and no others, and the build tells a field that two Layouts or a Layout and a page declare with different types. Upgrading: declare a struct `Filter` with a field for each name, named by its `json` tag (`Page int` with the tag `json:"page"`), write `func Load(c *tifa.Ctx, q Filter) (T, error)` and read `q.Page` where you called `c.Query("page")`. A list from `c.QueryValues("tag")` is a field of type `[]string`. A test calls `Load(c, Filter{Page: 2})` and no longer runs it through `tifa.Use`. A Layout that takes a second parameter cannot be passed to `tifa.Use` yet: give a Layout whose result other `Load` functions need no query parameters, and read them in the `Load` of the page. A struct with a `Validate` method fails the build: check the values in `Load`.

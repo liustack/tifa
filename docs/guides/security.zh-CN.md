@@ -2,7 +2,7 @@
 summary: 'Tifa 默认替你防住了什么（跨站写入、会话 cookie、上限、响应头），以及你必须自己做的事'
 audience: app
 order: 12
-translatedFrom: ce0dd010c820
+translatedFrom: db4979667db5
 read_when:
   - '准备上线，想知道 Tifa 已经防了什么、还有什么留给你'
   - '检查一个应用，或者 coding agent 写的代码，看有没有安全漏洞'
@@ -52,11 +52,11 @@ Tifa 默认打开的，是它不用懂你的业务就能做的检查，其余的
 
 ### 错误细节留在日志里 {#error-details-stay-in-the-log}
 
-`Load`、处理函数或 `Validate` 方法返回的错误，除了 `tifa.Error`、`tifa.Fields` 和 `tifa.ErrNotFound`，都会记进日志，并答 500 加普通的状态文字。访客看不到它的文本。`OnError` 返回什么，访客就看到什么。`tifa.Error` 的文本是公开的，所以别在里面放内部信息。构建出的应用也不会显示页面失败背后的错误，只有 `tifa dev` 会。详见[错误和 404](../pages-and-data/errors.zh-CN.md#errors-from-load-and-handlers)。
+`Load`、处理函数或 `Validate` 方法返回的错误，除了 `tifa.Error`、`tifa.Fields` 和 `tifa.ErrNotFound`，都会记进日志，并答 500 加普通的状态文字。访客看不到它的文本。`OnError` 返回什么，访客就看到什么。`tifa.Error` 的文本是公开的，所以别在里面放内部信息。构建出的应用也不会显示页面失败背后的错误，只有 `tifa dev` 会。详见[错误和 404](../pages-and-data/errors.zh-CN.md#what-an-error-you-return-becomes)。
 
 ### 每个入口都是一个文件夹 {#every-way-in-is-a-folder}
 
-代码只会作为 `route.go` 里的 `Load`、`Layout` 或方法处理函数，为一个请求运行。没有浏览器能按名字调用的函数。`tifa routes` 会列出所有路由，`OnRequest` 是每个路由请求都经过的唯一一处：页面、导航数据、API 路由和没有匹配的 URL。它不会为静态文件运行，也不会为被当作跨站而拒绝的写入运行。详见[设计思路](../start/philosophy.zh-CN.md#one-address-for-each-write)和[钩子](../pages-and-data/hooks.zh-CN.md#hooksgo)。
+代码只会作为 `route.go` 里的 `Load`、`Layout` 或方法处理函数，为一个请求运行。没有浏览器能按名字调用的函数。`tifa routes` 会列出所有路由，以及 Tifa 自己回答的每个地址，比如 `/sitemap.xml`，`OnRequest` 是每个路由请求都经过的唯一一处：页面、导航数据、API 路由和没有匹配的 URL。它不会为静态文件运行，也不会为被当作跨站而拒绝的写入运行。详见[设计思路](../start/philosophy.zh-CN.md#one-address-for-each-write)和[钩子](../pages-and-data/hooks.zh-CN.md#hooksgo)。
 
 ### 构建不需要密钥 {#building-needs-no-secrets}
 
