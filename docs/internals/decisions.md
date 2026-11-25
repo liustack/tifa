@@ -1,5 +1,5 @@
 ---
-summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports, folders that group pages without a URL segment, dropping a chosen number of Layouts, more convention files in a folder, generated types by a module name or a path string, another mark for a parameter folder, title and meta tags as elements, setup code in the root Layout, route constants for what a request can set, loading page data again after a write, renaming the head export to metadata, agent hooks written by tifa new, other ways to keep the generated types fresh, a place for styles collected after the render'
+summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports, folders that group pages without a URL segment, dropping a chosen number of Layouts, more convention files in a folder, generated types by a module name or a path string, another mark for a parameter folder, title and meta tags as elements, setup code in the root Layout, route constants for what a request can set, loading page data again after a write, renaming the head export to metadata, agent hooks written by tifa new, other ways to keep the generated types fresh, functions the browser calls by name, a query string on the handler functions of POST, a place for styles collected after the render'
 audience: dev
 order: 3
 read_when:
@@ -215,6 +215,33 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 - Files kept in git are as old after a change to `route.go` as files that are not, until a command writes them again. They would also add a diff, and conflicts, to every change of a route.
 
 **Instead.** The same as for the entry above.
+
+## Functions the browser calls by name
+
+**Turned down (2026-11-25).** Three ways to reach server code that has no folder of its own:
+
+- Server functions: a function anywhere in the app that the build gives an address, as the Server Actions of Next.js and the server functions of TanStack Start.
+- Named handlers in a `route.go`, such as `POSTShip` for `POST /orders/42/ship`.
+- Every exported function of a `route.go` with the signature of a handler, called with a query parameter such as `?_action=Ship`, as the named actions of SvelteKit (`?/ship`).
+
+**Why not.**
+- A write needs an address that `OnRequest`, a proxy, a rate limit and the log can see. A generated address is in no folder, and writes that differ only in the query string share one path.
+- An exported name in Go says that other packages may use it. If it also said that the network may call it, a helper with the signature of a handler would become a way in without anyone deciding so.
+- A URL segment that no folder gives ends "the path is the URL", as a route group would.
+- A second way to write a handler is a choice to make in every app.
+- What they save is a folder and a file of a few lines for each operation.
+
+**Instead.** A folder for each operation: [Where a write goes](../pages-and-data/handlers.md#where-a-write-goes).
+
+**Reopen when** apps suffer from the number of small packages. The third way is the closest to workable, with a prefix or a mark in place of "every exported function".
+
+## A query string on the handler functions of POST, PUT and PATCH
+
+**Not done (2026-11-25).** The functions `route.gen` writes for `POST`, `PUT` and `PATCH` send the input as the body and have no place for a query string, though the handler can read one with `c.Query`.
+
+**Why not.** A write seldom needs one: a switch such as `?dryRun=1` can be a field of the body. Giving it types would take following Ctx through handlers as for `Load`, or a second struct in the signature of a handler.
+
+**Reopen when** an app needs it. An option without types, `search`, is the first step then.
 
 ## A place for styles collected after the render
 
