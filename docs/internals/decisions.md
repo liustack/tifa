@@ -105,6 +105,22 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Instead.** Both together: [Components that draw only in the browser](../pages-and-data/server-render.md#components-that-draw-only-in-the-browser).
 
+### Another name for layout_.tsx
+
+**Turned down (2026-11-01).** `layout.root.tsx`, `root.tsx`, `layout.reset.tsx`, `layout.alone.tsx`, `layout-.tsx`, `layout@.tsx`, `layout~.tsx`, `layout+.tsx` and `layout!.tsx`.
+
+**Why not.** React Router and TanStack Router end a name with `_` for a route that leaves what is above it, so the mark is known. `reset` is the word of SvelteKit, where it keeps the root. `-` looks like a typing mistake, files that end in `~` are often ignored by git, `+` already marks a parameter, and `!` is special in a shell.
+
+**Instead.** `layout_.tsx`. Unlike in those two routers it drops the root Layout too, and the docs say so: [A Layout without the Layouts above](../pages-and-data/layouts.md#a-layout-without-the-layouts-above).
+
+### Calling the error export Error
+
+**Turned down (2026-11-18).** `export function Error` in `page.tsx` and `layout.tsx`, and two error classes in the browser, `RouteError` and `TifaError`.
+
+**Why not.** A component named `Error` hides the global `Error` in its module: `e instanceof Error` then compares with the component and is always false, and `tsc` says nothing. React Router and Remix say `ErrorBoundary`, the name an agent that never saw Tifa tries first.
+
+**Instead.** `ErrorBoundary`, and one class, `TifaError`, with `status`, `message` and `fields`: [Errors and 404](../pages-and-data/errors.md).
+
 ## Requests, handlers and errors
 
 ### A query string on the handler functions of POST, PUT and PATCH
@@ -156,6 +172,30 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Instead.** `Validate() error` and `Validate(c *tifa.Ctx) error` as they are, under the one rule for errors: [What an error you return becomes](../pages-and-data/errors.md#what-an-error-you-return-becomes).
 
+### A form tag on the fields of an input
+
+**Turned down (2026-11-18).** Taking the name of a field from a `form` tag first, then from `json`, then from the Go name.
+
+**Why not.** Two tags are two names for one field, and a struct could decode one way from JSON and another way from a form.
+
+**Instead.** The `json` tag names a field everywhere: in JSON, in a form, in the query string and in TypeScript. A `form` tag fails the build.
+
+### Renaming tifa.Use
+
+**Kept as it is (2026-11-18).** `tifa.LayoutData`, because `Use` attaches middleware in gin and echo.
+
+**Why not.** `Use` is short and close to `use()` in React. Someone who takes it for middleware gets a compile error about the signature, so the mistake costs little.
+
+### An API for private data that is big or written often
+
+**Turned down (2026-11-03).** `useClientData`, `usePrivate` or `definePrivateData` for a cart, recommendations or an unread count, and adapters for state libraries.
+
+**Why not.** Such data is big and written often, which a session is not. When to load it, and whether to load it ahead, is for the app to choose.
+
+**Instead.** An API route and its generated `GET` function, which works as the `queryFn` of TanStack Query. The cart of a visitor who is not signed in is kept on the server under a cookie, by the app.
+
+**Reopen when** real apps need more than that.
+
 ## Head, setup and page exports
 
 ### The title and meta tags as elements in a component
@@ -194,6 +234,14 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 **Why not.** `head` of the root Layout gets the data of the `Layout` function. A 404 page, an error page and a page under a `layout_.tsx` have a document but not that data, so they would get none of these tags.
 
 **Instead.** `documentHead` is a plain object for what every document carries, with `htmlAttributes` inside it in the shape `head` returns: [The document shell and documentHead](../pages-and-data/head.md#the-document-shell-and-documenthead).
+
+### hooks.ts for setup code
+
+**Turned down (2026-11-23).** A `hooks.ts` at the root that exports `onStart()`.
+
+**Why not.** Next to `hooks.go` it reads as the same thing, and `hooks` in a `.ts` file reads as React hooks.
+
+**Instead.** `setup.ts`: plain top-level code with nothing to export.
 
 ## Hooks and wiring
 
@@ -247,6 +295,36 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 **Why not.** Next.js, Nuxt and React Router promise none of these, and each one adds a mechanism that can go wrong. A session that grows with use needs a conditional update in every store and can bring back a session that was just deleted.
 
 **Instead.** The page loads its data again after sign-in and sign-out, a session ends at a fixed time, and the browser keeps one copy of what `Exposed()` returns. The app implements the store, and a memory store is the default: [Sessions](../pages-and-data/sessions.md).
+
+### Session.In, Session.Out and Browser()
+
+**Turned down (2026-11-03).** `Session.In` and `Session.Out` components that put a `span` around their children, a public `data-session` attribute as a second way to do the same, and `Browser()` as the name of the method that says what the browser gets.
+
+**Why not.** A `span` is wrong around a `div`. Two ways to do one thing mean nobody decided. A misspelled component does not compile, and a misspelled attribute fails without a word.
+
+**Instead.** `SignedIn` and `SignedOut` from `tifa/client`, which add no element, and `Exposed()`: [In the browser](../pages-and-data/sessions.md#in-the-browser).
+
+### A built-in Redis or SQL store, and sign-in itself
+
+**Turned down (2026-11-02).** Stores for Redis and SQL in Tifa, a file store for `tifa dev`, and passwords, OAuth or users as part of the framework.
+
+**Why not.** A session has one job, keeping the page and the person apart. Where it is kept and who a user is belong to the app.
+
+**Instead.** The app implements `Get`, `Put` and `Delete` and sets the store in `OnStart`: [Where to store sessions](../pages-and-data/sessions.md#where-to-store-sessions). Signing in is a guide: [Sign in and sign out](../guides/sign-in.md).
+
+### A CSRF token
+
+**Turned down (2026-11-02).** A token in every form.
+
+**Why not.** Every write passes `http.CrossOriginProtection` of the standard library, which reads `Sec-Fetch-Site` and otherwise compares `Origin` with `Host`, and the session cookie is `SameSite=Lax`.
+
+**Instead.** The check is always on: [Cross-site writes](../build-and-deploy/config.md#cross-site-writes).
+
+### A setting that turns Secure off
+
+**Turned down (2026-11-18).** `session.secure`.
+
+**Instead.** The cookie stays as it is, and the log gets one warning when `tifa.SetSession` answers a request that is neither local nor HTTPS. That is Tifa checking its own cookie, not the app's.
 
 ## Rendering, memo and Cache
 
@@ -316,6 +394,38 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Why not.** The build needs each of them: `SSR` for what goes into the SSR bundle, `Cache` for the check that no `Load` of the page reads a cookie or the session, and `Memo` for the check in `tifa dev`. `LayoutSSR`, `BodyLimit` and `ReadTimeout` were removed in the same round, see [Route constants for what a request can set](#route-constants-for-what-a-request-can-set).
 
+### A list of query parameters written by hand
+
+**Turned down (2026-11-09).** A setting that lists the query parameters that count for the render memo, and making the first render in the browser use the reduced URL too.
+
+**Why not.** The list exists already: the parameters that the `Load` and the Layouts of the page take. A second list would drift from the code. The second idea was built and dropped: nothing tells when an app's own Suspense boundaries are done, and it raced with early navigation and with history entries.
+
+**Instead.** The memo key and the URL given to the render hold the path and those parameters, sorted by name, so `?x=random` makes no new entry. A 404 and a page whose `Load` failed are not kept: [Query parameters](../reference/memo.md#query-parameters).
+
+### A cache switch on a Layout
+
+**Turned down (2026-11-02).** HTTP caching of the data of one Layout, and navigation data that a CDN may keep.
+
+**Why not.** No framework caches by Layout at the HTTP level, and Cloudflare does not look at `Vary`.
+
+**Instead.** Navigation data is always `private, no-cache`, under a URL that differs from the page's (`?_tifa=`), so a CDN never answers it with the HTML. To keep the data of a Layout, cache it in Go.
+
+### A long cache time for public/
+
+**Turned down (2026-11-02, again 2026-11-20).**
+
+**Why not.** A file in `public/` keeps its name, so any cache time shows the old file for that long after a deploy. Next.js, Vercel, Netlify and SvelteKit do not add one either.
+
+**Instead.** Files under `/assets/` have a hash in the name and are kept a year, `immutable`. `public/` is `no-cache` with an ETag: [Start an app](../start/app.md).
+
+### Renaming `_tifa` to `__tifa`
+
+**Kept as it is (2026-11-18).** The query parameter of navigation data, next to the path prefix `/__tifa/`.
+
+**Why not.** It would only look tidier, and docs and CDN rules are written with `_tifa`.
+
+**Instead.** The names an app or a CDN can meet are fixed: [Compatibility](../reference/compatibility.md).
+
 ## Build, types and tools
 
 ### Other ways to keep the generated types fresh
@@ -363,6 +473,120 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Instead.** `tifa dev`, `tifa build` and `tifa deploy` run on Windows itself, and CI tests them on a Windows runner. Nothing on the developer's machine may need `sh`, Unix sockets or Unix signals without a Windows path. The server that `tifa deploy` sets up is Linux.
 
+### Static export, and the app as wasm on a Worker
+
+**Turned down (2026-11-04).** Writing the site out as files, and compiling the app to wasm to run on Cloudflare Workers.
+
+**Why not.** Tifa is for a Go program on a VPS. A static export would need a second set of rules for everything that expects a server, and people choose Next.js for its server rendering and Astro for static sites. wasm on a Worker would be a second Tifa, not a way to deploy this one.
+
+**Instead.** `const Cache` and a CDN in front of the program.
+
+**Reopen when**, for wasm only, someone clearly needs a dynamic Tifa app on Workers.
+
+### An npm package
+
+**Put off (2026-11-07).** `@liustack/tifa`, holding the JavaScript of Tifa and TanStack Router.
+
+**Why not.** It is a second place to release from and a new mistake to make: a CLI and a package of different versions. It would save a few lines of `package.json` and the version check.
+
+**Instead.** The JavaScript ships inside the Go module, and one `go get` upgrades all of it.
+
+**Reopen when** apps keep meeting version problems with TanStack or Vite, or having no types before `.tifa/` is written becomes a real problem.
+
+### A build check that may fail code that is right
+
+**Turned down (2026-11-07).** Checks that guess.
+
+**Why not.** A build that fails code that is right is worse than one that misses a mistake.
+
+**Instead.** A build check fails only what is surely wrong, and catching part of the mistakes is enough. What it cannot be sure of is a warning or nothing.
+
+### Browser errors printed in the terminal
+
+**Turned down (2026-11-03).** `tifa dev` writing the errors of the browser into its own output.
+
+**Why not.** An agent cannot see the browser console, and often not the terminal of `tifa dev` either.
+
+**Instead.** `tifa errors` asks the running `tifa dev` for the errors since the last build, with `--json` and exit code 1 when there are any.
+
+### More in tifatest
+
+**Turned down (2026-11-05).** Assertions of its own, browser automation, a mock of `fetch`, and a parameter that overrides settings.
+
+**Instead.** `tifatest.Start` and `tifatest.StartPages` return a `*httptest.Server`, and a test uses `net/http` and `testing` from there: [Testing apps](../pages-and-data/testing-apps.md).
+
+## Configuration
+
+### Variants of .env and names for environments
+
+**Turned down (2026-11-03).** `.env.production` and `.env.local`, and a built-in name such as `NODE_ENV` or `production`.
+
+**Why not.** `.env` is not in git, so each machine has its own, and that file is the environment.
+
+**Instead.** One `.env`, read from the working directory, below the real environment. Vite does not read it: [Values from the environment](../guides/environment.md).
+
+### A prefix for environment variables
+
+**Turned down (2026-11-03, again 2026-11-18).** `TIFA_SERVER_ADDR`, or a prefix an app may turn on.
+
+**Why not.** One `.env` with three kinds of names is two too many, and a prefix that may be on or off gives one setting two names.
+
+**Instead.** One rule for the settings of Tifa and the options of the app: `db.url` is `--db-url` and `DB_URL`. A key has at least two parts, since a key of one part would read `LANG` or `PATH`: [Why not a name prefix](../guides/environment.md#why-not-a-name-prefix). The inputs of `tifa deploy` are not settings, and they all start with `TIFA_DEPLOY_`.
+
+**Reopen when** two programs in one environment want the same name.
+
+### HOSTNAME next to PORT and HOST
+
+**Turned down (2026-11-03).**
+
+**Why not.** Shells and Docker set `HOSTNAME` to the name of the machine or the ID of the container.
+
+**Instead.** `PORT` and `HOST`, which platforms such as Cloud Run set, below `SERVER_ADDR`.
+
+### Options of the app through a getter, init or a struct
+
+**Turned down (2026-11-03, the file name 2026-11-07).** A function such as `dbURL()`, registering in `init`, a struct with a call to parse it, and `config.go` or `settings.go` as the name of the file.
+
+**Why not.** A getter is how a signal works in JavaScript, not how Go reads a value. `init` and a struct are more to write and more to explain. "Settings" is the word for what `tifa.yaml` holds.
+
+**Instead.** A package-level `var` in `options.go` that is a plain value: `var DBURL = tifa.String("db.url", "app.db", "Database file")`. See [Options of the app](../build-and-deploy/config.md#options-of-the-app).
+
+### Lists and nested values in settings
+
+**Turned down (2026-11-03).**
+
+**Why not.** Every setting is one value that a flag and an environment variable can carry.
+
+**Instead.** Data with a structure goes in a file of the app, and an option holds its path.
+
+**Reopen when** a real app has a list that can only be written in settings.
+
+## Languages
+
+### Choosing the language from the request
+
+**Turned down (2026-11-07).** Redirecting by `Accept-Language`, a cookie or the address of the visitor. Showing another language when a translation or a content entry is missing. A prefix rule for each part of the site. An optional route parameter for the language.
+
+**Why not.** A URL shows one language, and nothing is chosen behind the visitor's back. An optional parameter cannot be written for Go's `ServeMux`: `/{lang}/cart` next to `/projects/{project}` panics.
+
+**Instead.** A `_locales/` folder says which languages the pages below it have. The default language has no prefix, as in Astro, Nuxt i18n and the pages router of Next.js, and the others come first in the path (`/en-US/store`). A content entry that is missing in a language is a 404 there: [What Tifa does not do](../guides/i18n.md#what-tifa-does-not-do).
+
+### A translation library in the core
+
+**Turned down (2026-11-07).**
+
+**Instead.** The core has none. `tifa/i18n` is an adapter for i18next, the most used one, and `tifa new` sets it up: [Translate the interface](../guides/i18n.md#translate-the-interface).
+
+## Content
+
+### MDX and components inside content
+
+**Turned down (2026-11-04).** MDX, and Markdown compiled to React components or to a JSON tree. Also not done: Markdown at run time, references between collections, collections of JSON or YAML, generated pages for tags, number prefixes for the order, `expiryDate`, `aliases`, a `url` in the front matter, resizing local images, and a search index.
+
+**Why not.** HTML made at build time costs a render nothing: with 1000 entries (10 MB) the bundles for the server and the browser are the same byte for byte as with none, and turning them into HTML takes about 2 seconds.
+
+**Instead.** The build turns Markdown into HTML with unified, `Load` returns it as `tifa.HTML` and the page shows it with `<HTML value={...} />`: [Content](../pages-and-data/content.md). Content that lives in a database is read by the app's own `Load`.
+
 ## Search engines and language models
 
 ### Leaving sitemap.xml, robots.txt and llms.txt to the app
@@ -372,6 +596,14 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 **Why not.** They need what only the framework has: the table of routes, the content collections, the languages of each page and the Markdown source.
 
 **Instead.** Tifa answers `/sitemap.xml`, `/robots.txt`, `/llms.txt`, `/llms-full.txt` and the `.md` version of a page: [SEO](../guides/seo.md).
+
+### A name in route.go for the sitemap
+
+**Turned down (2026-11-20).** A constant such as `Index`, and a function in each `route.go` that lists its URLs.
+
+**Why not.** Next.js, Nuxt, Astro and SvelteKit all set the sitemap up in one place, and `route.go` has names enough.
+
+**Instead.** `site.url` is the switch that says the site is public, and `tifa.SetSitemap` in `OnStart` lists the pages with parameters. A page leaves the index with the `robots` meta tag of its `head`.
 
 ## Deploying
 
@@ -415,6 +647,40 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 **Why not.** `tifa deploy` is there to make deploying simple, so what it needs it asks for with its own command, also when that command runs `gh` underneath.
 
 **Instead.** A `tifa deploy setup` flag for each thing to add or replace, such as `--cache-purge-token`. Only what a vendor's own page must do, such as making an API token, points there.
+
+### The server in tifa.yaml
+
+**Turned down (2026-11-21).** `deploy.host`, also with a warning when it is there.
+
+**Why not.** `tifa.yaml` is in git and the address of a server should not be. Nobody reads a warning, and a commit does not pass through setup.
+
+**Instead.** `--host`, or `TIFA_DEPLOY_HOST` in the environment or `.env`, or the one server that `~/.tifa/config.yaml` knows, a file that holds no secret: [Deploy](../build-and-deploy/deploy.md).
+
+### Several targets, and the options of GitHub Actions in tifa.yaml
+
+**Turned down (2026-11-20 to 2026-11-23).** Environments such as staging and production in `tifa.yaml`, and keys for the runner, the Node version, approvals, timeouts or path filters.
+
+**Why not.** `tifa.yaml` holds only what Tifa needs to decide something.
+
+**Instead.** One target, described by `deploy.front`, `deploy.connect` and `deploy.auto`. Anything else about the workflow is an edit of `tifa-deploy.yml`.
+
+### Tifa downloading programs, wrangler, and a front door of its own
+
+**Turned down (2026-11-20 to 2026-11-22).**
+
+- Downloading `gh` or `cf` by itself. Setup installs them only with a package manager the machine already has, only when `tifa.yaml` needs them, and as a line of the plan the user agrees to.
+- wrangler, which `cf` replaces.
+- A reverse proxy in Tifa for several apps on one server. A Cloudflare Tunnel is the way, and the docs show Caddy as the other.
+- A local `tifa deploy` that hands over to GitHub Actions by itself, which would change what a command does without a word.
+- A GitHub App in place of the `gh` sign-in. Put off as too early.
+
+### A secret that passes through the agent
+
+**Turned down (2026-11-23).** Asking for a token in the chat, on stdin of a command the agent runs, or printing one.
+
+**Why not.** Most of the time a coding agent runs `tifa deploy`, so a secret in the chat, on stdin or in the output would be in what the agent reads.
+
+**Instead.** Tifa says what it will do and why, opens the exact page in the browser, the person approves there, and Tifa fetches the result itself. A token that must be typed goes into a local page that works once. Every command also runs without a terminal.
 
 ## Coding agents
 
