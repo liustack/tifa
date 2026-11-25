@@ -32,7 +32,8 @@ func (r *setupRun) rootScript(script string) func(context.Context) (string, erro
 			if text := strings.TrimSpace(said.String()); text != "" {
 				var login *sshLoginError
 				if !errors.As(err, &login) {
-					return "", errors.New(text)
+					// The scripts begin what they say with "tifa: ", which the error adds itself.
+					return "", errors.New(strings.TrimPrefix(text, "tifa: "))
 				}
 			}
 			return "", err
@@ -60,6 +61,11 @@ func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
 		return err
 	}
 	host, app := t.own, t.app
+	// ufw comes first: Let's Encrypt must reach port 80 when certbot asks for the certificate.
+	if after := r.firewallFor(ctx, p, "nginx", nginxPorts, nil); after != nil {
+		after()
+	}
+	p.firewall = "Visitors need ports 80 and 443 of the server open. Tifa does not change your provider's firewall or security groups: if they block them, open them there."
 	nginxPkgs, certbotPkgs := nginxPackages(ns, host != "")
 	if (len(nginxPkgs) > 0 || len(certbotPkgs) > 0) && !ns.Apt {
 		p.cannot("server: install nginx"+pick(host != "", " and certbot", ""), errNoAptForNginx.Error())
@@ -114,10 +120,6 @@ func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
 		}
 	}
 
-	if after := r.firewallFor(ctx, p, "nginx", nginxPorts, nil); after != nil {
-		after()
-	}
-	p.firewall = "Visitors need ports 80 and 443 of the server open. Tifa does not change your provider's firewall or security groups: if they block them, open them there."
 	return nil
 }
 

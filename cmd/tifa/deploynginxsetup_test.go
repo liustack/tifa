@@ -277,7 +277,7 @@ func TestSetupNginxFailureSaysWhatNginxSaid(t *testing.T) {
 
 // ufw on and closed: nginx needs 80 and 443, in rules marked as Tifa's and named for nginx.
 func TestSetupNginxOpensUFW(t *testing.T) {
-	root := setupApp(t, "deploy:\n  front: nginx\n", nil)
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: nginx\n", nil)
 	srv := newSetupServer(t, "", factsOf("shop", 9527, "appdir yes\nufw on\n"))
 	srv.nginx(t, "apt yes\n")
 	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded))
@@ -287,6 +287,11 @@ func TestSetupNginxOpensUFW(t *testing.T) {
 	}
 	if !strings.Contains(srv.unquoted(), "ufw allow 80/tcp comment 'tifa nginx'") || !strings.Contains(srv.unquoted(), "ufw allow 443/tcp comment 'tifa nginx'") {
 		t.Errorf("the rules:\n%s", srv.unquoted())
+	}
+	// Let's Encrypt must reach port 80 when certbot asks, so ufw is opened before the certificate.
+	calls := srv.calls()
+	if i, j := strings.Index(calls, "ufwallow root"), strings.Index(calls, "nginxcert root"); i < 0 || j < i {
+		t.Errorf("the certificate came before the firewall:\n%s", calls)
 	}
 }
 
