@@ -418,6 +418,34 @@ func TestDeployRemoveNginx(t *testing.T) {
 	}
 }
 
+// A site that nginx would not let go stays, and then nothing else of it goes: its certificate, which the
+// configuration on disk still names, nginx itself and its ufw rules stay too, so nginx restarts in the
+// state it was in. The failure is the error, and the run again finishes the job.
+func TestDeployRemoveNginxKeepsWhatTheSiteNeeds(t *testing.T) {
+	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: nginx\n", nil)
+	srv := newSetupServer(t, "", nginxUserFacts(9527, "shop")+"ufw on\n")
+	srv.nginx(t, nginxFacts(true, []string{"shop shop.example.com"}, siteOf("shop", "shop.example.com", 9527, true)))
+	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx'\nufw allow 443/tcp comment 'tifa nginx'\n"))
+	writeFile(t, filepath.Join(srv.dir, "removesitefail"), "")
+	out, _, err := runRemove(t, root, false, "", "--yes")
+	if err == nil || !strings.Contains(out, "warning nginx: the site of shop") || !strings.Contains(out, "boom") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	calls := srv.calls()
+	for _, c := range []string{"nginxremovecert", "nginxuninstall", "ufwdelete"} {
+		if strings.Contains(calls, c) {
+			t.Errorf("ran %s after the site stayed:\n%s", c, calls)
+		}
+	}
+	if !strings.Contains(out, "kept, since the site of shop is still in nginx") {
+		t.Errorf("out:\n%s", out)
+	}
+	// The app itself still goes: it does not depend on nginx.
+	if !strings.Contains(calls, "removeapp tifa") {
+		t.Errorf("the app stayed:\n%s", calls)
+	}
+}
+
 // The ufw rules of nginx go with nginx and no other rule does.
 func TestDeployRemoveNginxDeletesItsUFWRules(t *testing.T) {
 	root := setupApp(t, "deploy:\n  front: nginx\n", nil)

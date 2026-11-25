@@ -148,13 +148,30 @@ func (r *setupRun) nginxRemovalSteps(ctx context.Context, p *setupPlan, why stri
 	if !ns.Tifa {
 		return nil
 	}
+	// What comes after the site depends on it: the configuration on disk still names the certificate
+	// while the site is in nginx, and the packages and the ports are what the sites of nginx use. A
+	// site that nginx did not let go stays, and then so does all of that.
+	siteStays := false
+	guard := func(do func(context.Context) (string, error)) func(context.Context) (string, error) {
+		return func(ctx context.Context) (string, error) {
+			if siteStays {
+				return "", fmt.Errorf("kept, since the site of %s is still in nginx: run the command again once nginx takes the configuration without it", app)
+			}
+			return do(ctx)
+		}
+	}
 	if _, ok := ns.site(app); ok {
+		run := r.rootScript(nginxRemoveSiteScript(app))
 		p.add(opRemove, fmt.Sprintf("nginx: the site of %s in /etc/nginx/conf.d/tifa-%s.conf, which tifa wrote%s, and nginx reloads after nginx -t", app, app, why),
-			r.rootScript(nginxRemoveSiteScript(app)))
+			func(ctx context.Context) (string, error) {
+				res, err := run(ctx)
+				siteStays = siteStays || err != nil
+				return res, err
+			})
 	}
 	if c, ok := ns.cert(app); ok {
 		p.add(opRemove, fmt.Sprintf("server: the certificate tifa-%s of %s, made by certbot%s", app, pick(c.Host == "?", "the site", c.Host), why),
-			r.rootScript(nginxRemoveCertScript(app)))
+			guard(r.rootScript(nginxRemoveCertScript(app))))
 	}
 	if len(ns.otherSites(app)) > 0 {
 		return nil
@@ -166,9 +183,13 @@ func (r *setupRun) nginxRemovalSteps(ctx context.Context, p *setupPlan, why stri
 		what = "nginx and the nginx plugin of certbot"
 	}
 	p.add(opRemove, fmt.Sprintf("server: uninstall %s, which setup installed, with their configuration, and delete /etc/tifa/nginx, as root, since no other app uses nginx", what),
-		r.rootScript(nginxUninstallScript()))
+		guard(r.rootScript(nginxUninstallScript())))
 	if after := r.firewallFor(ctx, p, "nginx", nil, nginxPorts); after != nil {
+		n := len(p.steps)
 		after()
+		for i := n; i < len(p.steps); i++ {
+			p.steps[i].do = guard(p.steps[i].do)
+		}
 	}
 	return nil
 }

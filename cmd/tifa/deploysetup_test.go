@@ -137,7 +137,7 @@ true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF
 *"tifa: install nginx"*) echo "nginxinstall $user" >> "$d/calls"; echo "installed" ;;
 *"tifa: nginx site"*) echo "nginxsite $user" >> "$d/calls"; [ -f "$d/nginxfail" ] && { echo "tifa: nginx did not accept the site of shop, so the file before it is back. nginx said:" >&2; echo "nginx: [emerg] unknown directive" >&2; exit 1; }; echo "wrote the site, and nginx reloaded" ;;
 *"tifa: nginx certificate"*) echo "nginxcert $user" >> "$d/calls"; echo "certificate" ;;
-*"tifa: nginx remove site"*) echo "nginxremovesite $user" >> "$d/calls"; echo "deleted the site" ;;
+*"tifa: nginx remove site"*) echo "nginxremovesite $user" >> "$d/calls"; [ -f "$d/removesitefail" ] && { echo "tifa: nginx did not accept the configuration without the site of shop, so the site is back. nginx said:" >&2; echo "nginx: [emerg] boom" >&2; exit 1; }; echo "deleted the site" ;;
 *"tifa: nginx remove certificate"*) echo "nginxremovecert $user" >> "$d/calls"; echo "deleted the certificate" ;;
 *"tifa: nginx uninstall"*) echo "nginxuninstall $user" >> "$d/calls"; echo "uninstalled nginx" ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
