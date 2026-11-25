@@ -1,0 +1,6 @@
+.bu-button { background: #1d4ed8; color: white; border: 0; padding: 6px 12px; border-radius: 6px; }
+.bu-input { border: 1px solid #888; padding: 6px; border-radius: 6px; }
+.bu-popup { background: white; border: 1px solid #ccc; padding: 8px; box-shadow: 0 4px 12px rgb(0 0 0 / 0.2); }
+.bu-backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / 0.4); }
+.bu-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 16px; border-radius: 8px; }
+.bu-tab[data-active] { font-weight: 700; border-bottom: 2px solid #1d4ed8; }

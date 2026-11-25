@@ -1,0 +1,6 @@
+.ra-button { background: #1d4ed8; color: white; border: 0; padding: 6px 12px; border-radius: 6px; }
+.ra-input { border: 1px solid #888; padding: 6px; border-radius: 6px; }
+.ra-popover { background: white; border: 1px solid #ccc; padding: 8px; box-shadow: 0 4px 12px rgb(0 0 0 / 0.2); }
+.ra-overlay { position: fixed; inset: 0; background: rgb(0 0 0 / 0.4); display: flex; align-items: center; justify-content: center; }
+.ra-modal { background: white; padding: 16px; border-radius: 8px; }
+.ra-tab[data-selected] { font-weight: 700; border-bottom: 2px solid #1d4ed8; }
