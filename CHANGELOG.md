@@ -6,7 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Added
 
-- `build.public_dotfiles` in `tifa.yaml` lists the dot files and folders of `public/` that `tifa build` copies, such as `.nojekyll,.foo`. Until now none could be. A path that is not in `public/` fails `tifa build` and `tifa check`. `tifa build` now says which dot files it left out of `public/`, and the `/<file>` row of `tifa routes` counts them.
+- `build.public_dotfiles` in `tifa.yaml` lists the dot files and folders of `public/` that `tifa build` copies, such as `.nojekyll,.foo`. Until now none could be. A path that is not in `public/` fails `tifa build` and `tifa check`. `tifa build` now says which dot files it left out of `public/` (a `.DS_Store` is left out without a word), and the `/<file>` row of `tifa routes` counts them.
 - `tifa routes` has a third table, `BUILT IN`, with the addresses the program answers that are not a folder of `app/`: `/sitemap.xml` and its parts, `/robots.txt`, `/llms.txt`, `/llms-full.txt`, the `.md` versions of content pages, `/__tifa/session`, `/assets/`, the files of `public/` and the ACME challenge. Each row says when the address is there, such as `site.url is set`, and says so when a file of `public/` or a route of the app answers in its place. See [Tifa routes](docs/build-and-deploy/build.md#tifa-routes).
 
 ### Changed
