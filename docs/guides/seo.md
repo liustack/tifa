@@ -262,7 +262,7 @@ With it, your file is served as it is and Tifa adds nothing. Add the `Sitemap:` 
 
 The sitemap, the `llms` files and the Markdown versions are requests like any other: `OnRequest` runs for them, and `c.Pattern()` is `/sitemap.xml`, `/llms.txt`, `/llms-full.txt`, or the route of the page with `.md`, such as `/blog/{slug}.md` (`/index.md` for `/`). `c.Language()` is the language of the page of a `.md` path, and the default language for the other files. A guard in `OnRequest` that sends signed-out visitors to the sign-in page also guards these files, so let them through when it should not.
 
-A mistake in what the function returns never fails the request. The page or the `Exclude` pattern it is in is left out, the files answer with the rest, and one `ERROR` line per kind of mistake names the pages (by path and language) or the patterns. The line is written when the files are built from a list, which is once for each list the function returns, not on each request:
+A mistake in what the function returns never fails the request. The page or the `Exclude` pattern it is in is left out, the files answer with the rest, and one `ERROR` line per kind of mistake names the pages (by path and language) or the patterns. The line is written when a list is checked, which is once for each list the function returns (in each language), not on each request or for each file:
 
 | Mistake | What happens |
 | --- | --- |

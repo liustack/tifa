@@ -2,7 +2,7 @@
 summary: '搜索引擎和语言模型怎样找到 Tifa 站点：site.url、sitemap.xml、robots.txt、llms.txt、og 标签'
 audience: app
 order: 8
-translatedFrom: 323ae296efc1
+translatedFrom: 3b08dc8a05c1
 read_when:
   - '设置页面的标题、描述或分享卡片（`og:title`、`og:image`、`twitter:card`），或者站点链接在聊天或信息流里不显示图片'
   - '让搜索引擎收录 Tifa 站点，或者添加 sitemap 或 robots.txt'
@@ -263,7 +263,7 @@ Sitemap: https://shop.example.com/sitemap.xml
 
 sitemap、`llms` 文件和 Markdown 版本和其他请求一样：`OnRequest` 会为它们运行，`c.Pattern()` 是 `/sitemap.xml`、`/llms.txt`、`/llms-full.txt`，或者页面带 `.md` 的路由，比如 `/blog/{slug}.md`（`/` 对应 `/index.md`）。`c.Language()` 对 `.md` 路径是页面的语言，对其他文件是默认语言。在 `OnRequest` 里把未登录的访客送到登录页面的守卫，也会守住这些文件，所以在不该拦的时候要放行。
 
-函数返回的内容里有错误，绝不会让请求失败。出错的页面或 `Exclude` 模式会被略去，文件用其余的内容响应，每一种错误记一行 `ERROR` 日志，指出页面（按路径和语言）或模式。这一行在用一份列表生成文件时写出，函数每返回一份新列表写一次，不是每个请求都写：
+函数返回的内容里有错误，绝不会让请求失败。出错的页面或 `Exclude` 模式会被略去，文件用其余的内容响应，每一种错误记一行 `ERROR` 日志，指出页面（按路径和语言）或模式。这一行在检查一份列表时写出，函数每返回一份新列表写一次（每种语言各一次），不是每个请求或每个文件都写：
 
 | 错误 | 会怎样 |
 | --- | --- |

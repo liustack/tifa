@@ -2,7 +2,7 @@
 summary: '渲染记忆是什么，以及它和 Cache 有什么不同：`ssr.memo_size`、ETag、查询参数、登录后的页面'
 audience: app
 order: 1
-translatedFrom: 4f4dc08fffe1
+translatedFrom: 4292b962c4f5
 read_when:
   - '想知道为什么叫记忆而不叫缓存，或者它会不会显示旧页面'
   - '想知道 `/sitemap.xml`、`/llms.txt` 或 `.md` 文件是不是每个请求都重新生成'
@@ -95,6 +95,7 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 
 `/sitemap.xml` 和它的各个部分、`/llms.txt`、`/llms-full.txt` 和页面的 `.md` 版本也在 memo 里，规则和页面一样。`tifa.SetSitemap` 的函数和 `OnRequest` 在每个请求上都会运行，memo 按函数返回的内容来查。列表相同，就发送保存的答案：相同的正文、`Content-Type` 和 `Link`，开了 `server.compress` 时是 gzip，浏览器或爬虫已经有它时带 `ETag` 并返回 304。列表不同，比如有了新文章、新标题或新的 `Modified`，这次请求就重新生成文件。不会保存一段时间，所以文章一发布就在 sitemap 里。见[搜索引擎和语言模型](../guides/seo.zh-CN.md)。
 
+- **一份列表的页面只检查一次。** 列表有哪些页面，对它的每个文件都一样，所以每种语言最新一份列表检查过的页面保存在 memo 旁边，每篇文章的 `.md` 不会再把整张列表检查一遍。它们不计入 `ssr.memo_size`，列表变了，下一个请求会重新检查。`ssr.memo_size` 为 0 时什么都不保存。
 - **不保存：** 没有对应页面的 `.md`、不存在的 sitemap 部分和函数返回的错误。编造的 URL 填不满 memo。它们没有 `ETag`。
 - **同时请求同一个文件、同一份列表的请求共用一次生成**，`ssr.memo_size` 为 0 时也一样，只是那时每个请求都生成自己的文件。
 - **和页面一起统计。** 它们共用 `ssr.memo_size` 和先去掉最久没用的顺序，`Entries`、`Hits`、`Misses` 和 `Shared` 也算上它们：一次未命中就是生成一次文件。它们没有 `X-Tifa-Render` 头。`/robots.txt` 不会变，所以不在 memo 里。
