@@ -476,7 +476,7 @@ func TestPublicDotfilesNamedAreCopied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := ".DS_Store .config/ .env .foo docs/.assets/.secret docs/.other/"; strings.Join(scan.LeftOut, " ") != want {
+	if want := ".config/ .env .foo docs/.assets/.secret docs/.other/"; strings.Join(scan.LeftOut, " ") != want {
 		t.Errorf("left out %q, want %q", scan.LeftOut, want)
 	}
 	if len(scan.Files) != 5 {

@@ -134,7 +134,7 @@ func TestRoutesBuiltInChallenge(t *testing.T) {
 // served without them. build.public_dotfiles puts a named one back.
 func TestRoutesBuiltInPublicDotFiles(t *testing.T) {
 	dir := apiApp(t) // has public/robots.txt
-	writeFile(t, filepath.Join(dir, "public", ".DS_Store"), "x")
+	writeFile(t, filepath.Join(dir, "public", ".env"), "x")
 	writeFile(t, filepath.Join(dir, "public", ".foo", "a.txt"), "x")
 	writeFile(t, filepath.Join(dir, "public", ".nojekyll"), "")
 	wantRow(t, builtIn(t, "--dir", dir), "/<file>", "public/ has 1 file (3 dot files or folders left out)")
@@ -147,7 +147,7 @@ func TestRoutesBuiltInPublicDotFiles(t *testing.T) {
 func TestRoutesBuiltInPublicHoldsOnlyDotFiles(t *testing.T) {
 	dir := apiApp(t)
 	removePublicRobots(t, dir)
-	writeFile(t, filepath.Join(dir, "public", ".DS_Store"), "x")
+	writeFile(t, filepath.Join(dir, "public", ".env"), "x")
 	wantRow(t, builtIn(t, "--dir", dir), "/<file>", "public/ has no files (1 dot file left out)")
 }
 

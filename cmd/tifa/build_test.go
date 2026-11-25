@@ -365,14 +365,19 @@ func TestBuildSaysWhatPublicLeavesOut(t *testing.T) {
 	if err := checkPublic(dir, &out); err != nil || out.Len() != 0 {
 		t.Fatalf("nothing left out: %v, %q", err, out.String())
 	}
+	// A .DS_Store is left out without a word: Finder writes one into every folder it shows.
 	writeFile(t, filepath.Join(dir, "public", ".DS_Store"), "x")
+	if err := checkPublic(dir, &out); err != nil || out.Len() != 0 {
+		t.Fatalf("only a .DS_Store: %v, %q", err, out.String())
+	}
+	writeFile(t, filepath.Join(dir, "public", ".env"), "x")
 	writeFile(t, filepath.Join(dir, "public", ".nojekyll"), "")
 	writeFile(t, filepath.Join(dir, "public", ".foo", "a.txt"), "x")
 	writeFile(t, filepath.Join(dir, "tifa.yaml"), "build:\n  public_dotfiles: .nojekyll\n")
 	if err := checkPublic(dir, &out); err != nil {
 		t.Fatal(err)
 	}
-	want := "tifa: public: 2 dot files or folders in public/ are not copied: .DS_Store, .foo/. To copy one, list it in build.public_dotfiles in tifa.yaml.\n"
+	want := "tifa: public: 2 dot files or folders in public/ are not copied: .env, .foo/. To copy one, list it in build.public_dotfiles in tifa.yaml.\n"
 	if out.String() != want {
 		t.Errorf("got\n%q\nwant\n%q", out.String(), want)
 	}

@@ -2,7 +2,7 @@
 summary: '每一项设置的含义和设置位置：tifa.yaml、参数、环境变量、.env、server.csp、HTTPS、跨站写入'
 audience: app
 order: 4
-translatedFrom: 134e35281d5b
+translatedFrom: 8fc3aeb328cf
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -110,7 +110,7 @@ Cloud Run、Heroku、Render、Railway 和 Fly 这样的托管平台，通过 `PO
 | --- | --- | --- | --- |
 | `build.target` | `es2020` | 仅项目文件 | Vite 构建的浏览器包的 JavaScript 目标，用逗号分隔的列表：一个 ECMAScript 版本（`es2015` 到 `es2029`、`esnext`），加上带版本的浏览器，可选 chrome、edge、firefox、ios、opera 和 safari，比如 `es2019,chrome90,safari14`。SSR 包始终以 ES2022 为目标 |
 | `build.public` | `public` | 仅项目文件 | 静态文件的文件夹，这些文件原样复制进程序，从 `/` 提供 |
-| `build.public_dotfiles` | 无 | 仅项目文件 | 用逗号分隔的路径，在静态文件的文件夹里，最后一个名字以点开头，比如 `.nojekyll,docs/.assets`。名字以点开头的文件和文件夹本来不会被复制，写在这里的会被复制。路径相对于那个文件夹，用 `/` 分隔。写在这里的文件夹会连同里面的内容一起复制，更深处以点开头的名字仍然要各自写一项。`.well-known` 不用写。路径不存在、走出这个文件夹，或者不是以点开头的名字结尾，`tifa build` 和 `tifa check` 会失败。`tifa build` 会列出它没有复制的内容 |
+| `build.public_dotfiles` | 无 | 仅项目文件 | 用逗号分隔的路径，在静态文件的文件夹里，最后一个名字以点开头，比如 `.nojekyll,docs/.assets`。名字以点开头的文件和文件夹本来不会被复制，写在这里的会被复制。路径相对于那个文件夹，用 `/` 分隔。写在这里的文件夹会连同里面的内容一起复制，更深处以点开头的名字仍然要各自写一项。`.well-known` 不用写。路径不存在、走出这个文件夹，或者不是以点开头的名字结尾，`tifa build` 和 `tifa check` 会失败。`tifa build` 会列出它没有复制的内容，`.DS_Store` 除外 |
 | `build.skip_tanstack_check` | `false` | 仅项目文件 | `true` 会构建 TanStack Router 不是 Tifa 测试过的版本的应用，这可能让页面在浏览器里变成空白。见 [build.md](build.zh-CN.md#the-apps-tsconfig-and-vite-config) |
 | `build.debug_info` | `false` | 仅项目文件 | `true` 把 DWARF 调试信息留在程序里，供 Delve 这样的调试器使用。不设时，`tifa build` 用 `-ldflags=-w` 去掉调试信息，这让示例 shop 的程序小约 20%。无论哪种，panic 仍然会给出每一帧的文件和行号。`tifa dev` 始终保留它。见 [build.md](build.zh-CN.md#debug-info) |
 | `build.i18next_cache` | `true` | 仅项目文件 | 服务端渲染会保留 i18next 翻译出来的字符串，同样的键和选项再来时直接给出，所以每次渲染都翻译同样文本的页面耗时更少：shop 的店面页面只要它的 0.778。`false` 会关掉它。应用的 formatter 和后处理器对同样的输入必须给出同样的文本。应用在第一次渲染之后不通过 i18next 的 API 改动 i18next 的资源或选项，或者给 i18next 传了读取请求内容的其他函数时，请关掉它，否则页面可能显示过期的翻译。见 [build.md](build.zh-CN.md#i18next-cache) |

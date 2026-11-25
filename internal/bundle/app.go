@@ -318,7 +318,8 @@ type PublicScan struct {
 	Dirs  map[string]bool
 	// LeftOut lists the files and folders whose names start with a dot and that build.public_dotfiles
 	// does not name, by their paths from the public folder with /. A folder ends in / and counts
-	// once, its files are not listed. They are in the order of the walk.
+	// once, its files are not listed. They are in the order of the walk. A .DS_Store is left out
+	// like the others and not listed.
 	LeftOut []string
 }
 
@@ -354,7 +355,11 @@ func ScanPublic(src string, dotfiles []string) (*PublicScan, error) {
 				scan.LeftOut = append(scan.LeftOut, rel+"/")
 				return filepath.SkipDir
 			} else {
-				scan.LeftOut = append(scan.LeftOut, rel)
+				// Finder writes a .DS_Store into every folder it shows, and nobody means to
+				// publish one: naming it in every build would teach people to skip the line.
+				if name != ".DS_Store" {
+					scan.LeftOut = append(scan.LeftOut, rel)
+				}
 				return nil
 			}
 		}
@@ -419,6 +424,7 @@ func syncDir(src, dst string, dotfiles []string) error {
 		if err != nil {
 			return err
 		}
+		rel = filepath.ToSlash(rel) // the paths of ScanPublic are written with /
 		if d.IsDir() && dirs[rel] || d.Type().IsRegular() && files[rel] != nil {
 			return nil
 		}
