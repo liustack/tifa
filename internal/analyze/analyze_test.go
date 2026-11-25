@@ -481,6 +481,8 @@ func TestViolations(t *testing.T) {
 		// Helpers that receive the Ctx are followed, across packages, through two levels, through a struct
 		// embedding the Ctx and through recursion, and a read of the query string in any of them is refused.
 		// A Layout gets the same words with its own signature in the example.
+		// An app whose module path starts with the path of Tifa is read like any other.
+		{"ownprefix", [][]string{{"filters/filters.go:6:", "c.Query", "second parameter"}}},
 		{"queryinload", [][]string{
 			{"app/route.go:10:", "c.QueryValues", "func Layout(c *tifa.Ctx, q Filter)"},
 			{"app/items/id+/route.go:14:", "method Query taken as a value"},

@@ -141,7 +141,7 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	switch callee := typeutil.Callee(info, call).(type) {
 	case *types.Builtin:
 	case *types.Func:
-		if callee.Pkg() != nil && isFrameworkPath(callee.Pkg().Path()) {
+		if callee.Pkg() != nil && a.isFramework(callee.Pkg().Path()) {
 			return
 		}
 		if recv := callee.Signature().Recv(); recv != nil && types.IsInterface(recv.Type()) {
@@ -260,6 +260,10 @@ func containsCtxSeen(t types.Type, seen map[types.Type]bool) bool {
 
 // isFrameworkPath reports whether an import path belongs to tifa itself, whose functions read
 // no parameters on the application's behalf.
+func (a *analyzer) isFramework(path string) bool {
+	return isFrameworkPath(path) && !a.modulePkgs[path]
+}
+
 func isFrameworkPath(path string) bool {
 	return path == tifaPath || strings.HasPrefix(path, tifaPath+"/")
 }

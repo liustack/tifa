@@ -205,7 +205,7 @@ func (a *analyzer) ctxArg(info *types.Info, call *ast.CallExpr, arg ast.Node, t 
 	case *types.Builtin:
 		return fmt.Sprintf("%s is passed to the builtin %s", text, callee.Name())
 	case *types.Func:
-		framework := callee.Pkg() != nil && isFrameworkPath(callee.Pkg().Path())
+		framework := callee.Pkg() != nil && a.isFramework(callee.Pkg().Path())
 		if !framework {
 			if _, ok := a.funcs[callee.Origin().FullName()]; !ok {
 				return "" // loadWalk reports interface methods and functions outside the module
