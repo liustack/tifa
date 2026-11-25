@@ -71,6 +71,10 @@ func TestTypedHandlers(t *testing.T) {
 		want                 string
 	}{
 		{"GET", "/orders/7?status=open", "", 200, `["7","open"]`},
+		// An empty value is a string for a string field, the same name twice is 400, and a broken query string is 400.
+		{"GET", "/orders/7?status=", "", 200, `["7",""]`},
+		{"GET", "/orders/7?status=a&status=b", "", 400, `{"error":"invalid query parameter \"status\""}`},
+		{"GET", "/orders/7?status=%zz", "", 400, `{"error":"invalid query string"}`},
 		{"POST", "/orders/7", `{"carrier":"SF"}`, 204, ""},
 		// A plain error from Validate is an error of the app like one a handler returns: 500, and its
 		// text stays in the log. Only tifa.Fields and tifa.Error reach the caller.
