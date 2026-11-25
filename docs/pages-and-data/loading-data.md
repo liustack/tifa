@@ -66,7 +66,7 @@ A `Load` that reads none takes only the Ctx. The second parameter is a struct va
 
 - A field is named by its `json` tag, then by its Go name. A field with `json:"-"` and an unexported field are left out. No field may be named `_tifa`, which Tifa keeps for navigation.
 - Tifa reads the names from the struct when it builds. The page loads again when one of them changes, the server renders the page with these parameters and no others (a `?utm_source=` is left out), and `Link`, `navigate` and `useSearch` know the names (see [Navigation](navigation.md#query-parameters-in-link-and-navigate)).
-- A field is a string, a `bool`, a whole number, a `float64`, or a slice of one of them. Embedded fields, pointers, maps, types with `MarshalText` or `UnmarshalText` and `float32` fail the build, and the message names the field. A browser cannot write the shortest text of a 32 bit float the way Go does, so the two could not read a value alike: declare it `float64`. Pages that share parameters write the fields again in each struct, and a name that a Layout and a page below it both declare has the same type in both.
+- A field is a string, a `bool`, a whole number, a `float64`, or a slice of one of them. Embedded fields, pointers, maps, types with `MarshalText` or `UnmarshalText` and `float32` fail the build, and the message names the field. See the types below for `float32`. Pages that share parameters write the fields again in each struct, and a name that a Layout and a page below it both declare has the same type in both.
 - What the page gets for each type of field, in TypeScript:
 
 | Go field | TypeScript (in `useSearch()` and `PageSearch`) |
