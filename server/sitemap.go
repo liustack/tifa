@@ -188,7 +188,7 @@ func (s *server) siteAnswer(c *tifa.Ctx, file, language string, build func(sm ti
 		}
 	}
 	r := c.Request()
-	list := siteListKey(s.front.Load().build.ID, language, sm)
+	list := siteListKey(s.siteBuild(), language, sm)
 	key := siteFileKey(list, file)
 	etag := key
 	if s.cfg.Compress {

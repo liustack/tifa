@@ -519,3 +519,15 @@ func TestPreconditionNeverTurnsA404Into304(t *testing.T) {
 		}
 	}
 }
+
+// A server that has no front end, as tifatest.Start makes one, answers the files too.
+func TestSiteFilesWithoutAFrontEnd(t *testing.T) {
+	app := siteApp()
+	s := newAppServer(t, app)
+	s.sitemap = (&theSite{sm: tifa.Sitemap{Name: "Shop", Exclude: []string{"/projects", "/store/journal/{post}"}}}).fn
+	for _, p := range []string{"/sitemap.xml", "/llms.txt", "/llms-full.txt"} {
+		if w := get(s, p); w.Code != 200 || w.Header().Get("ETag") == "" {
+			t.Errorf("GET %s: %d %v", p, w.Code, w.Header())
+		}
+	}
+}

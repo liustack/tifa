@@ -39,6 +39,15 @@ func etagListed(header, etag string) bool {
 	return false
 }
 
+// siteBuild is the ID of the front end that the files depend on. A server without one, as
+// tifatest.Start makes it, has none.
+func (s *server) siteBuild() string {
+	if f := s.front.Load(); f != nil {
+		return f.build.ID
+	}
+	return ""
+}
+
 // siteFileKey is the key of the file at the escaped path file for the list that listKey stands for.
 func siteFileKey(listKey, file string) string {
 	k := siteHash{sha256.New()}
