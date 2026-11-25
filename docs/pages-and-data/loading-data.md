@@ -44,7 +44,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 
 In `Load` you can only set response headers and cookies. Calling `c.JSON`, `c.Text` or `c.NoContent` returns an error.
 
-What `Load` returns when it fails is in [Errors from Load and handlers](errors.md#errors-from-load-and-handlers).
+What `Load` returns when it fails is in [What an error you return becomes](errors.md#what-an-error-you-return-becomes).
 
 ## page.tsx
 
