@@ -73,9 +73,20 @@ type cachedPage struct {
 	// policy is the Content-Security-Policy of the page with the hashes of its inline scripts and
 	// styles, "" with server.csp off (see renderedPolicy).
 	policy string
+	// mime is the Content-Type of a file of the site (see siteAnswer), "" for HTML, and link its
+	// Link header, "" for none. A page has neither.
+	mime, link string
 	// redirect is set for a render that the router ended with a redirect: the page is that
 	// redirect and has no HTML.
 	redirect *ssr.RedirectError
+}
+
+// contentType is the Content-Type the page goes out with.
+func (p cachedPage) contentType() string {
+	if p.mime == "" {
+		return "text/html; charset=utf-8"
+	}
+	return p.mime
 }
 
 func (p cachedPage) size() int64 { return p.bodySize() + p.meta() }
@@ -88,10 +99,10 @@ func (p cachedPage) bodySize() int64 {
 	return int64(len(p.html))
 }
 
-// meta is what the page costs besides its body: its policy, which every page keeps for itself, and
-// a redirect.
+// meta is what the page costs besides its body: its policy, which every page keeps for itself, its
+// Link header and a redirect.
 func (p cachedPage) meta() int64 {
-	n := int64(len(p.policy))
+	n := int64(len(p.policy) + len(p.link))
 	if p.redirect != nil {
 		n += int64(len(p.redirect.Location)) + 32
 	}

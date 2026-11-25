@@ -1052,12 +1052,18 @@ func (s *server) renderOne(ctx context.Context, f *front, in ssr.Input, memo boo
 // the cache drops it when it stores the page. A page the cache cannot hold keeps both forms too,
 // for the requests that wait for its render, so none of them compresses it again.
 func (s *server) newPage(html, policy string) (cachedPage, bool) {
-	page := cachedPage{html: html, n: len(html), policy: policy}
+	return s.sealPage(cachedPage{html: html, policy: policy})
+}
+
+// sealPage completes page, which has its text in html: its length and, with server.compress, its
+// gzip form. It says whether the cache can keep it, as newPage does.
+func (s *server) sealPage(page cachedPage) (cachedPage, bool) {
+	page.n = len(page.html)
 	if s.memo.off() {
 		return page, false
 	}
 	if s.cfg.Compress {
-		page.gzip = compressPage(html)
+		page.gzip = compressPage(page.html)
 	}
 	if !s.memo.holds(page) {
 		return page, false
@@ -1258,11 +1264,11 @@ func dataOnlyDocument(f *front, items map[string]routeResult, key, uri, language
 // compresses for zstd. A page kept as HTML goes out as HTML, and compressed compresses it as it goes.
 func writeCached(c *tifa.Ctx, status int, page cachedPage, encoding string) error {
 	if page.gzip == nil {
-		return writeHTML(c, status, page.html)
+		return writeBody(c, status, page.contentType(), page.html)
 	}
 	w := c.Writer()
 	h := w.Header()
-	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Content-Type", page.contentType())
 	switch {
 	case encoding == "gzip":
 		h.Set("Content-Encoding", "gzip")
@@ -1271,7 +1277,7 @@ func writeCached(c *tifa.Ctx, status int, page cachedPage, encoding string) erro
 		_, err := w.Write(page.gzip)
 		return err
 	case page.html != "":
-		return writeHTML(c, status, page.html)
+		return writeBody(c, status, page.contentType(), page.html)
 	}
 	// The page is our own bytes. They are read before the header is written, and once it is out a
 	// failure cannot be told to the client other than by cutting the connection.
@@ -1303,11 +1309,15 @@ func writeCached(c *tifa.Ctx, status int, page cachedPage, encoding string) erro
 }
 
 func writeHTML(c *tifa.Ctx, status int, page string) error {
+	return writeBody(c, status, "text/html; charset=utf-8", page)
+}
+
+func writeBody(c *tifa.Ctx, status int, contentType, body string) error {
 	w := c.Writer()
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
-	_, err := io.WriteString(w, page)
+	_, err := io.WriteString(w, body)
 	return err
 }
 

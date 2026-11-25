@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"io"
 	"maps"
 	"net/http"
@@ -19,9 +20,10 @@ import (
 
 // What a site with site.url tells search engines and language models: /sitemap.xml, a default
 // /robots.txt, /llms.txt, /llms-full.txt and the Markdown version of each page that shows a content
-// entry, at its path with .md. They are made on each request from the pages without parameters
-// and what the function of tifa.SetSitemap returns. A public file or a route of the app with the
-// same path wins over each of them.
+// entry, at its path with .md. They are made from the pages without parameters and what the
+// function of tifa.SetSitemap returns. The function runs on each request, and the answer is kept in
+// the render memo by what the function returned (siteKey), so it is made again only when that
+// changes. A public file or a route of the app with the same path wins over each of them.
 
 // The limits of one sitemap file, see https://www.sitemaps.org/protocol.html. A site with more URLs
 // or bytes gets a sitemap index at /sitemap.xml and the parts at /sitemap-1.xml and so on. Tests
@@ -163,63 +165,110 @@ func (s *server) pageOf(p string) (string, bool) {
 	return rh.pattern, true
 }
 
-// siteFile answers /sitemap.xml, a part of it, /llms.txt or /llms-full.txt.
-func (s *server) siteFile(c *tifa.Ctx, p string) error {
-	sm, pages, err := s.sitePages(c)
-	if err != nil {
-		return err
-	}
-	switch p {
-	case "/llms.txt":
-		return writeSite(c, "text/plain; charset=utf-8", s.llmsText(sm, pages))
-	case "/llms-full.txt":
-		text, err := s.llmsFull(sm, pages)
-		if err != nil {
-			return err
-		}
-		return writeSite(c, "text/plain; charset=utf-8", text)
-	}
-	parts := s.sitemapParts(pages)
-	n := sitemapPart(p)
-	switch {
-	case n == 0 && len(parts) == 1:
-		return writeSite(c, "application/xml; charset=utf-8", urlSet(parts[0]))
-	case n == 0:
-		return writeSite(c, "application/xml; charset=utf-8", s.sitemapIndex(parts))
-	case n > len(parts) || len(parts) == 1:
-		return tifa.ErrNotFound
-	}
-	return writeSite(c, "application/xml; charset=utf-8", urlSet(parts[n-1]))
+// siteBody is what the answer to a request for a file of the site is made of.
+type siteBody struct {
+	contentType, text string
+	// link is the Link header of the answer, "" for none.
+	link string
 }
 
-func writeSite(c *tifa.Ctx, contentType, body string) error {
-	h := c.Writer().Header()
-	h.Set("Content-Type", contentType)
-	h.Set("Content-Length", strconv.Itoa(len(body)))
-	c.Writer().WriteHeader(http.StatusOK)
-	_, err := io.WriteString(c.Writer(), body)
-	return err
+// siteAnswer answers a request for a file of the site. The function of SetSitemap runs on each
+// request, and its result is the input of the answer: the memo keeps the answer by the hash of it
+// (siteKey) and makes it with build only for a result it has not seen, with the pages the result
+// lists. Requests for the same file and result at the same time share one build. build returns
+// tifa.ErrNotFound for a file that the result has none of, and only a 200 is kept, so that made-up
+// URLs do not fill the memo. The answer has the ETag and the 304 of a page.
+func (s *server) siteAnswer(c *tifa.Ctx, build func(sm tifa.Sitemap, pages []sitePage) (siteBody, error)) error {
+	var sm tifa.Sitemap
+	if s.sitemap != nil {
+		var err error
+		if sm, err = s.sitemap(c); err != nil {
+			return err
+		}
+	}
+	r := c.Request()
+	key := siteKey(s.front.Load().build.ID, r.URL.EscapedPath(), c.Language(), sm)
+	etag := key
+	if s.cfg.Compress {
+		etag = "W/" + key
+	}
+	// The answer is a function of the key, so a client that holds the ETag holds this answer, and it
+	// is a 200: no other answer has one.
+	if !core.NoStore(c) && etagMatches(c.Header("If-None-Match"), key) {
+		c.SetHeader("ETag", etag)
+		return c.NoContent(http.StatusNotModified)
+	}
+	method, path := r.Method, r.URL.Path
+	// A build that fails once no request waits has no OnError to go to, so it is logged, except a
+	// file the list has none of.
+	unheard := func(err error) {
+		if !errors.Is(err, tifa.ErrNotFound) {
+			core.Logger().ErrorContext(c.Context(), "tifa: a site file failed and no request waits for it", "method", method, "path", path, "err", err)
+		}
+	}
+	got, err := s.memo.fetch(r.Context(), key, unheard, func(ctx context.Context) (cachedPage, keep, error) {
+		body, err := build(sm, s.sitePages(ctx, sm))
+		if err != nil {
+			return cachedPage{}, keepNot, err
+		}
+		page, held := s.sealPage(cachedPage{html: body.text, mime: body.contentType, link: body.link})
+		return page, keepIf(held), nil
+	})
+	if err != nil {
+		if clientLeft(r, err, false) {
+			return errClientGone
+		}
+		return err
+	}
+	c.SetHeader("ETag", etag)
+	if got.page.link != "" {
+		c.SetHeader("Link", got.page.link)
+	}
+	return writeCached(c, http.StatusOK, got.page, s.formEncoding(c))
+}
+
+// siteFile answers /sitemap.xml, a part of it, /llms.txt or /llms-full.txt.
+func (s *server) siteFile(c *tifa.Ctx, p string) error {
+	return s.siteAnswer(c, func(sm tifa.Sitemap, pages []sitePage) (siteBody, error) {
+		const text, xmlType = "text/plain; charset=utf-8", "application/xml; charset=utf-8"
+		switch p {
+		case "/llms.txt":
+			return siteBody{contentType: text, text: s.llmsText(sm, pages)}, nil
+		case "/llms-full.txt":
+			full, err := s.llmsFull(sm, pages)
+			return siteBody{contentType: text, text: full}, err
+		}
+		parts := s.sitemapParts(pages)
+		n := sitemapPart(p)
+		switch {
+		case n == 0 && len(parts) == 1:
+			return siteBody{contentType: xmlType, text: urlSet(parts[0])}, nil
+		case n == 0:
+			return siteBody{contentType: xmlType, text: s.sitemapIndex(parts)}, nil
+		case n > len(parts) || len(parts) == 1:
+			return siteBody{}, tifa.ErrNotFound
+		}
+		return siteBody{contentType: xmlType, text: urlSet(parts[n-1])}, nil
+	})
 }
 
 // markdownVersion answers the Markdown version of the page at rest in language: its title as a
 // heading and the Markdown of its content entry.
 func (s *server) markdownVersion(c *tifa.Ctx, language, rest string) error {
-	sm, pages, err := s.sitePages(c)
-	if err != nil {
-		return err
-	}
-	for _, p := range pages {
-		if p.body == nil || p.language != language || p.path != rest || markdownURL(p.url) != c.Request().URL.EscapedPath() {
-			continue
+	escaped := c.Request().URL.EscapedPath()
+	return s.siteAnswer(c, func(sm tifa.Sitemap, pages []sitePage) (siteBody, error) {
+		for _, p := range pages {
+			if p.body == nil || p.language != language || p.path != rest || markdownURL(p.url) != escaped {
+				continue
+			}
+			text, err := pageMarkdown(p, s.siteName(sm))
+			if err != nil {
+				return siteBody{}, err
+			}
+			return siteBody{contentType: "text/markdown; charset=utf-8", text: text, link: "<" + s.site + p.url + `>; rel="canonical"`}, nil
 		}
-		text, err := pageMarkdown(p, s.siteName(sm))
-		if err != nil {
-			return err
-		}
-		c.Writer().Header().Set("Link", "<"+s.site+p.url+`>; rel="canonical"`)
-		return writeSite(c, "text/markdown; charset=utf-8", text)
-	}
-	return tifa.ErrNotFound
+		return siteBody{}, tifa.ErrNotFound
+	})
 }
 
 // markdownURL is the URL of the Markdown version of the page at the public path u.
@@ -255,8 +304,9 @@ func pageMarkdown(p sitePage, siteName string) (string, error) {
 
 // The kinds of mistakes in what the function of SetSitemap returns. A mistake leaves out the page
 // or the Exclude pattern it is in, or the Content of a page, and the files answer with the rest:
-// a search engine still gets a sitemap while the app is being fixed. Each request logs one line
-// per kind, which names the pages, by their path and language, or the patterns.
+// a search engine still gets a sitemap while the app is being fixed. Each time an answer is made
+// (not on each request: see siteAnswer) one line per kind is logged, which names the pages, by
+// their path and language, or the patterns.
 const (
 	stalePattern  = "Exclude patterns that match no page are ignored"
 	noPage        = "pages whose Path matches no page are left out"
@@ -271,16 +321,16 @@ const (
 
 var mistakeKinds = []string{stalePattern, noPage, badPath, badLanguage, badAlternates, listedTwice, pageExcluded, strayContent, unlistedRoute}
 
-// mistakes collects the mistakes of one request by kind.
+// mistakes collects the mistakes of one answer by kind.
 type mistakes map[string][]string
 
 func (m mistakes) add(kind, name string) { m[kind] = append(m[kind], name) }
 
 // log writes one error line per kind of mistake.
-func (m mistakes) log(c *tifa.Ctx) {
+func (m mistakes) log(ctx context.Context) {
 	for _, kind := range mistakeKinds {
 		if names := m[kind]; len(names) > 0 {
-			core.Logger().ErrorContext(c.Context(), "tifa: SetSitemap: "+kind+": "+strings.Join(names, ", "))
+			core.Logger().ErrorContext(ctx, "tifa: SetSitemap: "+kind+": "+strings.Join(names, ", "))
 		}
 	}
 }
@@ -293,20 +343,12 @@ func pageName(sp tifa.SitemapPage) string {
 	return sp.Path + " (" + sp.Language + ")"
 }
 
-// sitePages returns what the function of SetSitemap returns and the pages of the sitemap: the pages
-// without parameters in each of their languages, those of Pages in their place, then the other
-// pages of Pages. An error is one the function returned. A mistake in what it returned is logged,
-// see mistakeKinds.
-func (s *server) sitePages(c *tifa.Ctx) (tifa.Sitemap, []sitePage, error) {
-	var sm tifa.Sitemap
-	if s.sitemap != nil {
-		var err error
-		if sm, err = s.sitemap(c); err != nil {
-			return sm, nil, err
-		}
-	}
+// sitePages returns the pages of the sitemap that sm, what the function of SetSitemap returned,
+// lists: the pages without parameters in each of their languages, those of Pages in their place,
+// then the other pages of Pages. A mistake in sm is logged, see mistakeKinds.
+func (s *server) sitePages(ctx context.Context, sm tifa.Sitemap) []sitePage {
 	m := mistakes{}
-	defer m.log(c)
+	defer m.log(ctx)
 	routes := slices.Sorted(maps.Keys(s.pages))
 	covers := func(e, pattern string) bool { return e == "/" || pattern == e || strings.HasPrefix(pattern, e+"/") }
 	var exclude []string
@@ -364,7 +406,7 @@ func (s *server) sitePages(c *tifa.Ctx) (tifa.Sitemap, []sitePage, error) {
 			}
 		}
 	}
-	return sm, append(pages, params...), nil
+	return append(pages, params...)
 }
 
 // pageLanguages returns the languages of the page route pattern: those of its area, or "" for a
