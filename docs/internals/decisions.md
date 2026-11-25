@@ -1,5 +1,5 @@
 ---
-summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports, folders that group pages without a URL segment, dropping a chosen number of Layouts, more convention files in a folder, generated types by a module name or a path string, another mark for a parameter folder, title and meta tags as elements, setup code in the root Layout, route constants for what a request can set, loading page data again after a write'
+summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports, folders that group pages without a URL segment, dropping a chosen number of Layouts, more convention files in a folder, generated types by a module name or a path string, another mark for a parameter folder, title and meta tags as elements, setup code in the root Layout, route constants for what a request can set, loading page data again after a write, agent hooks written by tifa new'
 audience: dev
 order: 3
 read_when:
@@ -179,3 +179,11 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 **Why not.** Tifa does not know what a write changed, and every request sent on a guess is load on the server. TanStack Router, which Tifa follows in the browser, has no such step.
 
 **Instead.** The page calls `router.invalidate()` when it should show what the write changed: [Calling method handlers from the browser](../pages-and-data/pages.md#calling-method-handlers-from-the-browser).
+
+## Agent hooks written by tifa new
+
+**Turned down (2026-11-25).** `tifa new` writing a hook into the settings of a coding agent, such as `.claude/settings.json`, that runs `go tool tifa gen` after every edit of a Go file, so the types of `route.gen` are never old.
+
+**Why not.** How an agent is set up is its user's business. Tifa gives an agent notes and a skill to read, and changes nothing about what the agent runs.
+
+**Instead.** `go tool tifa check` writes `.tifa/` again before it runs `tsc`, and `go tool tifa gen` writes it alone: [`tifa gen`](../build-and-deploy/build.md#tifa-gen).
