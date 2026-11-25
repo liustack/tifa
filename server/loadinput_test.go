@@ -26,13 +26,13 @@ func TestLoadWithQueryInputOnAPage(t *testing.T) {
 	if r := routes["app/list/route"]; r.Status != 200 {
 		t.Errorf("a valid value: %+v", r)
 	}
-	for _, target := range []string{"/list?page=02", "/list?page=1&page=2", "/list?page=x"} {
+	for _, target := range []string{"/list?page=2.5", "/list?page=1&page=2", "/list?page=x"} {
 		r := routesOf(t, getData(s, target, "b1", "1"))["app/list/route"]
 		if r.Status != 400 {
 			t.Errorf("%s: %+v, want 400", target, r)
 		}
 	}
-	if w := get(s, "/list?page=02"); w.Code != 400 {
+	if w := get(s, "/list?page=2.5"); w.Code != 400 {
 		t.Errorf("the page for a value that is not valid: %d", w.Code)
 	}
 	if w := get(s, "/list?page=3&utm_source=x"); w.Code != 200 || !strings.Contains(w.Body.String(), "page 3") {

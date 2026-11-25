@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -15,6 +17,9 @@ import (
 // is read by Go and by the browser, and the two must agree on every value, so no integer is valid
 // beyond it, whatever the width of the field.
 const maxExact = 1<<53 - 1
+
+// maxNumberText is the longest text of a number, in bytes (see readNumber).
+const maxNumberText = 64
 
 // decodePageQuery decodes the query string of the request into the struct v, the second parameter
 // of Load and Layout. A query string that does not parse, or a value that is not valid, comes back as
@@ -34,12 +39,13 @@ func decodePageQuery(c *Ctx, v any) error {
 // decodeQuery fills the exported fields of the struct v from the parameters of a query string. A
 // field is named by its json tag, then its Go name. A parameter that names no field is left out.
 //
-// A value is valid only when it is the one way to write it: decoding it and writing the result
-// gives the same text. A string is any text. A whole number is 0, or digits with no leading zero
-// and an optional minus, and fits the width of its field and 2^53-1. A bool is true or false. A
-// float has no exponent, no trailing zero after the point and at most 15 significant digits, and
-// is 0 or between 1e-6 and 1e21 in size. A slice holds the values of the parameters of one name,
-// in order.
+// A string is any text. A bool is true or false. A whole number is digits with an optional sign
+// and an optional point with zeros after it (+007, 1.0, -0), fits the width of its field and 2^53-1.
+// A float64 is digits with an optional sign, an optional fraction and an optional exponent (010.50,
+// .5, 5., 1e3), and is 0 or between 1e-6 and 1e21 in size. A number written another way than the
+// shortest one is the same number, and the page is rendered for the shortest text (see
+// CanonicalNumber). Anything else is not valid, such as 10.50 for a whole number, a space, 0x10 or
+// NaN, or a text of more than 64 bytes. A slice holds the values of the parameters of one name, in order.
 //
 // An empty value of a field that is not a string, or of a list of numbers or bools, is a
 // parameter that was not passed (the browser sends it for a form field left empty). A field that
@@ -60,13 +66,22 @@ func decodeQuery(query url.Values, v any) error {
 		if problem := formTypeProblem(field.Type); problem != "" {
 			return fmt.Errorf("tifa: a query string or form cannot fill the field %s of %s: its type %s %s", field.Name, target.Type(), field.Type, problem)
 		}
-	}
-	for i := range target.NumField() {
-		field := target.Type().Field(i)
-		name := formName(field)
-		if !field.IsExported() || name == "-" {
-			continue
+		if t := field.Type; t.Kind() == reflect.Float32 || t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Float32 {
+			return fmt.Errorf("tifa: a query string cannot fill the field %s of %s: its type %s is a float32, which a browser cannot write the way Go does, so declare it float64", field.Name, target.Type(), t)
 		}
+	}
+	// The first value that is not valid in the order of the names is the one the answer names.
+	var names []string
+	index := map[string]int{}
+	for i := range target.NumField() {
+		if field := target.Type().Field(i); field.IsExported() && formName(field) != "-" {
+			names = append(names, formName(field))
+			index[formName(field)] = i
+		}
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		i := index[name]
 		values, ok := query[name]
 		if !ok {
 			continue
@@ -109,7 +124,7 @@ func setQueryField(f reflect.Value, values []string) error {
 }
 
 // setQueryValue sets f from one value, which must be valid for its kind. f is a string, bool,
-// integer or float field, which formTypeProblem has checked.
+// integer or float64 field, which formTypeProblem and decodeQuery have checked.
 func setQueryValue(f reflect.Value, s string) error {
 	switch f.Kind() {
 	case reflect.String:
@@ -126,73 +141,64 @@ func setQueryValue(f reflect.Value, s string) error {
 			return errQueryValue
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if !wholeNumber(s) {
+		x, ok := readNumber(s, true)
+		if !ok || f.OverflowInt(int64(x)) {
 			return errQueryValue
 		}
-		n, err := strconv.ParseInt(s, 10, f.Type().Bits())
-		if err != nil || n > maxExact || n < -maxExact {
-			return errQueryValue
-		}
-		f.SetInt(n)
+		f.SetInt(int64(x))
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		if !wholeNumber(s) || s[0] == '-' {
+		x, ok := readNumber(s, true)
+		if !ok || x < 0 || f.OverflowUint(uint64(x)) {
 			return errQueryValue
 		}
-		n, err := strconv.ParseUint(s, 10, f.Type().Bits())
-		if err != nil || n > maxExact {
+		f.SetUint(uint64(x))
+	case reflect.Float64:
+		x, ok := readNumber(s, false)
+		if !ok {
 			return errQueryValue
 		}
-		f.SetUint(n)
-	case reflect.Float32, reflect.Float64:
-		if !plainFloat(s) {
-			return errQueryValue
-		}
-		n, err := strconv.ParseFloat(s, 64)
-		if a := math.Abs(n); err != nil || a != 0 && (a < 1e-6 || a >= 1e21) {
-			return errQueryValue
-		}
-		// What the field holds must write back as s: a float32 keeps fewer digits than plainFloat
-		// lets through, and digits too small for a float64 read as 0.
-		if strconv.FormatFloat(n, 'f', -1, f.Type().Bits()) != s {
-			return errQueryValue
-		}
-		f.SetFloat(n)
+		f.SetFloat(x)
 	default:
 		return fmt.Errorf("unsupported query field type %s", f.Type())
 	}
 	return nil
 }
 
-// wholeNumber reports whether s is -?(0|[1-9][0-9]*) and not -0.
-func wholeNumber(s string) bool {
-	return unsignedWhole(strings.TrimPrefix(s, "-")) && s != "-0"
+var (
+	wholeText = regexp.MustCompile(`^[+-]?[0-9]+(\.0*)?$`)
+	floatText = regexp.MustCompile(`^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$`)
+)
+
+// readNumber reads the number s writes, as a browser reads it: whole is true for a whole number, which
+// has no fraction but zeros and no exponent, and false for a float64. The number is 0 or between 1e-6
+// and 1e21 in size, a whole number is at most 2^53-1 in size, and -0 is 0. ok is false for a text that
+// is no such number.
+func readNumber(s string, whole bool) (n float64, ok bool) {
+	// A very long decimal is rounded differently by Go and by a browser, so no text is longer than
+	// maxNumberText, which no number a person types or a form sends reaches.
+	if len(s) > maxNumberText || whole && !wholeText.MatchString(s) || !whole && !floatText.MatchString(s) {
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(s, 64)
+	if a := math.Abs(n); err != nil || a != 0 && (a < 1e-6 || a >= 1e21) || whole && a > maxExact {
+		return 0, false
+	}
+	// A number too small to hold reads as 0, which is not what the text says.
+	if mantissa, _, _ := strings.Cut(strings.ToLower(s), "e"); n == 0 && strings.ContainsAny(mantissa, "123456789") {
+		return 0, false
+	}
+	if n == 0 {
+		return 0, true
+	}
+	return n, true
 }
 
-// unsignedWhole reports whether s is 0 or digits that do not start with a zero.
-func unsignedWhole(s string) bool {
-	return allDigits(s) && (len(s) == 1 || s[0] != '0')
-}
-
-func allDigits(s string) bool {
-	for i := range len(s) {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
+// CanonicalNumber is the shortest text of the number s writes (see readNumber), the one the page is
+// rendered for, "" when s is no such number. The browser writes the same text: String(n).
+func CanonicalNumber(s string, whole bool) string {
+	n, ok := readNumber(s, whole)
+	if !ok {
+		return ""
 	}
-	return s != ""
-}
-
-// plainFloat reports whether s is -?(0|[1-9][0-9]*)(\.[0-9]*[1-9])? and not -0, with at most 15
-// significant digits.
-func plainFloat(s string) bool {
-	whole, fraction, hasPoint := strings.Cut(strings.TrimPrefix(s, "-"), ".")
-	if !unsignedWhole(whole) || s == "-0" {
-		return false
-	}
-	if hasPoint && (!allDigits(fraction) || fraction[len(fraction)-1] == '0') {
-		return false
-	}
-	// The digits after the leading zeros of the number, the point not counted.
-	digits := strings.TrimLeft(whole+fraction, "0")
-	return len(digits) <= 15
+	return strconv.FormatFloat(n, 'f', -1, 64)
 }

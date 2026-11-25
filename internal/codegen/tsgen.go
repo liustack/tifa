@@ -727,6 +727,7 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 	}
 	var imports strings.Builder
 	runtime := map[string]bool{"createAppRouter": true}
+	codec := false
 	lazy := false
 	eager := func(n *tsNode) bool { return n.id == rootLayout || n.exported("head") }
 	// export returns the expression of one export of node i's module.
@@ -895,14 +896,25 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 			// The query parameters the Load reads, which the canonical link of the page keeps.
 			if len(n.load.AllQuery) > 0 {
 				static = append(static, "query: "+jsStrings(n.load.AllQuery))
+				whole, floats, bools := queryKinds(n.load)
+				for _, kind := range []struct {
+					key   string
+					names []string
+				}{{"whole", whole}, {"floats", floats}, {"bools", bools}} {
+					if len(kind.names) > 0 {
+						static = append(static, kind.key+": "+jsStrings(kind.names))
+					}
+				}
 			}
 		}
 		staticData := "staticData: { " + strings.Join(static, ", ") + " }"
 		var query []string
 		// The types of the query parameters the route reads, for Link, navigate and useSearch.
 		if hasSearch(n) {
-			runtime["searchTypes"] = true
-			opts = append(opts, fmt.Sprintf("validateSearch: searchTypes<S%d>()", i))
+			codec = true
+			runtime["searchFailed"] = true
+			opts = append(opts, fmt.Sprintf("validateSearch: searchCodec<S%d>(%s)", i, searchSpec(n)),
+				fmt.Sprintf("search: { middlewares: [searchText<S%d>(%s)] }", i, searchSpec(n)), "onError: searchFailed")
 		}
 		if n.load != nil {
 			query = n.load.AllQuery
@@ -991,13 +1003,16 @@ declare module "@tanstack/react-router" {
 	}
 	fmt.Fprintf(&out, `import { %s } from "@tanstack/react-router"`+"\n", router)
 	var names []string
-	for _, name := range []string{"createAppRouter", "DefaultError", "leave", "load", "missing", "outside", "pick", "searchTypes", "unmatched"} {
+	for _, name := range []string{"createAppRouter", "DefaultError", "leave", "load", "missing", "outside", "pick", "searchFailed", "unmatched"} {
 		if runtime[name] {
 			names = append(names, name)
 		}
 	}
 	names = append(names, "type RouterContext")
 	fmt.Fprintf(&out, `import { %s } from "./runtime/router"`+"\n", strings.Join(names, ", "))
+	if codec {
+		out.WriteString(`import { searchCodec, searchText } from "./runtime/searchcodec"` + "\n")
+	}
 	rootHead := app != nil && app.exported("documentHead")
 	if heads && rootHead {
 		out.WriteString(`import { routeHead, splitDocumentHead } from "./runtime/head"` + "\n")
@@ -1330,23 +1345,48 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 }
 
 // searchType writes the type of the query parameters the Load or Layout function of n reads, which
-// routes.tsx gives its route for Link, navigate and useSearch. A key can come more than once in a
-// URL, so every value is a string or an array of strings, as parseSearch of the runtime reads
-// them, whatever the type of the field in Go. Every key may be left out, and other keys are open: the app may use
-// parameters of its own in the browser, which Go does not read. A function that reads none gets no
-// type.
+// routes.tsx gives its route for Link, navigate and useSearch. A value has the type its field has in
+// Go: a number for an integer or a float, a boolean for a bool, a string, and an array of them for
+// a slice. The route converts the address by the same kinds (searchSpec). Every key may be left out,
+// and other keys are open: the app may use parameters of its own in the browser, which Go does not
+// read. A function that reads none gets no type.
 func searchType(b *strings.Builder, n *tsNode, name, fn, dir string) {
 	if !hasSearch(n) {
 		return
 	}
-	fmt.Fprintf(b, "// %s is the query parameters the Go %s function of %s reads, as the router reads them.\n", name, fn, dir)
-	b.WriteString("// A key can come more than once in a URL, so a value is a string or an array of strings:\n")
-	b.WriteString("// Go answers 400 when a name that is not a list comes twice. Other parameters may come too.\n")
+	fmt.Fprintf(b, "// %s is the query parameters the Go %s function of %s reads, as the router gives them:\n", name, fn, dir)
+	b.WriteString("// with the type of the Go field, and left out when the address does not pass them (an empty\n")
+	b.WriteString("// value counts as not passed). Other parameters may come too, as a string or an array of strings.\n")
 	fmt.Fprintf(b, "export type %s = {\n", name)
-	for _, key := range n.load.Query {
-		fmt.Fprintf(b, "  %s?: string | string[]\n", jsString(key))
+	for _, f := range n.load.Fields {
+		t := "string"
+		switch f.Kind {
+		case "string":
+		case "bool":
+			t = "boolean"
+		default:
+			t = "number"
+		}
+		if f.List {
+			t += "[]"
+		}
+		fmt.Fprintf(b, "  %s?: %s\n", jsString(f.Name), t)
 	}
-	b.WriteString("  [key: string]: string | string[] | undefined\n}\n\n")
+	b.WriteString("  [key: string]: unknown\n}\n\n")
+}
+
+// searchSpec writes the kinds of the query parameters of n for the codec of the route, in the names
+// of the manifest, with [] after the kind of a list.
+func searchSpec(n *tsNode) string {
+	parts := make([]string, len(n.load.Fields))
+	for i, f := range n.load.Fields {
+		kind := f.Kind
+		if f.List {
+			kind += "[]"
+		}
+		parts[i] = "[" + jsString(f.Name) + ", " + jsString(kind) + "]"
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 // hasSearch reports whether the Load or Layout function of n reads query parameters, so that

@@ -54,7 +54,7 @@ func TestLoadInputDecodesAndRunsOncePerRequest(t *testing.T) {
 func TestLoadInputAnswers400ForAValueThatIsNotValid(t *testing.T) {
 	before := loadRuns.Load()
 	var e Error
-	_, err := LoadInput(pageLoad)(newQueryCtx("/list?page=02"))
+	_, err := LoadInput(pageLoad)(newQueryCtx("/list?page=two"))
 	if !errors.As(err, &e) || e.Status != 400 || e.Message != `invalid query parameter "page"` {
 		t.Fatalf("got %v", err)
 	}

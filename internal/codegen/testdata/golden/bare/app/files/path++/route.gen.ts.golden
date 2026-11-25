@@ -10,12 +10,12 @@ export type Entry = {
 // PageData is what the Go Load function of app/files/path++ returns, as JSON.
 export type PageData = Entry
 
-// PageSearch is the query parameters the Go Load function of app/files/path++ reads, as the router reads them.
-// A key can come more than once in a URL, so a value is a string or an array of strings:
-// Go answers 400 when a name that is not a list comes twice. Other parameters may come too.
+// PageSearch is the query parameters the Go Load function of app/files/path++ reads, as the router gives them:
+// with the type of the Go field, and left out when the address does not pass them (an empty
+// value counts as not passed). Other parameters may come too, as a string or an array of strings.
 export type PageSearch = {
-  "rev"?: string | string[]
-  [key: string]: string | string[] | undefined
+  "rev"?: string
+  [key: string]: unknown
 }
 
 export type Params = { _splat: string }

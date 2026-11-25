@@ -1,7 +1,7 @@
 import { createRoot, hydrateRoot } from 'react-dom/client'
 import { Await, RouterProvider, type AnyRoute, type AnyRouter } from '@tanstack/react-router'
 import { hydrate as hydrateRouter } from '@tanstack/react-router/ssr/client'
-import { createAppRouter, type Dehydrated } from './router'
+import { cleanAddress, createAppRouter, type Dehydrated } from './router'
 import { SessionContext, settleSession, startSession, type Snapshot } from './session'
 import { bootElementId, collector, injected, TifaError, rootElementId, sameURL, type Boot, type Source } from './data'
 import { defaultHTMLAttributes, followHead, noteHTMLAttributes, syncHead, syncHTMLAttributes, type HTMLAttributes } from './head'
@@ -71,6 +71,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
       },
     })
     setRouter(router, () => buildId)
+    cleanAddress(router)
     const hydrated = takeOver(router, htmlAttributes, () => language)
     // What TanStack's RouterClient renders, with the promise of takeOver in place of its own.
     hydrateRoot(
@@ -111,6 +112,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     rewrite: i18n && makeRewrite(i18n, input.language || i18n.default),
   })
   startAlternates(input.alternates, router, i18n)
+  cleanAddress(router)
   const links = pageLinks(router, () => language)
   void router.load().then(() => {
     first = false

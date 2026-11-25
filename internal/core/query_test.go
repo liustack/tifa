@@ -21,8 +21,9 @@ func fieldOf(t *testing.T, kind string) reflect.Value {
 	t.Helper()
 	types := map[string]reflect.Type{
 		"string": reflect.TypeFor[string](), "bool": reflect.TypeFor[bool](), "int": reflect.TypeFor[int](),
-		"int8": reflect.TypeFor[int8](), "int32": reflect.TypeFor[int32](), "uint": reflect.TypeFor[uint](),
-		"uint8": reflect.TypeFor[uint8](), "uint32": reflect.TypeFor[uint32](), "float": reflect.TypeFor[float64](),
+		"int8": reflect.TypeFor[int8](), "int16": reflect.TypeFor[int16](), "int32": reflect.TypeFor[int32](), "int64": reflect.TypeFor[int64](),
+		"uint": reflect.TypeFor[uint](), "uint8": reflect.TypeFor[uint8](), "uint16": reflect.TypeFor[uint16](), "uint32": reflect.TypeFor[uint32](),
+		"uint64": reflect.TypeFor[uint64](), "uintptr": reflect.TypeFor[uintptr](), "float": reflect.TypeFor[float64](),
 	}
 	typ, ok := types[kind]
 	if !ok {
@@ -40,9 +41,9 @@ func bitsOf(f reflect.Value) uint64 {
 			return 1
 		}
 		return 0
-	case reflect.Int, reflect.Int8, reflect.Int32:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return math.Float64bits(float64(f.Int()))
-	case reflect.Uint, reflect.Uint8, reflect.Uint32:
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		return math.Float64bits(float64(f.Uint()))
 	case reflect.Float64:
 		return math.Float64bits(f.Float())
@@ -65,8 +66,8 @@ func TestQueryValueTable(t *testing.T) {
 			continue
 		}
 		cols := strings.Split(line, "\t")
-		if len(cols) != 4 {
-			t.Fatalf("a line of the table needs 4 columns: %q", line)
+		if len(cols) != 5 {
+			t.Fatalf("a line of the table needs 5 columns: %q", line)
 		}
 		var input string
 		if err := json.Unmarshal([]byte(cols[1]), &input); err != nil {
@@ -84,6 +85,21 @@ func TestQueryValueTable(t *testing.T) {
 			want, perr := strconv.ParseUint(cols[3], 16, 64)
 			if perr != nil || bitsOf(f) != want {
 				t.Errorf("%s %s: decoded to %x, the table says %s", cols[0], cols[1], bitsOf(f), cols[3])
+			}
+		}
+		// The text the page is rendered for, which the browser writes the same way.
+		if cols[2] == "ok" && cols[0] != "string" && cols[0] != "bool" {
+			var want string
+			if err := json.Unmarshal([]byte(cols[4]), &want); err != nil {
+				t.Fatalf("%q: %v", line, err)
+			}
+			if got := CanonicalNumber(input, cols[0] != "float"); got != want {
+				t.Errorf("%s %s: canonical text %q, the table says %q", cols[0], cols[1], got, want)
+			}
+			// The canonical text is a valid spelling of the same number.
+			again := fieldOf(t, cols[0])
+			if err := setQueryValue(again, want); err != nil || bitsOf(again) != bitsOf(f) {
+				t.Errorf("%s %s: its canonical text %q reads as %x, %v", cols[0], cols[1], want, bitsOf(again), err)
 			}
 		}
 	}
@@ -161,13 +177,38 @@ func TestQueryDecoding(t *testing.T) {
 	}
 }
 
-func TestQueryDecodingRefusesWhatIsNotTheWrittenForm(t *testing.T) {
+// A number written another way than the shortest one is the same number. A visitor who edits the
+// address bar writes 007 or 1.0, and an HTML number input sends 1e3 or .5.
+func TestQueryDecodingTakesANumberWrittenAnotherWay(t *testing.T) {
+	var in queryInput
+	if err := decodeRaw("page=007&min=%2B010.50&ids=01&ids=%2B2.0&ids=-0", &in); err != nil {
+		t.Fatal(err)
+	}
+	if in.Page != 7 || in.Min != 10.5 || !slices.Equal(in.IDs, []int{1, 2, 0}) {
+		t.Errorf("got %+v", in)
+	}
+	in = queryInput{}
+	if err := decodeRaw("page=2.0&min=1e3", &in); err != nil || in.Page != 2 || in.Min != 1000 {
+		t.Errorf("got %+v, %v", in, err)
+	}
+	in = queryInput{}
+	if err := decodeRaw("min=.5", &in); err != nil || in.Min != 0.5 {
+		t.Errorf("got %+v, %v", in, err)
+	}
+	// A string is not changed.
+	in = queryInput{}
+	if err := decodeRaw("status=007", &in); err != nil || in.Status != "007" {
+		t.Errorf("got %+v, %v", in, err)
+	}
+}
+
+func TestQueryDecodingRefusesWhatIsNotANumberOrBoolOfTheField(t *testing.T) {
 	for _, tc := range []struct{ raw, name string }{
-		{"page=02", "page"}, {"page=%2B2", "page"}, {"page=-0", "page"}, {"page=2.0", "page"}, {"page=two", "page"},
-		{"page=9007199254740992", "page"}, {"page=+2", "page"},
-		{"min=1.0", "min"}, {"min=.5", "min"}, {"min=1e3", "min"}, {"min=0.1234567890123456", "min"},
-		{"stock=TRUE", "stock"}, {"stock=1", "stock"}, {"stock=yes", "stock"},
-		{"ids=1&ids=x", "ids"}, {"ids=01", "ids"},
+		{"page=two", "page"}, {"page=2.5", "page"}, {"page=1e3", "page"}, {"page=0x10", "page"}, {"page=%202", "page"},
+		{"page=9007199254740992", "page"}, {"page=--2", "page"}, {"page=.5", "page"}, {"page=NaN", "page"},
+		{"min=1e400", "min"}, {"min=0x1p3", "min"}, {"min=1%20", "min"}, {"min=Infinity", "min"}, {"min=1e21", "min"},
+		{"stock=TRUE", "stock"}, {"stock=1", "stock"}, {"stock=yes", "stock"}, {"stock=on", "stock"},
+		{"ids=1&ids=x", "ids"}, {"ids=1.5", "ids"},
 		{"page=1&page=2", "page"}, {"page=&page=2", "page"}, {"status=a&status=b", "status"}, {"status=&status=", "status"},
 		// A number too small to hold reads as 0, which is not what was written.
 		{"min=0." + strings.Repeat("0", 400) + "1", "min"},
@@ -201,21 +242,27 @@ func TestQueryStringFieldTakesBytesThatAreNotUTF8(t *testing.T) {
 
 func TestQueryDecodingOfOtherWidths(t *testing.T) {
 	var in struct {
-		A int8    `json:"a"`
-		B uint16  `json:"b"`
-		C float32 `json:"c"`
+		A int8   `json:"a"`
+		B uint16 `json:"b"`
 	}
-	if err := decodeRaw("a=-128&b=65535&c=0.5", &in); err != nil || in.A != -128 || in.B != 65535 || in.C != 0.5 {
+	if err := decodeRaw("a=-128&b=65535", &in); err != nil || in.A != -128 || in.B != 65535 {
 		t.Fatalf("%v %+v", err, in)
 	}
-	if err := decodeRaw("c=0.1", &in); err != nil || in.C != 0.1 {
-		t.Fatalf("a float32 written as 0.1: %v %v", err, in.C)
-	}
-	// 16777217 is 16777216 as a float32, so it does not come back as written.
-	for _, raw := range []string{"a=128", "b=65536", "b=-1", "c=16777217"} {
+	for _, raw := range []string{"a=128", "a=200", "b=65536", "b=-1"} {
 		var e Error
 		if err := decodeRaw(raw, &in); !errors.As(err, &e) || e.Status != 400 {
 			t.Errorf("?%s: got %v", raw, err)
+		}
+	}
+}
+
+// A float32 cannot be a query field: the browser cannot write the shortest text of one, so it and Go
+// could not read a value alike. The build refuses it, and the decoder does if one gets this far.
+func TestQueryDecodingRefusesFloat32(t *testing.T) {
+	for _, v := range []any{&struct{ C float32 }{}, &struct{ C []float32 }{}} {
+		err := decodeRaw("", v)
+		if err == nil || !strings.Contains(err.Error(), "float32") {
+			t.Errorf("%T: got %v", v, err)
 		}
 	}
 }
@@ -226,5 +273,19 @@ func TestSliceOfQueryValuesKeepsOrder(t *testing.T) {
 	}
 	if err := decodeRaw(url.Values{"n": {"3", "1", "2"}}.Encode(), &in); err != nil || !slices.Equal(in.N, []int{3, 1, 2}) {
 		t.Errorf("%v %v", err, in.N)
+	}
+}
+
+// With two values that are not valid the answer names the first by name, whatever the order of the
+// fields in the struct or of the parameters in the address, because the codec of the browser reads
+// them in that order too and the two must give the same message.
+func TestQueryErrorNamesTheFirstParameterByName(t *testing.T) {
+	var in struct {
+		Zeta  int `json:"zeta"`
+		Alpha int `json:"alpha"`
+	}
+	var e Error
+	if err := decodeRaw("zeta=x&alpha=y", &in); !errors.As(err, &e) || e.Message != `invalid query parameter "alpha"` {
+		t.Errorf("got %v", err)
 	}
 }

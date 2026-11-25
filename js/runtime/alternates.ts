@@ -13,6 +13,7 @@ import { createContext, useContext } from 'react'
 import { LanguageContext } from './language'
 import { useRouter, useRouterState } from '@tanstack/react-router'
 import { pageOwnTags, alternateTags, type Alternate, type PageAlternates, type PageLinks } from './head'
+import { canonicalNumber } from './searchcodec'
 
 export type { Alternate, PageAlternates }
 
@@ -63,8 +64,21 @@ interface Located {
     location: { pathname: string; publicHref: string }
     // staticData.query lists the query parameters the Go Load of a route reads (LoadData in
     // router.tsx).
-    matches: ReadonlyArray<{ routeId: string; status: string; _notFound?: unknown; staticData?: { query?: readonly string[] } }>
+    matches: ReadonlyArray<{
+      routeId: string
+      status: string
+      _notFound?: unknown
+      staticData?: { query?: readonly string[] } & QueryKinds
+    }>
   }
+}
+
+// QueryKinds names the parameters of the Loads that are whole numbers, floats and bools, or lists of them
+// (staticData of the routes). The others are text.
+export interface QueryKinds {
+  readonly whole?: readonly string[]
+  readonly floats?: readonly string[]
+  readonly bools?: readonly string[]
 }
 
 // renderQuery is the query of the URL the server renders the page at href with, with its ?, ""
@@ -72,12 +86,19 @@ interface Located {
 // its values in the order of href. It is renderQuery in server/page.go, so the canonical link the
 // browser writes is the one of the server render. Like Go it works on the bytes: a part with a
 // semicolon or a broken escape is no parameter, and the names and values are written back as
-// url.QueryEscape writes them.
-export function renderQuery(href: string, keep: readonly string[]): string {
-  const at = href.indexOf('?')
+// url.QueryEscape writes them. A number is written the shortest way (?page=007 is ?page=7), and an empty
+// value of a number or a bool, or a list of them, is a parameter that was not passed and is left out.
+export function renderQuery(href: string, keep: readonly string[], kinds: QueryKinds = {}): string {
+  // The query ends at the fragment, and a ? inside the fragment is no query.
+  const hash = href.indexOf('#')
+  const path = hash < 0 ? href : href.slice(0, hash)
+  const at = path.indexOf('?')
   if (at < 0 || keep.length === 0) return ''
-  const hash = href.indexOf('#', at)
-  const raw = href.slice(at + 1, hash < 0 ? undefined : hash)
+  const raw = path.slice(at + 1)
+  const named = (names: readonly string[] | undefined) => new Set((names ?? []).map((name) => queryEscape(unescapeQuery(encodeURIComponent(name))!)))
+  const whole = named(kinds.whole)
+  const floats = named(kinds.floats)
+  const bools = named(kinds.bools)
   const wanted = new Map(keep.map((name) => [queryEscape(unescapeQuery(encodeURIComponent(name))!), [] as string[]]))
   for (const part of raw.split('&')) {
     if (part === '' || part.includes(';')) continue
@@ -85,7 +106,16 @@ export function renderQuery(href: string, keep: readonly string[]): string {
     const name = unescapeQuery(eq < 0 ? part : part.slice(0, eq))
     const value = unescapeQuery(eq < 0 ? '' : part.slice(eq + 1))
     if (name === undefined || value === undefined) continue
-    wanted.get(queryEscape(name))?.push(queryEscape(value))
+    const kept = queryEscape(name)
+    if (value.length === 0 && (whole.has(kept) || floats.has(kept) || bools.has(kept))) continue
+    // A number is written the shortest way. A value that is no number of its kind stays as it is, and the
+    // page answers it with 400.
+    let text = value
+    if ((whole.has(kept) || floats.has(kept)) && value.length <= 64 && value.every((byte) => byte < 0x80)) {
+      const canonical = canonicalNumber(String.fromCharCode(...value), whole.has(kept))
+      if (canonical !== undefined) text = [...canonical].map((c) => c.charCodeAt(0))
+    }
+    wanted.get(kept)?.push(queryEscape(text))
   }
   let out = ''
   for (const [name, values] of wanted) for (const value of values) out += (out === '' ? '?' : '&') + name + '=' + value
@@ -138,8 +168,12 @@ function queryEscape(bytes: number[]): string {
 // the Loads of its routes read.
 function keptQuery(matches: Located['state']['matches'], href: string): string {
   const names = new Set<string>()
-  for (const m of matches) for (const name of m.staticData?.query ?? []) names.add(name)
-  return renderQuery(href, [...names].sort())
+  const kinds = { whole: new Set<string>(), floats: new Set<string>(), bools: new Set<string>() }
+  for (const m of matches) {
+    for (const name of m.staticData?.query ?? []) names.add(name)
+    for (const kind of ['whole', 'floats', 'bools'] as const) for (const name of m.staticData?.[kind] ?? []) kinds[kind].add(name)
+  }
+  return renderQuery(href, [...names].sort(), { whole: [...kinds.whole], floats: [...kinds.floats], bools: [...kinds.bools] })
 }
 
 // versionsOf returns the versions of the page the router shows in language, and the URL of the

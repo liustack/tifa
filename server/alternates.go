@@ -75,7 +75,7 @@ func (s *server) alternatesOf(c *tifa.Ctx) (*pageAlternates, error) {
 	}
 	// The canonical URL keeps the query parameters the render sees, so that page 2 of a list is a
 	// page of its own, and a tracking parameter is no other page.
-	query := renderQuery(c.Request().URL, s.query[c.Pattern()])
+	query := renderQuery(c.Request().URL, s.query[c.Pattern()], s.kinds[c.Pattern()])
 	langs := s.langs[c.Pattern()]
 	if s.i18n == nil || len(langs) == 0 {
 		site.Canonical = c.Request().URL.EscapedPath() + query

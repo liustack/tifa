@@ -103,6 +103,7 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 			}
 			if len(l.Load.AllQuery) > 0 {
 				fmt.Fprintf(&app, "Query: %s,\n", stringSlice(l.Load.AllQuery))
+				writeQueryKinds(&app, l.Load)
 			}
 		}
 		if len(l.Languages) > 0 {
@@ -135,6 +136,7 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 		}
 		if r.Load != nil && len(r.Load.AllQuery) > 0 {
 			fmt.Fprintf(&app, "Query: %s,\n", stringSlice(r.Load.AllQuery))
+			writeQueryKinds(&app, r.Load)
 		}
 		if len(r.Languages) > 0 {
 			fmt.Fprintf(&app, "Languages: %s,\n", stringSlice(r.Languages))
@@ -279,4 +281,36 @@ func gofmt(name, src string) ([]byte, error) {
 		return nil, fmt.Errorf("codegen: %s does not parse: %w\n%s", name, err, src)
 	}
 	return out, nil
+}
+
+// queryKinds lists the query parameters of a Load that are a whole number, a float64 or a bool, or a
+// list of them, each sorted. They are the parameters of a number or a bool: an empty value of one is a
+// parameter that was not passed, and a whole number or a float may be written another way than the
+// shortest one, which the render leaves out or rewrites (renderQuery in server/page.go). A Layout that
+// tifa.Use passes reads no parameters, so these are all of AllQuery that are not text.
+func queryKinds(l *analyze.Load) (whole, floats, bools []string) {
+	for _, f := range l.Fields {
+		switch {
+		case f.Kind == "bool":
+			bools = append(bools, f.Name)
+		case f.Kind == "float64":
+			floats = append(floats, f.Name)
+		case f.Kind != "string":
+			whole = append(whole, f.Name)
+		}
+	}
+	return whole, floats, bools
+}
+
+// writeQueryKinds writes the Whole, Floats and Bools fields of a Layout or Route of the app.
+func writeQueryKinds(b *strings.Builder, l *analyze.Load) {
+	whole, floats, bools := queryKinds(l)
+	for _, kind := range []struct {
+		field string
+		names []string
+	}{{"Whole", whole}, {"Floats", floats}, {"Bools", bools}} {
+		if len(kind.names) > 0 {
+			fmt.Fprintf(b, "%s: %s,\n", kind.field, stringSlice(kind.names))
+		}
+	}
 }

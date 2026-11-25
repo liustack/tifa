@@ -959,6 +959,12 @@ func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Po
 		if s, ok := t.(*types.Slice); ok {
 			field.List, t = true, s.Elem().Underlying()
 		}
+		if b := t.(*types.Basic); b.Kind() == types.Float32 {
+			// The browser has no 32-bit float to write the shortest text of one, so it and Go could not read
+			// a value alike.
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s (%s) cannot hold a query value. A query value must be the same number in Go and in the browser, the browser has only 64-bit numbers, and a float32 rounds differently: ?price=1234567.89 is 1234567.9 in a float32, and the page would show 1234567.89. Declare it float64", label, rootLabel(q), f.Name(), types.TypeString(f.Type(), shortQualifier)), f))
+			continue
+		}
 		field.Kind = queryKind(t.(*types.Basic)) // checkQueryStruct accepted the type
 		load.Fields = append(load.Fields, field)
 		load.Query = append(load.Query, name)

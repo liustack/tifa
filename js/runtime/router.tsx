@@ -5,6 +5,7 @@ import {
   createRouter,
   createSerializationAdapter,
   redirect,
+  trimPathRight,
   type AnyRoute,
   type AnyRouter,
   type ErrorComponentProps,
@@ -12,6 +13,7 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router'
 import { goJSON, TifaError, type Source } from './data'
+import { InvalidQuery } from './searchcodec'
 import type { PrefixRewrite } from './prefix'
 import type { SessionEnvelope } from './session'
 import type { PageAlternates } from './head'
@@ -174,6 +176,11 @@ function loadsAt(router: AnyRouter, pathname: string): string[] {
 interface LoadData {
   load: string
   query?: readonly string[]
+  // The query parameters that are whole numbers, floats and bools, or lists of them, each sorted: an
+  // empty value of one is a parameter that was not passed, and a number is written the shortest way.
+  whole?: readonly string[]
+  floats?: readonly string[]
+  bools?: readonly string[]
 }
 
 // load is the loader of every route with a Go Load: it asks the source for the route's result
@@ -442,11 +449,36 @@ function encodeQueryPart(text: string) {
     .replace(/%20/g, '+')
 }
 
-// searchTypes gives a route the type of the query parameters its Go function reads, for Link,
-// navigate and useSearch. It is a type only: it returns undefined, and TanStack Router runs no
-// validateSearch that is undefined, so the router reads the query exactly as parseSearch does.
-export function searchTypes<T>(): (search: T) => T {
-  return undefined as never
+// cleanAddress writes the address of the page the way the router reads it, before the page is taken
+// over, when the two differ. An empty value of a number or a bool is a parameter that was not passed
+// (searchCodec), so the router writes the address without it, and the server rendered the page for
+// that address (renderURL). The router does the same as it mounts (the Transitioner of TanStack),
+// but then the history has told it of a new location and it loads the page again, with a request
+// for the data the page already has. Done here, before it has anything to tell, the address bar
+// changes and nothing loads: the page is the one of the address it now has.
+export function cleanAddress(router: AnyRouter): void {
+  router.updateLatestLocation()
+  const here = router.latestLocation
+  const clean = router.buildLocation({
+    to: here.pathname,
+    search: true,
+    params: true,
+    hash: true,
+    state: true,
+    _includeValidateSearch: true,
+  } as never)
+  if (trimPathRight(here.publicHref) !== trimPathRight(clean.publicHref))
+    router.history.replace(clean.publicHref, here.state, { ignoreBlocker: true })
+}
+
+// searchFailed is the onError of a route that has a codec for its query parameters. The router wraps
+// what a validateSearch throws in a SearchParamError, so the error a page shows would be that one and
+// not what Go answers for the same address, a TifaError with status 400. It throws the TifaError in
+// its place, which the router shows, and which the server render writes into the page for the
+// browser (tifaErrorAdapter).
+export function searchFailed(error: unknown): void {
+  const cause = (error as { cause?: unknown } | null)?.cause
+  if (cause instanceof InvalidQuery) throw new TifaError(cause.status, cause.message)
 }
 
 // pick keeps the query parameters a Load reads, for loaderDeps. Other parameters then do not

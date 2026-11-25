@@ -2,7 +2,7 @@
 summary: 'Link、navigate、useSearch 和带类型的查询参数'
 audience: app
 order: 5
-translatedFrom: 8937593f2ff0
+translatedFrom: a87694b1d1f9
 read_when:
   - '给 `Link`、`navigate` 或 `useSearch` 传页面读取的查询参数，或者遇到关于 `search` 的类型错误'
   - '想知道为什么回到一个页面时先显示旧数据'
@@ -16,12 +16,13 @@ read_when:
 
 ## Link 和 navigate 里的查询参数 {#query-parameters-in-link-and-navigate}
 
-`Load` 或 `Layout` 函数作为第二个参数接收的查询参数（见[查询参数](loading-data.zh-CN.md#query-parameters)），在浏览器里有类型。`route.gen` 把它们导出为 `PageSearch` 和 `LayoutSearch`，路由也拿到它们，所以 TanStack 的 `Link`、`navigate` 和 `useSearch` 都会检查它们：
+`Load` 或 `Layout` 函数作为第二个参数接收的查询参数（见[查询参数](loading-data.zh-CN.md#query-parameters)），在浏览器里有字段的类型。`route.gen` 把它们导出为 `PageSearch` 和 `LayoutSearch`，路由也拿到它们，所以 TanStack 的 `Link`、`navigate` 和 `useSearch` 都会检查它们，并把它们原样交给页面：
 
 ```go
 type Filter struct {
 	Sort  string   `json:"sort"`
 	Color []string `json:"color"`
+	Page  int      `json:"page"`
 }
 
 func Load(c *tifa.Ctx, q Filter) (Products, error) {
@@ -32,22 +33,25 @@ func Load(c *tifa.Ctx, q Filter) (Products, error) {
 ```ts
 // in route.gen.ts
 export type PageSearch = {
-  "color"?: string | string[]
-  "sort"?: string | string[]
-  [key: string]: string | string[] | undefined
+  "color"?: string[]
+  "page"?: number
+  "sort"?: string
+  [key: string]: unknown
 }
 ```
 
 ```tsx
-<Link to="/products" search={{ sort: 'price', color: ['red', 'blue'] }}>…</Link>
-<Link to="/products" search={{ sort: 2 }}>…</Link> // type error: the value is a string
-navigate({ to: '/products', search: (prev) => ({ ...prev, sort: 'name' }) })
+<Link to="/products" search={{ sort: 'price', color: ['red', 'blue'], page: 2 }}>…</Link>
+<Link to="/products" search={{ page: '2' }}>…</Link> // type error: page is a number
+<Link from="/products" to="/products" search={(prev) => ({ ...prev, page: (prev.page ?? 1) + 1 })}>Next</Link>
 const search = page.useSearch() // PageSearch, with the parameters of the Layouts above
-const sort = [search.sort].flat()[0] // the first value
+const number = search.page // a number, or undefined when the address has none
 ```
 
-- 同一个键在 URL 里可以出现多次，所以读取时，值是 `string` 或 `string[]`，不管字段在 Go 里是什么类型。字段不是切片而同名参数出现两次，Go 会返回 400。写入时，一个字符串就够了。每个键都可以省略。
-- 其他键是开放的：页面可以在 URL 里保留自己的参数，Go 不读它们，比如面板当前打开的标签。它们同样是字符串或字符串数组。所以拼错键名不是类型错误，只有 Go 读取的键的类型不对才是。服务端渲染看不到它们，见[服务端渲染里的查询参数](ssr-and-cache.zh-CN.md#query-parameters-in-the-server-render)。
-- 只能放字符串。路由器把每个值写成文本，Go 按[查询参数](loading-data.zh-CN.md#query-parameters)的规则读文本，所以是 `'2'`，不是 `2`，`bool` 字段用 `'true'` 或 `'false'`。不是唯一合法写法的文本，比如 `'02'`，会得到 400。
-- 类型来自结构体的字段，每个路由有它自己的 `Load` 或 `Layout` 的那些。TanStack 会加上上层布局的那些。一个什么都不读的 `Load` 没有类型，它的路由接受任何键，和以前一样。
-- 浏览器里不会运行任何东西来检查这些值：路由只拿到类型（`searchTypes` 返回 `undefined`，TanStack 就按原样读取查询）。
+- 值的类型就是字段在 Go 里的类型：整数和浮点数是 `number`，`bool` 是 `boolean`，字符串是 `string`，切片是它们的数组。写入时也用这些类型（`page: 2`、`stock: true`），不要写成文本。每个键都可以省略，地址里没传的参数是 `undefined`，不是 Go 字段的零值。空值也一样：`?page=` 里没有 `page`。
+- 路由器按字段的类型读地址里的值，不按别的，所以 `string` 字段会把 `?q=1.0` 保持为 `"1.0"`，把 `?q=007` 保持为 `"007"`。标量字段只有一个值，同名参数出现两次不合法。列表里每个同名参数是一个元素，只有一个也是。
+- 不合法的值按和 Go 一样的规则拒绝（见[查询参数](loading-data.zh-CN.md#query-parameters)），所以 `?page=2.5`、`?stock=1` 和 `?page=abc` 都会让路由失败。数字的另一种写法（`?page=007`）是同一个数：路由把它读成 7，把地址写成 `?page=7`。页面的 `ErrorBoundary` 拿到一个 `TifaError`，状态是 400，消息和 Go 返回的一样，`invalid query parameter "page"`。`navigate` 写入不合法的值时也一样，类型会拦住这种写法，除非用类型转换绕开。
+- 给 `search` 传的函数如果基于 `prev` 来写，要在 `Link` 上写 `from`，或者用 `useNavigate({ from })`，如上。不写的话，`prev` 里是应用里所有路由的参数，`prev.page` 没有有用的类型。
+- 其他键是开放的，类型是 `unknown`：页面可以在 URL 里保留自己的参数，Go 不读它们，比如面板当前打开的标签。路由器让它们保持地址里的样子，字符串或字符串数组。所以拼错键名不是类型错误，只有 Go 读取的键的类型不对才是。服务端渲染看不到它们，见[服务端渲染里的查询参数](ssr-and-cache.zh-CN.md#query-parameters-in-the-server-render)。
+- 每个路由有它自己的 `Load` 或 `Layout` 的类型，TanStack 会加上上层布局的那些。布局和它下面的页面都声明的同名参数只有一个类型，构建会检查。一个什么都不读的 `Load` 没有类型，它的路由接受任何键。
+- 路由会得到一个由字段类型生成的 `validateSearch`，路由器读每个地址时都会运行它。它也把值原样交给页面，所以组件里不需要 `Number(search.page)` 或 `search.stock === 'true'`。

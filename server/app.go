@@ -69,6 +69,10 @@ type Layout struct {
 	Languages []string
 	// Query lists the query parameters the Layout function reads (AllQuery), sorted.
 	Query []string
+	// Whole, Floats and Bools list those of Query that are a whole number, a float64 or a bool, or a
+	// list of them, sorted. An empty value of one is a parameter that was not passed, and a number may
+	// be written another way than the shortest one (see renderQuery).
+	Whole, Floats, Bools []string
 }
 
 // Route is one directory holding page.tsx, or a route.go that declares a method handler, or both.
@@ -104,6 +108,9 @@ type Route struct {
 	Languages []string
 	// Query lists the query parameters the Load reads (AllQuery), sorted.
 	Query []string
+	// Whole, Floats and Bools list those of Query that are a whole number, a float64 or a bool, or a
+	// list of them, sorted.
+	Whole, Floats, Bools []string
 }
 
 // register adds the Layouts and routes of an application. Like http.ServeMux it panics on an
@@ -133,6 +140,7 @@ func (s *server) register(layouts []Layout, routes []Route) {
 		}
 		var chain []load
 		var query []string
+		var kinds queryKinds
 		for i, id := range r.Layouts {
 			l, ok := byID[id]
 			if !ok {
@@ -142,18 +150,22 @@ func (s *server) register(layouts []Layout, routes []Route) {
 				chain = append(chain, load{id: l.ID, run: l.Load, html: l.HTML})
 			}
 			query = append(query, l.Query...)
+			kinds.add(l.Whole, l.Floats, l.Bools)
 			if _, ok := s.layouts[id]; !ok {
 				s.layouts[id] = layoutChain{chain: slices.Clone(chain)}
 				s.modules[id] = slices.Clone(r.Layouts[:i+1])
 				s.query[id] = sortedSet(query)
+				s.kinds[id] = kinds.sorted()
 			}
 		}
 		if r.Load != nil {
 			chain = append(chain, load{id: r.ID, run: r.Load, html: r.HTML})
 		}
 		query = append(query, r.Query...)
+		kinds.add(r.Whole, r.Floats, r.Bools)
 		if r.Page {
 			s.query[r.Path] = sortedSet(query)
+			s.kinds[r.Path] = kinds.sorted()
 		}
 		s.path(r.Path)
 		switch {

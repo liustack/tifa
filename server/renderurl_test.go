@@ -47,7 +47,7 @@ func TestRenderURLKeepsTheParametersTheLoadsRead(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := renderURL(u, tc.keep); got != tc.want {
+		if got := renderURL(u, tc.keep, queryKinds{}); got != tc.want {
 			t.Errorf("renderURL(%q, %q) = %q, want %q", tc.target, tc.keep, got, tc.want)
 		}
 	}
@@ -173,8 +173,60 @@ func TestQueryCasesAreWhatGoReads(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if render := renderURL(u, table.Keep); render != tc.Render {
+		if render := renderURL(u, table.Keep, queryKinds{}); render != tc.Render {
 			t.Errorf("%q: renders %q, the table says %q", tc.Query, render, tc.Render)
+		}
+	}
+}
+
+// A number is written the shortest way (?page=007 is ?page=7), a value that is no number of its
+// kind stays as it is, and an empty value of a parameter that is a number or a bool, or of a list of
+// them, is a parameter that was not passed: the render URL leaves it out, so the router does not find the address
+// spelled differently and redirect. The router test of internal/codegen reads the same table, so the
+// canonical link the browser writes is the one of the render.
+func TestRenderURLWritesNumbersTheShortestWayAndLeavesOutEmptyOnes(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "internal", "codegen", "testdata", "router", "query-empty-cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		Path                 string
+		Keep                 []string
+		Whole, Floats, Bools []string
+		Cases                []struct{ Query, Render string }
+	}
+	if err := json.Unmarshal(data, &table); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range table.Cases {
+		u, err := url.ParseRequestURI(table.Path + "?" + tc.Query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if render := renderURL(u, table.Keep, queryKinds{table.Whole, table.Floats, table.Bools}); render != tc.Render {
+			t.Errorf("?%s renders %q, the table says %q", tc.Query, render, tc.Render)
+		}
+	}
+}
+
+// A page that skips SSR carries the URL it was asked for, so that the browser finds its data for the
+// address it loads from. The browser writes the address without the empty numbers and bools before
+// it loads (cleanAddress in js/runtime/router.tsx), so the URL it carries leaves those out too, and
+// keeps every other parameter as it came.
+func TestPageWithoutSSRCarriesTheURLTheBrowserWrites(t *testing.T) {
+	app := queryApp()
+	app.Routes = append(app.Routes, Route{ID: "app/bare", Path: "/bare", Page: true, SSR: false, Layouts: []string{"app/layout"},
+		Query: []string{"n", "tag"}, Whole: []string{"n"},
+		Load: func(c *tifa.Ctx) (any, error) { return 1, nil }})
+	s, _ := newFrontServer(t, app)
+	for target, want := range map[string]string{
+		"/bare?n=&tag=&utm_source=a%20b&x": `"url":"/bare?tag=\u0026utm_source=a%20b\u0026x"`,
+		"/bare?n=1&tag=a&n2=":              `"url":"/bare?n=1\u0026tag=a\u0026n2="`,
+		"/bare?page=&n=":                   `"url":"/bare?page="`,
+		"/bare?n=&n=":                      `"url":"/bare"`,
+	} {
+		if body := get(s, target).Body.String(); !strings.Contains(body, want) {
+			t.Errorf("%s: the document lacks %s:\n%s", target, want, body)
 		}
 	}
 }

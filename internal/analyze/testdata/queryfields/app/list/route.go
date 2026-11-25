@@ -15,7 +15,6 @@ type Filter struct {
 	Tags   []string
 	Levels []Level `json:"levels"`
 	Wide   []int64 `json:"wide"`
-	Small  float32 `json:"small"`
 	Hidden string  `json:"-"`
 	Mask   []byte2 `json:"mask"`
 	rest   int
