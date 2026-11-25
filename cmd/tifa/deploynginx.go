@@ -317,12 +317,14 @@ log=$(mktemp)
 policy_made=""
 trap 'rm -f "$log" "$policy_made"' EXIT
 apt-get update -q </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; exit 1; }
-# mark records what apt would add, so remove purges those packages and nothing else.
+# mark records what apt would add, so remove purges those packages and nothing else. An Inst line
+# of a package that is already there reads "Inst name [old version] (new version ...)": an
+# upgrade, which is not ours, so only the lines with no old version count.
 mark() {
 	kind=$1
 	shift
 	if [ "$#" -eq 0 ]; then return 0; fi
-	apt-get install -s -y -q "$@" </dev/null | sed -n 's/^Inst \([^ ]*\) .*/\1/p' | while read -r p; do
+	apt-get install -s -y -q "$@" </dev/null | sed -n 's/^Inst \([^ ]*\) (.*/\1/p' | while read -r p; do
 		grep -qx "installed $kind $p" "$marker" || echo "installed $kind $p" >> "$marker"
 	done
 }

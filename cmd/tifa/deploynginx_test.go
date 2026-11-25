@@ -56,7 +56,7 @@ esac`)
 	tool("apt-get", `echo "apt-get $*" >> `+log+`
 case " $* " in
 *" -s "*)
-	for p in "$@"; do case "$p" in -*|install) ;; *) echo "Inst $p (1.0 Ubuntu:24.04/noble [amd64])"; [ "$p" = nginx ] && echo "Inst nginx-common (1.0 Ubuntu:24.04/noble [all])"; [ "$p" = certbot ] && echo "Inst python3-certbot (1.0 Ubuntu:24.04/noble [all])" ;; esac; done ;;
+	for p in "$@"; do case "$p" in -*|install) ;; *) echo "Inst $p (1.0 Ubuntu:24.04/noble [amd64])"; [ "$p" = nginx ] && echo "Inst nginx-common (1.0 Ubuntu:24.04/noble [all])" && echo "Inst libssl3 [3.0.1] (3.0.2 Ubuntu:24.04/noble [amd64])"; [ "$p" = certbot ] && echo "Inst python3-certbot (1.0 Ubuntu:24.04/noble [all])" ;; esac; done ;;
 *" install "*)
 	[ -f `+etc+`/apt-fail ] && { echo "E: Sub-process /usr/bin/dpkg returned an error code (1)"; exit 100; }
 	if [ -f `+etc+`/policy-rc.d ]; then echo "start blocked" >> `+log+`; fi
@@ -274,6 +274,10 @@ func TestNginxInstallMarksWhatItInstalls(t *testing.T) {
 		if !strings.Contains(marker, want) {
 			t.Errorf("marker lacks %q:\n%s", want, marker)
 		}
+	}
+	// A package apt would upgrade, which has an old version in brackets, was there before: it is not ours to purge.
+	if strings.Contains(marker, "libssl3") {
+		t.Errorf("marker names an upgrade:\n%s", marker)
 	}
 	if strings.Contains(marker, "certbot") && strings.Contains(marker, "installed certbot") {
 		t.Errorf("marker names certbot:\n%s", marker)
