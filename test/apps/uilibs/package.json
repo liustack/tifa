@@ -1,0 +1,33 @@
+{
+  "name": "uilibstest",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ant-design/cssinjs": "2.2.0",
+    "@base-ui/react": "1.9.0",
+    "@chakra-ui/react": "3.38.0",
+    "@emotion/react": "11.14.0",
+    "@mantine/core": "9.8.2",
+    "@mantine/hooks": "9.8.2",
+    "@tailwindcss/vite": "4.3.5",
+    "@tanstack/react-router": "1.170.46",
+    "antd": "6.7.2",
+    "daisyui": "5.8.2",
+    "react": "19.3.1",
+    "react-aria-components": "1.22.1",
+    "react-dom": "19.3.1",
+    "styled-components": "6.7.0",
+    "tailwindcss": "4.3.5"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  }
+}
