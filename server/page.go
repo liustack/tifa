@@ -1209,7 +1209,7 @@ func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 	if err != nil {
 		return err
 	}
-	doc, err := dataOnlyDocument(f, items, key, c.Request().URL.RequestURI(), c.Language(), alternates, sess)
+	doc, err := dataOnlyDocument(f, items, key, withoutEmpty(c.Request().URL, s.nonText[key]), c.Language(), alternates, sess)
 	if err != nil {
 		return err
 	}
@@ -1583,6 +1583,26 @@ func renderQuery(u *url.URL, keep, nonText []string) string {
 		}
 	}
 	return b.String()
+}
+
+// withoutEmpty is the request URI of u without the parameters in nonText that have an empty value, and
+// as it came otherwise. The URL a page without SSR carries is this one: the browser writes the
+// address without those parameters before it loads (see renderQuery).
+func withoutEmpty(u *url.URL, nonText []string) string {
+	if len(nonText) == 0 || u.RawQuery == "" {
+		return u.RequestURI()
+	}
+	var kept []string
+	for part := range strings.SplitSeq(u.RawQuery, "&") {
+		rawName, rawValue, _ := strings.Cut(part, "=")
+		if name, err := url.QueryUnescape(rawName); err == nil && rawValue == "" && part != "" && slices.Contains(nonText, name) {
+			continue
+		}
+		kept = append(kept, part)
+	}
+	out := *u
+	out.RawQuery = strings.Join(kept, "&")
+	return out.RequestURI()
 }
 
 // keptPart decodes one name=value part of a query and reports whether renderURL keeps it: it

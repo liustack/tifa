@@ -207,3 +207,25 @@ func TestRenderURLLeavesOutEmptyValuesOfNumbersAndBools(t *testing.T) {
 		}
 	}
 }
+
+// A page that skips SSR carries the URL it was asked for, so that the browser finds its data for the
+// address it loads from. The browser writes the address without the empty numbers and bools before
+// it loads (cleanAddress in js/runtime/router.tsx), so the URL it carries leaves those out too, and
+// keeps every other parameter as it came.
+func TestPageWithoutSSRCarriesTheURLWithoutEmptyNumbers(t *testing.T) {
+	app := queryApp()
+	app.Routes = append(app.Routes, Route{ID: "app/bare", Path: "/bare", Page: true, SSR: false, Layouts: []string{"app/layout"},
+		Query: []string{"n", "tag"}, NonText: []string{"n"},
+		Load: func(c *tifa.Ctx) (any, error) { return 1, nil }})
+	s, _ := newFrontServer(t, app)
+	for target, want := range map[string]string{
+		"/bare?n=&tag=&utm_source=a%20b&x": `"url":"/bare?tag=\u0026utm_source=a%20b\u0026x"`,
+		"/bare?n=1&tag=a&n2=":              `"url":"/bare?n=1\u0026tag=a\u0026n2="`,
+		"/bare?page=&n=":                   `"url":"/bare?page="`,
+		"/bare?n=&n=":                      `"url":"/bare"`,
+	} {
+		if body := get(s, target).Body.String(); !strings.Contains(body, want) {
+			t.Errorf("%s: the document lacks %s:\n%s", target, want, body)
+		}
+	}
+}
