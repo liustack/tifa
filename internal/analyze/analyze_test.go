@@ -504,9 +504,9 @@ func TestViolations(t *testing.T) {
 			{"app/badtype/route.go:16:", "Layout query", "Filter.Ptr", "*int"},
 			{"app/file/route.go:13:", "Load query", "Filter.Photo", "is a file", "request body"},
 			{"app/validated/route.go:11:", "Load query", "Validate", "method handler", "tifa.Error", "tifa.ErrNotFound"},
-			{"app/float32/route.go:14:", "Load query", "Filter.Price", "float32", "declare it float64"},
-			{"app/float32/route.go:14:", "Load query", "Filter.Prices", "[]float32", "declare it float64"},
-			{"app/float32/route.go:14:", "Load query", "Filter.Weight", "a float32", "declare it float64"},
+			{"app/float32/route.go:14:", "Load query", "Filter.Price", "float32", "Declare it float64"},
+			{"app/float32/route.go:14:", "Load query", "Filter.Prices", "[]float32", "Declare it float64"},
+			{"app/float32/route.go:14:", "Load query", "Filter.Weight", "a float32", "Declare it float64"},
 		}},
 		// A name that a Layout and a page below it share has one type, and the two places are named.
 		{"querytypes", [][]string{
