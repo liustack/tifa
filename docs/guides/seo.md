@@ -132,7 +132,7 @@ func sitemap(c *tifa.Ctx) (tifa.Sitemap, error) {
 }
 ```
 
-The function runs on each request for `/sitemap.xml`, `/llms.txt`, `/llms-full.txt` and a `.md` path, so a post that comes out at its date is in the sitemap from that moment. Keep it fast: read what is in memory, such as a content collection, or run one query. `SetSitemap` panics once the server listens, like `SetHTTPHandler`.
+The function runs on each request for `/sitemap.xml`, `/llms.txt`, `/llms-full.txt` and a `.md` path, so a post that comes out at its date is in the sitemap from that moment. The files are not built again while the list is the same: Tifa keeps each one in the [render memo](../reference/memo.md#site-files) by what the function returned, and sends it with an `ETag` that gets a 304. So `llms-full.txt` does not read the Markdown of every entry again, and a crawler that takes every `.md` does not pay for the whole list on each page. A changed list, such as a new post or a new title, shows on the next request. Keep the function fast, since it still runs every time: read what is in memory, such as a content collection, or run one query. `SetSitemap` panics once the server listens, like `SetHTTPHandler`.
 
 The function lives in the root package, next to `hooks.go`. It can read a collection of `content.go` directly. To read a domain under `app/`, the root package must be able to import it: see [which way imports go](../start/structure.md#which-way-imports-go).
 
@@ -262,7 +262,7 @@ With it, your file is served as it is and Tifa adds nothing. Add the `Sitemap:` 
 
 The sitemap, the `llms` files and the Markdown versions are requests like any other: `OnRequest` runs for them, and `c.Pattern()` is `/sitemap.xml`, `/llms.txt`, `/llms-full.txt`, or the route of the page with `.md`, such as `/blog/{slug}.md` (`/index.md` for `/`). `c.Language()` is the language of the page of a `.md` path, and the default language for the other files. A guard in `OnRequest` that sends signed-out visitors to the sign-in page also guards these files, so let them through when it should not.
 
-A mistake in what the function returns never fails the request. The page or the `Exclude` pattern it is in is left out, the files answer with the rest, and each request logs one `ERROR` line per kind of mistake that names the pages (by path and language) or the patterns:
+A mistake in what the function returns never fails the request. The page or the `Exclude` pattern it is in is left out, the files answer with the rest, and one `ERROR` line per kind of mistake names the pages (by path and language) or the patterns. The line is written when the files are built from a list, which is once for each list the function returns, not on each request:
 
 | Mistake | What happens |
 | --- | --- |

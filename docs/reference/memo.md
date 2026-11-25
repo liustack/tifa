@@ -11,6 +11,7 @@ read_when:
   - A page shows a stale time or random value, or you want to know why a request did or did not hit the memo or got no ETag
   - Wondering what happens to requests that wait for one render, or how a failed render reaches `OnError`
   - A component reads a query parameter and the page hydrates differently, or you wonder whether tracking parameters cost renders
+  - Wondering whether `/sitemap.xml`, `/llms.txt` or a `.md` file is built again on each request
   - Wondering why a write to Layout data makes other pages render again, or whether parts of a page could be kept
 ---
 
@@ -88,6 +89,14 @@ Behind a CDN, keep the defaults and let it follow the headers of the origin. See
 When requests miss the memo at the same time with the same build version, URL and data, such as a burst of visitors right after a deploy, they share one render. Each request still runs its middleware and `Load`s, keeps the headers they set, such as `Set-Cookie` and `Vary`, and gets the encoding it accepts. This also holds with `ssr.memo_size` 0, for a page too large for the memo, and under `tifa dev`. Requests with other data or another session render on their own, and a page with `Memo = false` renders for every request.
 
 When that shared render fails, every request that waited for it gets the same error and goes to `OnError`, a panic included. Nothing is kept, so the next request renders again, unless a component threw or the render used up `ssr.vm_memory`: the built app then remembers the failure for 5 seconds (see [Errors on a page](../pages-and-data/errors.md#errors-on-a-page)). A request whose client goes away stops waiting at once and its connection is cut, with no answer sent: `next(c)` in `OnRequest` returns an error that matches `context.Canceled`, but `OnError` is not called and nothing is logged. The render goes on for the others. A request whose own deadline passes while it waits fails like any other error. Once no request waits, a render still waiting for a VM is dropped, and one that already runs finishes and goes into the memo. If it fails then, no request reports it to `OnError`, so the error is logged.
+
+## The files for search engines and language models {#site-files}
+
+`/sitemap.xml` and its parts, `/llms.txt`, `/llms-full.txt` and the `.md` version of a page are in the memo too, on the same terms as pages. The function of `tifa.SetSitemap` and `OnRequest` run on every request, and the memo is asked with what the function returned. For the same list, the kept answer goes out: the same body, `Content-Type` and `Link`, in gzip with `server.compress`, with an `ETag` and a 304 when the browser or crawler has it. For another list, such as a new post, a new title or a new `Modified`, the files are built again on that request. Nothing is kept for a time, so a post is in the sitemap from the moment it comes out. See [Search engines and language models](../guides/seo.md).
+
+- **Not kept:** a `.md` for no page, a part of the sitemap that does not exist and an error of the function. Made-up URLs do not fill the memo. They carry no `ETag`.
+- **Requests that ask for the same file and list at the same time share one build**, also with `ssr.memo_size` 0, where every request builds its own file.
+- **Counted with the pages.** They share `ssr.memo_size` and the order in which the least recently used go, and `Entries`, `Hits`, `Misses` and `Shared` count them too: a miss is a file built. They have no `X-Tifa-Render` header. `/robots.txt` does not change, so it is not in the memo.
 
 ## Limits
 

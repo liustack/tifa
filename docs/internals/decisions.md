@@ -409,6 +409,14 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 ## Rendering, memo and Cache
 
+### Keeping the site files for a short time
+
+**Turned down (2026-11-26).** Keeping `/sitemap.xml`, `/llms.txt`, `/llms-full.txt` and the `.md` versions for a short time, the first idea being 10 seconds, so that a crawler that loops on them does not cost a build each.
+
+**Why not.** A file would be old for that time, and a post would not be in the sitemap from the moment it comes out, which [the SEO guide](../guides/seo.md) promises. The [render memo](../reference/memo.md#site-files) gives the same saving with nothing old.
+
+**Instead.** The function of `SetSitemap` and `OnRequest` run on every request, and the files are keyed by what the function returned, in the one memo with the pages and its one size. The list is the same, so the file is not built again, and a changed list shows at once. Only a 200 is kept.
+
 ### Markdown to HTML in Go
 
 **Turned down (2026-10-29).** A `Load` that turns Markdown or other content into HTML in Go, with goldmark or a template.

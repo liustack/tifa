@@ -2,9 +2,10 @@
 summary: '渲染记忆是什么，以及它和 Cache 有什么不同：`ssr.memo_size`、ETag、查询参数、登录后的页面'
 audience: app
 order: 1
-translatedFrom: d4f7822b05b8
+translatedFrom: 4f4dc08fffe1
 read_when:
   - '想知道为什么叫记忆而不叫缓存，或者它会不会显示旧页面'
+  - '想知道 `/sitemap.xml`、`/llms.txt` 或 `.md` 文件是不是每个请求都重新生成'
   - '想知道被记住的页面会不会把一位访客的数据显示给另一位，或者到达 CDN'
   - '决定某个页面需要 `Memo = false` 还是 `Cache`'
   - '给有已登录页面的应用里的页面、Load 或处理函数设置 Cache-Control'
@@ -89,6 +90,14 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 多个请求同时没命中 memo，而且构建版本、URL 和数据都一样时（比如部署后一下子涌进来一批访客），它们共用一次渲染。每个请求仍然运行自己的中间件和 `Load`，保留它们设置的头（如 `Set-Cookie` 和 `Vary`），并拿到自己接受的编码。`ssr.memo_size` 为 0、页面太大放不进 memo、以及 `tifa dev` 下，这一点同样成立。数据不同或会话不同的请求各自渲染，`Memo = false` 的页面对每个请求都渲染。
 
 共享的那次渲染失败时，所有等它的请求都会得到同一个错误，并进入 `OnError`，panic 也一样。什么都不会保存，所以下一个请求会重新渲染。例外是组件抛了错，或渲染用光了 `ssr.vm_memory`：构建好的应用会把这次失败记住 5 秒（见 [页面上的错误](../pages-and-data/errors.zh-CN.md#errors-on-a-page)）。客户端走掉的请求会立刻停止等待，连接被切断，不发送任何响应：`OnRequest` 里的 `next(c)` 返回一个匹配 `context.Canceled` 的错误，但不会调用 `OnError`，也不记日志。渲染继续为其他请求进行。自己的截止时间在等待中到期的请求，和其他错误一样失败。没有任何请求在等之后，还在等 VM 的渲染会被丢弃，已经在运行的会跑完并存入 memo。如果这时它失败了，没有请求会把错误报给 `OnError`，所以会写日志。
+
+## 给搜索引擎和语言模型的文件 {#site-files}
+
+`/sitemap.xml` 和它的各个部分、`/llms.txt`、`/llms-full.txt` 和页面的 `.md` 版本也在 memo 里，规则和页面一样。`tifa.SetSitemap` 的函数和 `OnRequest` 在每个请求上都会运行，memo 按函数返回的内容来查。列表相同，就发送保存的答案：相同的正文、`Content-Type` 和 `Link`，开了 `server.compress` 时是 gzip，浏览器或爬虫已经有它时带 `ETag` 并返回 304。列表不同，比如有了新文章、新标题或新的 `Modified`，这次请求就重新生成文件。不会保存一段时间，所以文章一发布就在 sitemap 里。见[搜索引擎和语言模型](../guides/seo.zh-CN.md)。
+
+- **不保存：** 没有对应页面的 `.md`、不存在的 sitemap 部分和函数返回的错误。编造的 URL 填不满 memo。它们没有 `ETag`。
+- **同时请求同一个文件、同一份列表的请求共用一次生成**，`ssr.memo_size` 为 0 时也一样，只是那时每个请求都生成自己的文件。
+- **和页面一起统计。** 它们共用 `ssr.memo_size` 和先去掉最久没用的顺序，`Entries`、`Hits`、`Misses` 和 `Shared` 也算上它们：一次未命中就是生成一次文件。它们没有 `X-Tifa-Render` 头。`/robots.txt` 不会变，所以不在 memo 里。
 
 ## 限制 {#limits}
 
