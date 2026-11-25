@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { createMemoryHistory, isRedirect, RouterProvider } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
-import { createAppRouter, load, parseSearch, unmatched, type Dehydrated } from './.tifa/runtime/router'
+import { cleanAddress, createAppRouter, load, parseSearch, unmatched, type Dehydrated } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
 import { alternateTags, pageOwnTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, splitDocumentHead, type Tag } from './.tifa/runtime/head'
 import { collector, TifaError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
@@ -132,12 +132,26 @@ test('the browser keeps the query of the render URL as Go does, for the canonica
   }
 })
 
-test('query values stay the strings Go reads', async () => {
-  const { router, calls } = await client('/q?q=1.0')
+// query-empty-cases.json is read by server/renderurl_test.go too: the URL of a render leaves out the
+// empty value of a number or a bool, and the canonical link of the browser is the same.
+test('the canonical link leaves out an empty number or bool as the server render does', async () => {
+  const table = JSON.parse(readFileSync('query-empty-cases.json', 'utf8')) as { path: string; keep: string[]; nonText: string[]; cases: Array<{ query: string; render: string }> }
+  for (const c of table.cases) {
+    const got = table.path + renderQuery(table.path + (c.query === '' ? '' : '?' + c.query), table.keep, table.nonText)
+    assert(got === c.render, `?${c.query} keeps ${got}, Go ${c.render}`)
+  }
+})
+
+test('the router reads the query of a route as Go does', async () => {
+  const first = await client('/q?q=1.0')
+  const { router, calls } = first
   assert(router.state.location.href === '/q?q=1.0', `href ${router.state.location.href}`)
   assert(calls.some(([u, id]) => id === 'app/q/route' && u === '/q?q=1.0'), `calls ${JSON.stringify(calls)}`)
   const search = router.state.location.search as Record<string, unknown>
+  // The address keeps its text, and the route reads the value as the list its field is: 1.0 is a word here.
   assert(search.q === '1.0', `search ${JSON.stringify(search)}`)
+  const last = router.state.matches[router.state.matches.length - 1]
+  assert(JSON.stringify(last.search) === '{"q":["1.0"]}', `match search ${JSON.stringify(last.search)}`)
   // Two integers JSON reads as one number are two matches.
   const ids: string[] = []
   for (const href of ['/q?q=9007199254740992', '/q?q=9007199254740993']) {
@@ -149,15 +163,12 @@ test('query values stay the strings Go reads', async () => {
   const repeated = await client('/q?q=a&q=b')
   const values = (repeated.router.state.location.search as Record<string, unknown>).q
   assert(JSON.stringify(values) === '["a","b"]', `repeated ${JSON.stringify(values)}`)
-  // The route has the types of the query Go reads and nothing that runs: the router reads every
-  // parameter as parseSearch does, those Go does not read included, and the matched route sees
-  // all of them.
-  const typed = Object.values(router.routesById).find((r: any) => r.fullPath === '/q') as any
-  assert(typed && 'validateSearch' in typed.options && typed.options.validateSearch === undefined, `validateSearch ${typed?.options.validateSearch}`)
+  // The router reads every parameter as parseSearch does, those Go does not read included, and the
+  // matched route sees all of them.
   const open = await client('/q?q=a&tag=x&tag=y&tab=own')
   const match = open.router.state.matches[open.router.state.matches.length - 1]
   assert(
-    JSON.stringify(match.search) === '{"q":"a","tag":["x","y"],"tab":"own"}' && JSON.stringify(match.loaderDeps) === '{"q":"a","tag":["x","y"]}',
+    JSON.stringify(match.search) === '{"q":["a"],"tag":["x","y"],"tab":"own"}' && JSON.stringify(match.loaderDeps) === '{"q":["a"],"tag":["x","y"]}',
     `search ${JSON.stringify(match.search)}, loaderDeps ${JSON.stringify(match.loaderDeps)}`,
   )
   assert(open.router.state.location.href === '/q?q=a&tag=x&tag=y&tab=own', `href ${open.router.state.location.href}`)
@@ -183,6 +194,93 @@ test('query values stay the strings Go reads', async () => {
   }
   assert(protoIds[0] !== protoIds[1], `one match for two values: ${protoIds}`)
   contains(await render('/q?q=1.0', { ...appData, 'app/q/route': ok('1.0') }), 'QUERY <!-- -->1.0')
+})
+
+// The last match of a client router, the route of the page.
+const shown = (router: { state: { matches: any[] } }) => {
+  const match = router.state.matches[router.state.matches.length - 1]
+  assert(match, `no match: ${JSON.stringify(router.state.matches)}`)
+  return match
+}
+const typedData = { ...appData, 'app/typed/layout': ok('layout'), 'app/typed/route': ok('page') }
+
+test('a route reads its query by the types of the Go fields, and the address keeps its text', async () => {
+  const { router, calls } = await client('/typed?page=2&min=1.5&on=true&ids=1&ids=3&tags=a&q=007&small=100&utm=z&sort=new')
+  const page = shown(router)
+  assert(
+    JSON.stringify(page.search) === '{"page":2,"min":1.5,"on":true,"ids":[1,3],"tags":["a"],"q":"007","small":100,"utm":"z","sort":"new"}',
+    `search ${JSON.stringify(page.search)}`,
+  )
+  // The Layout above reads page and sort, and what it converted goes down to the page.
+  const layout: any = router.state.matches[router.state.matches.length - 2]
+  assert(layout.search.page === 2 && layout.search.sort === 'new', `layout search ${JSON.stringify(layout.search)}`)
+  assert(JSON.stringify(page.loaderDeps) === '{"ids":[1,3],"min":1.5,"on":true,"page":2,"q":"007","small":100,"tags":["a"]}', `deps ${JSON.stringify(page.loaderDeps)}`)
+  assert(router.state.location.href === '/typed?page=2&min=1.5&on=true&ids=1&ids=3&tags=a&q=007&small=100&utm=z&sort=new', `href ${router.state.location.href}`)
+  assert(calls.every(([u]) => u === '/typed?page=2&min=1.5&on=true&ids=1&ids=3&tags=a&q=007&small=100&utm=z&sort=new'), `calls ${JSON.stringify(calls)}`)
+})
+
+test('an empty number or bool is a parameter that was not passed, and the address is cleaned after hydration', async () => {
+  // Go renders the URL without the empty numbers and bools (renderURL), so the router finds nothing to
+  // redirect, and the page is the one of the address without them.
+  const address = '/typed?page=&min=&on=&q=&ids=&ids=1&ids=&tags='
+  const rendered = '/typed?q=&ids=1&tags='
+  const result = await renderResult(rendered, typedData)
+  assert(result.html !== undefined && result.redirect === undefined, `render: ${JSON.stringify(result)}`)
+  const { router, calls } = await hydrateFrom(result.html, address, undefined, ok, true)
+  assert(calls.length === 0, `asked for ${JSON.stringify(calls)}`)
+  assert(router.state.location.href === rendered, `href ${router.state.location.href}`)
+  const search = shown(router).search
+  assert(
+    search.page === undefined && search.min === undefined && search.on === undefined && search.q === '' && JSON.stringify(search.ids) === '[1]' && JSON.stringify(search.tags) === '[""]',
+    `search ${JSON.stringify(search)}`,
+  )
+  assert(router.state.matches.every((m: any) => m.status === 'success'), `${JSON.stringify(router.state.matches.map((m: any) => m.status))}`)
+})
+
+test('a value that is not valid fails the route with the TifaError that Go answers with', async () => {
+  for (const [query, name] of [['page=02', 'page'], ['small=200', 'small'], ['on=TRUE', 'on'], ['min=1.0', 'min'], ['page=1&page=2', 'page'], ['ids=1&ids=x', 'ids'], ['q=a&q=b', 'q']]) {
+    const { router, calls } = await client('/typed?' + query)
+    const failed = router.state.matches.find((m: any) => m.status === 'error')
+    assert(failed, `?${query}: no route failed, ${JSON.stringify(router.state.matches.map((m: any) => m.status))}`)
+    // The router wraps what validateSearch throws, and the app gets the TifaError inside it.
+    assert(failed.error instanceof TifaError && failed.error.status === 400, `?${query}: ${failed.error}`)
+    assert(failed.error.message === `invalid query parameter "${name}"`, `?${query}: ${failed.error.message}`)
+    assert(!calls.some(([, id]) => id === 'app/typed/route'), `?${query} asked for ${JSON.stringify(calls)}`)
+  }
+})
+
+test('a navigation writes typed values and asks Go with the text', async () => {
+  const { router, calls } = await client('/typed?page=2')
+  calls.length = 0
+  const next = router.buildLocation({ to: '/typed', search: { page: 3, on: true, ids: [4, 5], min: 0.5 } } as never)
+  router.history.push(next.href)
+  await router.load()
+  assert(router.state.location.href === '/typed?page=3&on=true&ids=4&ids=5&min=0.5', `href ${router.state.location.href}`)
+  assert(calls.some(([u, id]) => id === 'app/typed/route' && u === '/typed?page=3&on=true&ids=4&ids=5&min=0.5'), `calls ${JSON.stringify(calls)}`)
+  assert(shown(router).search.page === 3, `page ${shown(router).search.page}`)
+})
+
+test('a full page with a query that is not valid shows the TifaError of the route', async () => {
+  const message = 'invalid query parameter "page"'
+  const bad = { status: 400, error: message } as const
+  const result = await renderResult('/typed?page=02', { ...appData, 'app/typed/layout': bad, 'app/typed/route': bad })
+  assert(result.html !== undefined, `render: ${JSON.stringify(result)}`)
+  contains(result.html, message.replace(/"/g, '&quot;'))
+  lacks(result.html, 'SearchParamError')
+  // The address goes to the browser as it is, which finds the same error.
+  const { router } = await hydrateFrom(result.html, '/typed?page=02')
+  const failed = router.state.matches.find((m: any) => m.status === 'error')
+  assert(failed?.error instanceof TifaError && failed.error.status === 400 && failed.error.message === message, `hydrated: ${failed?.error}`)
+})
+
+test('a full page of typed values renders and hydrates with no request', async () => {
+  const url = '/typed?page=2&on=true&min=1.5'
+  const html = await render(url, typedData)
+  contains(html, 'TYPED_LAYOUT', 'TYPED')
+  const { router, calls } = await hydrateFrom(html, url)
+  assert(calls.length === 0, `asked for ${JSON.stringify(calls)}`)
+  assert(router.state.matches.every((m: any) => m.status === 'success'), `${JSON.stringify(router.state.matches.map((m: any) => m.status))}`)
+  assert(shown(router).search.page === 2 && shown(router).search.on === true, `search ${JSON.stringify(shown(router).search)}`)
 })
 
 test('paths match case-sensitively, as ServeMux does', async () => {
@@ -523,7 +621,7 @@ test('the rest of the path may be empty, written without the trailing slash', as
 
 // hydrateFrom runs the scripts of a server-rendered page the way a browser does and hydrates a
 // browser router from them. Loads the router asks for later get answer, or else ok(id).
-async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: Dehydrated) => void, answer: (id: string) => RouteResult = ok) {
+async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: Dehydrated) => void, answer: (id: string) => RouteResult = ok, clean = false) {
   const g = globalThis as any
   const saved = { window: g.window, self: g.self, document: g.document }
   g.window = g.self = globalThis
@@ -543,6 +641,8 @@ async function hydrateFrom(html: string, url: string, onHydrate?: (dehydrated: D
       },
       { history: createMemoryHistory({ initialEntries: [url] }), onHydrate },
     )
+    // The browser writes the address as the router reads it before it takes the page over.
+    if (clean) cleanAddress(r)
     await hydrate(r)
     return { router: r, calls }
   } finally {
