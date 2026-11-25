@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
 audience: app
 order: 3
-translatedFrom: ccf0a49d5163
+translatedFrom: 4588830f56c2
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -67,7 +67,7 @@ func Load(c *tifa.Ctx, q Filter) (products.List, error) {
 
 - 字段名取 `json` 标签，没有标签就取 Go 字段名。带 `json:"-"` 的字段和未导出的字段不算。任何字段都不能叫 `_tifa`，Tifa 把它留给导航使用。
 - 构建时 Tifa 从这个结构体读出参数名。其中一个变化时页面会重新加载，服务端渲染页面时只带这些参数，不带别的（比如 `?utm_source=` 会被去掉），`Link`、`navigate` 和 `useSearch` 也知道这些名字（见[导航](navigation.zh-CN.md#query-parameters-in-link-and-navigate)）。
-- 字段可以是字符串、`bool`、整数、浮点数，或者它们的切片。嵌入字段、指针、map，以及带 `MarshalText` 或 `UnmarshalText` 的类型会让构建失败，报错里会指出是哪个字段。几个页面共用的参数，在每个结构体里各写一遍。
+- 字段可以是字符串、`bool`、整数、`float64`，或者它们的切片。嵌入字段、指针、map、带 `MarshalText` 或 `UnmarshalText` 的类型，以及 `float32` 会让构建失败，报错里会指出是哪个字段。浏览器没法像 Go 那样写出 32 位浮点数的最短文本，两边就没法对同一个值读出同样的结果，所以要声明成 `float64`。几个页面共用的参数，在每个结构体里各写一遍，布局和它下面的页面都声明的同名参数，在两处类型相同。
 - 值只有一种合法写法，这样读进来再写出去，得到的文本和原来一样：
 
 | 类型 | 合法 | 不合法 |
@@ -78,10 +78,12 @@ func Load(c *tifa.Ctx, q Filter) (products.List, error) {
 | 浮点数 | 可带小数点的数字，小数部分末尾没有 `0`，最多 15 位数字，值是 `0` 或绝对值在 1e-6 到 1e21 之间 | `.5`、`1.0`、`0.50`、`-0`、`1e3` |
 | 切片 | 同名参数每出现一次就是一个元素，每个元素按元素类型的规则 | |
 
-- 值不合法时，在 `Load` 运行之前就返回 400，内容是 `invalid query parameter "page"`。导航的数据请求拿到的是该页面的 400。查询串本身解析不了，返回 400 和 `invalid query string`。不是切片的字段，同名参数出现两次也不合法。
-- 不是字符串的字段，值为空（`?page=`）算没传，字段保持零值，所以会发送空字段的表单也能用。数字或 bool 列表里的空元素会被跳过。对字符串来说，空串就是一个值。
+- 值不合法时，在 `Load` 运行之前就返回 400，内容是 `invalid query parameter "page"`。导航的数据请求拿到的是该页面的 400。查询串本身解析不了，返回 400 和 `invalid query string`。不是切片的字段，同名参数出现两次也不合法。有两个值不合法时，消息里写的是按名字排在前面的那个。
+- 浏览器按同样的规则读地址，所以 Go 拒绝的值，浏览器也拒绝，页面的 `ErrorBoundary` 拿到同一个 `TifaError`，状态是 400，消息也一样，不管是整页、导航的数据请求还是浏览器里的路由器发现的。一张用例表同时测试 Go 和浏览器。
+- 页面拿到的值带着字段的类型：`useSearch()` 和 `PageSearch` 里，整数和浮点数是 `number`，`bool` 是 `boolean`，字符串是 `string`，切片是它们的数组（见[导航](navigation.zh-CN.md#query-parameters-in-link-and-navigate)）。浏览器只按声明的类型转换，不按别的，所以 `string` 字段里的 `?q=1.0` 和 `?q=007` 还是文本 `1.0` 和 `007`。
+- 不是字符串的字段，值为空（`?page=`）算没传，字段保持零值，所以会发送空字段的表单也能用。数字或 bool 列表里的空元素会被跳过。对字符串来说，空串就是一个值。服务端渲染时当作没有这个空值，返回 200，不重定向。页面加载之后，地址栏会去掉它（`?page=&q=x` 变成 `?q=x`），不请求数据，不重新加载，也没有水合警告。在浏览器里它的值是 `undefined`，零值只是 Go 字段里放的东西。
 - 没有字段对应的参数会被忽略。
-- 访客在不用 JavaScript 的普通 `<form method="get">` 里手输数字，可能发出 `10.50` 或 `007`，页面会返回 400。这样的输入，字段声明成 `string`，在 `Load` 里自己解析。这些规则只管页面的查询字符串：`GET` 或 `DELETE` 处理函数的输入照旧，由 `c.BindQuery` 解码。
+- 访客在不用 JavaScript 的普通 `<form method="get">` 里手输数字，可能发出 `10.50` 或 `007`，页面会返回 400，内容是 `invalid query parameter "price"`，和手写的链接一样。这样的输入，字段声明成 `string`，在 `Load` 里自己解析。这些规则只管页面的查询字符串：`GET` 或 `DELETE` 处理函数的输入照旧，由 `c.BindQuery` 解码。
 - 这个结构体不带 `Validate`，带了构建就失败。请在 `Load` 里检查值，返回 `tifa.Error{Status: 400, Message: "page must be at least 1"}` 或 `tifa.ErrNotFound`。
 - 测试直接用结构体调用函数：`Load(c, Filter{Sort: "price"})`（见[测试应用](testing-apps.zh-CN.md)）。
 
