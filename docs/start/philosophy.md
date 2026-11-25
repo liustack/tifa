@@ -40,7 +40,7 @@ Every write an app accepts has an address of its own: a method and a path, and t
 What you get:
 
 - `OnRequest`, a proxy, a rate limit and the log see which write a request is from its method and path alone, so who may do what is decided in one place.
-- `tifa routes` prints every route of the app, so you can read all the ways in.
+- `tifa routes` prints every route of the app and every address Tifa answers on its own, so you can read all the ways in.
 - There is one way to write a thing. Nobody has to choose, and code by another person or by a coding agent looks like yours.
 - A folder for an operation makes you say what the operation is: its name, its input, who may do it and when. That sorts out the business as the app grows.
 
@@ -57,7 +57,7 @@ Tifa does what the code says and nothing on a guess. What it needs to know it re
 What you get:
 
 - You can tell what a request does by reading `OnRequest` and the folder it goes to.
-- An app that is easier to keep safe, because every way in is in sight: it is a folder that `tifa routes` prints, it has a method and a path that a proxy, a rate limit and the log can tell apart, and it reads JSON or a form, which any tool can send and inspect.
+- An app that is easier to keep safe, because every way in is in sight: it is a folder that `tifa routes` prints (the few addresses Tifa answers itself are in the same output), it has a method and a path that a proxy, a rate limit and the log can tell apart, and it reads JSON or a form, which any tool can send and inspect.
 - No request is sent on a guess, so the load on the server is the load the pages ask for.
 
 ## Wire dependencies by hand
