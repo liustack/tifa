@@ -66,8 +66,8 @@ func TestQueryValueTable(t *testing.T) {
 			continue
 		}
 		cols := strings.Split(line, "\t")
-		if len(cols) != 4 {
-			t.Fatalf("a line of the table needs 4 columns: %q", line)
+		if len(cols) != 5 {
+			t.Fatalf("a line of the table needs 5 columns: %q", line)
 		}
 		var input string
 		if err := json.Unmarshal([]byte(cols[1]), &input); err != nil {
@@ -85,6 +85,21 @@ func TestQueryValueTable(t *testing.T) {
 			want, perr := strconv.ParseUint(cols[3], 16, 64)
 			if perr != nil || bitsOf(f) != want {
 				t.Errorf("%s %s: decoded to %x, the table says %s", cols[0], cols[1], bitsOf(f), cols[3])
+			}
+		}
+		// The text the page is rendered for, which the browser writes the same way.
+		if cols[2] == "ok" && cols[0] != "string" && cols[0] != "bool" {
+			var want string
+			if err := json.Unmarshal([]byte(cols[4]), &want); err != nil {
+				t.Fatalf("%q: %v", line, err)
+			}
+			if got := CanonicalNumber(input, cols[0] != "float"); got != want {
+				t.Errorf("%s %s: canonical text %q, the table says %q", cols[0], cols[1], got, want)
+			}
+			// The canonical text is a valid spelling of the same number.
+			again := fieldOf(t, cols[0])
+			if err := setQueryValue(again, want); err != nil || bitsOf(again) != bitsOf(f) {
+				t.Errorf("%s %s: its canonical text %q reads as %x, %v", cols[0], cols[1], want, bitsOf(again), err)
 			}
 		}
 	}
@@ -162,13 +177,38 @@ func TestQueryDecoding(t *testing.T) {
 	}
 }
 
-func TestQueryDecodingRefusesWhatIsNotTheWrittenForm(t *testing.T) {
+// A number written another way than the shortest one is the same number. A visitor who edits the
+// address bar writes 007 or 1.0, and an HTML number input sends 1e3 or .5.
+func TestQueryDecodingTakesANumberWrittenAnotherWay(t *testing.T) {
+	var in queryInput
+	if err := decodeRaw("page=007&min=%2B010.50&ids=01&ids=%2B2.0&ids=-0", &in); err != nil {
+		t.Fatal(err)
+	}
+	if in.Page != 7 || in.Min != 10.5 || !slices.Equal(in.IDs, []int{1, 2, 0}) {
+		t.Errorf("got %+v", in)
+	}
+	in = queryInput{}
+	if err := decodeRaw("page=2.0&min=1e3", &in); err != nil || in.Page != 2 || in.Min != 1000 {
+		t.Errorf("got %+v, %v", in, err)
+	}
+	in = queryInput{}
+	if err := decodeRaw("min=.5", &in); err != nil || in.Min != 0.5 {
+		t.Errorf("got %+v, %v", in, err)
+	}
+	// A string is not changed.
+	in = queryInput{}
+	if err := decodeRaw("status=007", &in); err != nil || in.Status != "007" {
+		t.Errorf("got %+v, %v", in, err)
+	}
+}
+
+func TestQueryDecodingRefusesWhatIsNotANumberOrBoolOfTheField(t *testing.T) {
 	for _, tc := range []struct{ raw, name string }{
-		{"page=02", "page"}, {"page=%2B2", "page"}, {"page=-0", "page"}, {"page=2.0", "page"}, {"page=two", "page"},
-		{"page=9007199254740992", "page"}, {"page=+2", "page"},
-		{"min=1.0", "min"}, {"min=.5", "min"}, {"min=1e3", "min"}, {"min=0.1234567890123456", "min"},
-		{"stock=TRUE", "stock"}, {"stock=1", "stock"}, {"stock=yes", "stock"},
-		{"ids=1&ids=x", "ids"}, {"ids=01", "ids"},
+		{"page=two", "page"}, {"page=2.5", "page"}, {"page=1e3", "page"}, {"page=0x10", "page"}, {"page=%202", "page"},
+		{"page=9007199254740992", "page"}, {"page=--2", "page"}, {"page=.5", "page"}, {"page=NaN", "page"},
+		{"min=1e400", "min"}, {"min=0x1p3", "min"}, {"min=1%20", "min"}, {"min=Infinity", "min"}, {"min=1e21", "min"},
+		{"stock=TRUE", "stock"}, {"stock=1", "stock"}, {"stock=yes", "stock"}, {"stock=on", "stock"},
+		{"ids=1&ids=x", "ids"}, {"ids=1.5", "ids"},
 		{"page=1&page=2", "page"}, {"page=&page=2", "page"}, {"status=a&status=b", "status"}, {"status=&status=", "status"},
 		// A number too small to hold reads as 0, which is not what was written.
 		{"min=0." + strings.Repeat("0", 400) + "1", "min"},

@@ -4,11 +4,12 @@
 // internal/core/query.go, and one table of cases (internal/core/testdata/query-values.txt) tests
 // both, in Go, in Node and in beastjs.
 //
-// A value is valid only when it is the one way to write it: decoding it and writing the result gives
-// the same text. A string is any text. A whole number is 0, or digits with no leading zero and an
-// optional minus, and fits the width of its type and 2^53-1. A bool is true or false. A float has no
-// exponent, no trailing zero after the point and at most 15 significant digits, and is 0 or between
-// 1e-6 and 1e21 in size.
+// A string is any text. A bool is true or false. A whole number is digits with an optional sign and an
+// optional point with zeros after it (+007, 1.0, -0), and fits the width of its type and 2^53-1. A float
+// is digits with an optional sign, fraction and exponent (010.50, .5, 5., 1e3), and is 0 or between 1e-6
+// and 1e21 in size. A number written another way than the shortest one is the same number: the page is
+// rendered for the shortest text (canonicalNumber) and the router writes the address that way. No
+// spaces, no hex, no NaN, and 10.50 or 1e3 is no whole number.
 
 // InvalidQuery is what the codec throws for a value that is not valid. The router wraps what a
 // validateSearch throws in a SearchParamError, and the router of Tifa makes a TifaError with status
@@ -45,8 +46,29 @@ const ranges: Record<string, [number, number]> = {
   uintptr: [0, maxExact],
 }
 
-const wholeNumber = /^-?(0|[1-9][0-9]*)$/
-const plainFloat = /^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$/
+const wholeText = /^[+-]?[0-9]+(\.0*)?$/
+const floatText = /^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$/
+
+// readNumber reads the number text writes, as readNumber of internal/core/query.go does: whole is true
+// for a whole number and false for a float. The number is 0 or between 1e-6 and 1e21 in size, a whole
+// number is at most 2^53-1 in size, and -0 is 0. It is undefined for a text that is no such number.
+function readNumber(text: string, whole: boolean): number | undefined {
+  if (!(whole ? wholeText : floatText).test(text)) return undefined
+  const n = Number(text)
+  const size = Math.abs(n)
+  if (size !== 0 && (size < 1e-6 || size >= 1e21)) return undefined
+  if (whole && size > maxExact) return undefined
+  // A number too small to hold reads as 0, which is not what the text says.
+  if (n === 0 && /[1-9]/.test(text.split(/e/i)[0]!)) return undefined
+  return n === 0 ? 0 : n
+}
+
+// canonicalNumber is the shortest text of the number text writes, the one the page is rendered for,
+// undefined for a text that is no such number. It is CanonicalNumber in internal/core/query.go.
+export function canonicalNumber(text: string, whole: boolean): string | undefined {
+  const n = readNumber(text, whole)
+  return n === undefined ? undefined : String(n)
+}
 
 // decodeValue reads one value of a kind from its text. It returns undefined for a text that is not
 // valid, which no value is: a string, number or bool comes back otherwise.
@@ -56,22 +78,13 @@ export function decodeValue(kind: string, text: string): string | number | boole
       return text
     case 'bool':
       return text === 'true' ? true : text === 'false' ? false : undefined
-    case 'float64': {
-      if (!plainFloat.test(text) || text === '-0') return undefined
-      // The digits after the leading zeros of the number, the point not counted.
-      if (text.replace('-', '').replace('.', '').replace(/^0+/, '').length > 15) return undefined
-      const n = Number(text)
-      const size = Math.abs(n)
-      if (size !== 0 && (size < 1e-6 || size >= 1e21)) return undefined
-      // What the number holds must write back as the text: digits too small to hold read as 0.
-      return String(n) === text ? n : undefined
-    }
+    case 'float64':
+      return readNumber(text, false)
   }
   const range = ranges[kind]
   if (range === undefined) throw new Error(`the query codec has no kind ${kind}`)
-  if (!wholeNumber.test(text) || text === '-0' || text.replace('-', '').length > 16) return undefined
-  const n = Number(text)
-  return n >= range[0] && n <= range[1] ? n : undefined
+  const n = readNumber(text, true)
+  return n !== undefined && n >= range[0] && n <= range[1] ? n : undefined
 }
 
 const invalid = Symbol('invalid')
