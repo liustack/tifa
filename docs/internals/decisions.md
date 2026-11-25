@@ -204,6 +204,17 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Instead.** The page calls `router.invalidate()`, which is an ordinary navigation request and right for that reason.
 
+### Removing c.Bind and c.BindQuery
+
+**Turned down (2026-11-25).** Leaving the second parameter of a handler as the only way to decode an input, and reading the raw body with `c.Request()` otherwise.
+
+**Why not.**
+- They are for a handler that writes its own response: a stream, a download, server-sent events. A handler with a second parameter has its response written by the framework, so such a handler cannot take one. The ones that read the query string are common, since `EventSource` only sends GET.
+- `c.Bind` does more than parse JSON: it reads JSON, a URL-encoded form or a multipart form with files by the content type, refuses data after the JSON value, and answers 413, 408, 415 and 400 for a body that is too big, too slow, of another type or broken. A handler that reads `c.Request().Body` itself would get most of these wrong.
+- They are no second decoder: the second parameter is decoded by the same code.
+
+**Instead.** Both stay, for handlers only. In `Load`, `Layout` and `Validate` they fail the build.
+
 ## Head, setup and page exports
 
 ### The title and meta tags as elements in a component
@@ -576,6 +587,12 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 **Why not.** `tifa.yaml` holds the settings of the framework and nothing else, so a key Tifa does not know there is a spelling mistake. The app has its own place, `options.go`, and its own ways.
 
 **Instead.** A key in `tifa.yaml` that is no setting of Tifa fails `tifa check` and `tifa build`, and a flag nobody defined stops the program. A setting Tifa retired is a warning. Other environment variables, and other keys in the file of `-c`, are left alone: [Configuration](../build-and-deploy/config.md).
+
+### camelCase or hyphens in the keys of tifa.yaml
+
+**Kept as it is (2026-11-25).** `server.bodyLimit` or `server.body-limit` in place of `server.body_limit`.
+
+**Why not.** Each key is also an environment variable and a flag, and with underscores the three match word for word: `server.body_limit`, `SERVER_BODY_LIMIT`, `--server-body-limit`. camelCase would need a guess at where a word ends, as in `tlsCA`. Hyphens would map as well and bring nothing new. Docker Compose, Prometheus and fly.toml use underscores, Kubernetes and Hugo camelCase, GitHub Actions hyphens, so there is no standard to follow.
 
 ## Languages
 
