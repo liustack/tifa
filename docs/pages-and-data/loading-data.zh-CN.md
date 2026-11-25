@@ -67,7 +67,7 @@ func Load(c *tifa.Ctx, q Filter) (products.List, error) {
 
 - 字段名取 `json` 标签，没有标签就取 Go 字段名。带 `json:"-"` 的字段和未导出的字段不算。任何字段都不能叫 `_tifa`，Tifa 把它留给导航使用。
 - 构建时 Tifa 从这个结构体读出参数名。其中一个变化时页面会重新加载，服务端渲染页面时只带这些参数，不带别的（比如 `?utm_source=` 会被去掉），`Link`、`navigate` 和 `useSearch` 也知道这些名字（见[导航](navigation.zh-CN.md#query-parameters-in-link-and-navigate)）。
-- 字段可以是字符串、`bool`、整数、`float64`，或者它们的切片。嵌入字段、指针、map、带 `MarshalText` 或 `UnmarshalText` 的类型，以及 `float32` 会让构建失败，报错里会指出是哪个字段。浏览器没法像 Go 那样写出 32 位浮点数的最短文本，两边就没法对同一个值读出同样的结果，所以要声明成 `float64`。几个页面共用的参数，在每个结构体里各写一遍，布局和它下面的页面都声明的同名参数，在两处类型相同。
+- 字段可以是字符串、`bool`、整数、`float64`，或者它们的切片。嵌入字段、指针、map、带 `MarshalText` 或 `UnmarshalText` 的类型，以及 `float32` 会让构建失败，报错里会指出是哪个字段。`float32` 见下面的类型说明。几个页面共用的参数，在每个结构体里各写一遍，布局和它下面的页面都声明的同名参数，在两处类型相同。
 - 每种字段类型，页面在 TypeScript 里拿到的类型：
 
 | Go 字段 | TypeScript（在 `useSearch()` 和 `PageSearch` 里） |
