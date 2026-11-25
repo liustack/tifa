@@ -95,7 +95,7 @@ func (s *server) serveSite(w http.ResponseWriter, r *http.Request) bool {
 		if pattern == "/" {
 			name = "/index.md"
 		}
-		s.serve(w, s.withSiteLanguage(r, language), name, false, func(c *tifa.Ctx) error { return s.markdownVersion(c, language, rest) })
+		s.serve(w, s.withSiteLanguage(r, language), name, false, func(c *tifa.Ctx) error { return s.markdownVersion(c, p, language, rest) })
 		return true
 	}
 	return false
@@ -172,13 +172,14 @@ type siteBody struct {
 	link string
 }
 
-// siteAnswer answers a request for a file of the site. The function of SetSitemap runs on each
+// siteAnswer answers a request for the file at the escaped path file, in language, which are those
+// that picked the file: OnRequest may have changed the request since. The function of SetSitemap runs on each
 // request, and its result is the input of the answer: the memo keeps the answer by the hash of it
 // (siteKey) and makes it with build only for a result it has not seen, with the pages the result
 // lists, which the files of one result share (listedPages). Requests for the same file and result at the same time share one build. build returns
 // tifa.ErrNotFound for a file that the result has none of, and only a 200 is kept, so that made-up
 // URLs do not fill the memo. The answer has the ETag and the 304 of a page.
-func (s *server) siteAnswer(c *tifa.Ctx, build func(sm tifa.Sitemap, pages []sitePage) (siteBody, error)) error {
+func (s *server) siteAnswer(c *tifa.Ctx, file, language string, build func(sm tifa.Sitemap, pages []sitePage) (siteBody, error)) error {
 	var sm tifa.Sitemap
 	if s.sitemap != nil {
 		var err error
@@ -187,9 +188,8 @@ func (s *server) siteAnswer(c *tifa.Ctx, build func(sm tifa.Sitemap, pages []sit
 		}
 	}
 	r := c.Request()
-	language := c.Language()
 	list := siteListKey(s.front.Load().build.ID, language, sm)
-	key := siteFileKey(list, r.URL.EscapedPath())
+	key := siteFileKey(list, file)
 	etag := key
 	if s.cfg.Compress {
 		etag = "W/" + key
@@ -231,7 +231,7 @@ func (s *server) siteAnswer(c *tifa.Ctx, build func(sm tifa.Sitemap, pages []sit
 
 // siteFile answers /sitemap.xml, a part of it, /llms.txt or /llms-full.txt.
 func (s *server) siteFile(c *tifa.Ctx, p string) error {
-	return s.siteAnswer(c, func(sm tifa.Sitemap, pages []sitePage) (siteBody, error) {
+	return s.siteAnswer(c, p, s.defaultLanguage(), func(sm tifa.Sitemap, pages []sitePage) (siteBody, error) {
 		const text, xmlType = "text/plain; charset=utf-8", "application/xml; charset=utf-8"
 		switch p {
 		case "/llms.txt":
@@ -254,11 +254,11 @@ func (s *server) siteFile(c *tifa.Ctx, p string) error {
 	})
 }
 
-// markdownVersion answers the Markdown version of the page at rest in language: its title as a
+// markdownVersion answers the Markdown version of the page at rest in language, asked for at the
+// escaped path escaped: its title as a
 // heading and the Markdown of its content entry.
-func (s *server) markdownVersion(c *tifa.Ctx, language, rest string) error {
-	escaped := c.Request().URL.EscapedPath()
-	return s.siteAnswer(c, func(sm tifa.Sitemap, pages []sitePage) (siteBody, error) {
+func (s *server) markdownVersion(c *tifa.Ctx, escaped, language, rest string) error {
+	return s.siteAnswer(c, escaped, language, func(sm tifa.Sitemap, pages []sitePage) (siteBody, error) {
 		for _, p := range pages {
 			if p.body == nil || p.language != language || p.path != rest || markdownURL(p.url) != escaped {
 				continue

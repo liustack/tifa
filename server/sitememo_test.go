@@ -480,3 +480,23 @@ func TestListKeyLeavesTheFileOut(t *testing.T) {
 		t.Error("the key of a list lacks part of the list")
 	}
 }
+
+// An OnRequest that rewrites the path decides nothing: the file is the one the request asked for.
+func TestRewrittenPathDoesNotChangeTheFile(t *testing.T) {
+	app := siteApp()
+	app.Hooks.OnRequest = func(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+		if c.Request().URL.Path == "/llms.txt" {
+			c.Request().URL.Path = "/sitemap.xml"
+		}
+		return next(c)
+	}
+	s := newSiteServer(t, app, siteDist())
+	s.sitemap = (&theSite{sm: tifa.Sitemap{Name: "Shop", Exclude: []string{"/projects", "/store/journal/{post}"}}}).fn
+	rewritten := get(s, "/llms.txt")
+	if rewritten.Code != 200 || !strings.HasPrefix(rewritten.Body.String(), "# Shop") {
+		t.Fatalf("GET /llms.txt: %d %s", rewritten.Code, rewritten.Body.String())
+	}
+	if w := get(s, "/sitemap.xml"); w.Code != 200 || !strings.Contains(w.Body.String(), "<urlset") || w.Header().Get("ETag") == rewritten.Header().Get("ETag") {
+		t.Errorf("GET /sitemap.xml after it: %d %s", w.Code, w.Body.String())
+	}
+}
