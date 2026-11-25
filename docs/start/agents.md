@@ -1,5 +1,5 @@
 ---
-summary: 'How to work on a Tifa app with a coding agent: AGENTS.md, Tifa skill, Claude Code, Cursor, Codex, `tifa agents`, `tifa dev --background`'
+summary: 'Working on a Tifa app with a coding agent: AGENTS.md, Tifa skill, Claude Code, Cursor, Codex, `tifa agents`'
 audience: app
 order: 5
 read_when:

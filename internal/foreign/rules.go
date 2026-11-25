@@ -7,20 +7,20 @@ import (
 
 // Doc anchors, all in the docs of the Tifa version the app uses.
 const (
-	docFiles    = "docs/start/app.md#the-files-of-a-folder"
-	docFolders  = "docs/start/app.md#urls-come-from-folders"
-	docRouteGo  = "docs/pages-and-data/routes.md#routego"
-	docPage     = "docs/pages-and-data/pages.md#pagetsx"
-	docLink     = "docs/pages-and-data/pages.md#query-parameters-in-link-and-navigate"
-	docLayout   = "docs/pages-and-data/pages.md#layout"
-	docHandlers = "docs/pages-and-data/routes.md#method-handlers-with-input-and-result"
-	docCalling  = "docs/pages-and-data/pages.md#calling-method-handlers-from-the-browser"
+	docFiles    = "docs/pages-and-data/routing.md#the-files-of-a-folder"
+	docFolders  = "docs/pages-and-data/routing.md#urls-come-from-folders"
+	docRouteGo  = "docs/pages-and-data/loading-data.md#routego"
+	docPage     = "docs/pages-and-data/loading-data.md#pagetsx"
+	docLink     = "docs/pages-and-data/navigation.md#query-parameters-in-link-and-navigate"
+	docLayout   = "docs/pages-and-data/layouts.md#the-layout-of-a-folder"
+	docHandlers = "docs/pages-and-data/handlers.md#method-handlers-with-input-and-result"
+	docCalling  = "docs/pages-and-data/handlers.md#calling-method-handlers-from-the-browser"
 	docBrowser  = "docs/pages-and-data/server-render.md#components-that-draw-only-in-the-browser"
-	docCtx      = "docs/pages-and-data/routes.md#ctx"
+	docCtx      = "docs/reference/ctx.md#ctx"
 	docCache    = "docs/pages-and-data/ssr-and-cache.md#cache-for-cdns"
 	docSSR      = "docs/pages-and-data/ssr-and-cache.md#ssr-and-cache"
-	docErrors   = "docs/pages-and-data/pages.md#errors-on-a-page"
-	docNotFound = "docs/pages-and-data/pages.md#404"
+	docErrors   = "docs/pages-and-data/errors.md#errors-on-a-page"
+	docNotFound = "docs/pages-and-data/errors.md#404"
 	docHooks    = "docs/pages-and-data/hooks.md#hooksgo"
 	docWaiting  = "docs/pages-and-data/server-render.md#components-that-wait"
 	docContent  = "docs/pages-and-data/content.md#declaring-a-collection"
@@ -29,7 +29,7 @@ const (
 	docImages   = "docs/start/app.md#images-and-fonts"
 	docPublic   = "docs/start/app.md#static-files"
 	docLoading  = "docs/start/app.md#loading-states"
-	docHead     = "docs/pages-and-data/pages.md#title-and-meta-tags"
+	docHead     = "docs/pages-and-data/head.md#title-and-meta-tags"
 )
 
 // The Tifa way to load data, change data and link, which several rules repeat.
@@ -76,7 +76,7 @@ var importRules = []importRule{
 	{names: []string{"next/head", "next/document"}, Rule: Rule{
 		Says:    "{module} is a module of Next.js",
 		Instead: "a page exports head, such as export const head = () => ({ meta: [{ title: 'Orders' }] }), and the root layout.tsx exports documentHead, with htmlAttributes in it, for the document",
-		Doc:     docLayout}},
+		Doc:     docHead}},
 	{names: []string{"next/image"}, Rule: Rule{
 		Says:    "{module} is a module of Next.js",
 		Instead: "Tifa has no image component and does not resize images: write a plain <img> with width, height and loading=\"lazy\", and put the file in public/ or reference it from CSS",

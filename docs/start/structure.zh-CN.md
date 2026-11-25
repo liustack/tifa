@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的文件放在哪里：app/ 里的领域、hooks、共享资源、包的导入'
 audience: app
 order: 4
-translatedFrom: f681a85896d9
+translatedFrom: df38149d55e1
 read_when:
   - '新建 Tifa 应用'
   - '决定一个类型、一条查询或一个共享资源放在哪里'
@@ -45,7 +45,7 @@ myapp/
 ```
 
 - **代码放哪里。** 一个域在它的文件夹里有一个以它命名的文件：`app/projects/project.go` 里是 `package projects`。当一个域有列表页和每项一个页面时，它的代码放在列表文件夹（`orders/`）里，不放在单个条目的文件夹（`order+/`）里。列表文件夹不需要有页面：在 [examples/shop](../../examples/shop) 里，订单列在项目页面上，`orders/` 里有这个域，以及创建订单的 `POST`。
-- **包名。** 字面的文件夹用它自己的名字（`projects`、`orders`）。参数文件夹用参数名（`project+` 里是 `package project`），和 [app.md](app.zh-CN.md#urls-come-from-folders) 里一样。
+- **包名。** 字面的文件夹用它自己的名字（`projects`、`orders`）。参数文件夹用参数名（`project+` 里是 `package project`），和 [app.md](../pages-and-data/routing.zh-CN.md#urls-come-from-folders) 里一样。
 - **页面使用域。** 同一个文件夹里的页面是同一个包，直接调用域。下面的页面则导入它：
 
   ```go

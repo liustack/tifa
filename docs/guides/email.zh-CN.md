@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 Tifa 应用里用纯 Go 的库通过 SMTP 发邮件：SMTP、mail.go、后台任务、同一个事务'
+summary: '怎样在 Tifa 应用里通过 SMTP 发邮件：SMTP、mail.go、后台任务、同一个事务'
 audience: app
 order: 5
-translatedFrom: aaffcd272fc6
+translatedFrom: 12788c5ad17b
 read_when:
   - '从 Tifa 应用发欢迎邮件、收据、密码重置或其他任何邮件'
   - '添加 SMTP 设置，或者不让 SMTP 密码出现在代码里'

@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 Tifa 应用里做请求之外的工作：OnStart 里的循环、OnShutdown、定时器、会重试的 SQLite jobs 表'
+summary: '怎样在 Tifa 应用里做请求之外的工作：OnStart 里的循环、OnShutdown、定时器、SQLite jobs 表'
 audience: app
 order: 6
-translatedFrom: 94fee4658df7
+translatedFrom: a7d4d0c41363
 read_when:
   - '发邮件、调用慢的服务，或者做任何不该让访客等待的工作'
   - '在 Tifa 应用里每分钟、每小时或每天运行某件事'

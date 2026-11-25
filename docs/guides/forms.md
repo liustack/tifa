@@ -1,5 +1,5 @@
 ---
-summary: 'How to build a form in a Tifa app: method handler, tifa.Fields errors, useActionState, useOptimistic'
+summary: 'Build a form: method handler, tifa.Fields errors, useActionState, useOptimistic'
 audience: app
 order: 1
 read_when:
@@ -12,7 +12,7 @@ read_when:
 
 A guestbook. The visitor types a name and a message, the Go side checks them and keeps the message, and the page shows it. By the end the form shows an error under each wrong input, disables its button while it sends, shows the new message at once and loads the real list when the server has answered.
 
-The code was run as written. It is two files. The reference docs say what each call does: [method handlers](../pages-and-data/routes.md#method-handlers-with-input-and-result), [calling them from the browser](../pages-and-data/pages.md#calling-method-handlers-from-the-browser).
+The code was run as written. It is two files. The reference docs say what each call does: [method handlers](../pages-and-data/handlers.md#method-handlers-with-input-and-result), [calling them from the browser](../pages-and-data/handlers.md#calling-method-handlers-from-the-browser).
 
 ## The Go side
 
@@ -198,7 +198,7 @@ What happens when the visitor presses the button:
 1. React calls the function you gave `useActionState` with the form data, inside a transition. `useFormStatus` reports `pending`, so the button is disabled and says "Sending…".
 2. `addOptimistic` puts the new message on top of the list, dimmed. It must be called inside the action (see [useOptimistic](https://react.dev/reference/react/useOptimistic)).
 3. `POST` sends the input as JSON. If Go refuses it, the call throws a `TifaError`. `e.fields` holds the messages of the `tifa.Fields`, one per input, and `e.message` is the text for any other error.
-4. On success, `router.invalidate({ sync: true })` loads the page data again and resolves when the page shows it. Only then does the action end, and the dimmed message is replaced by the real one. See [reloading page data](../pages-and-data/pages.md#pagetsx).
+4. On success, `router.invalidate({ sync: true })` loads the page data again and resolves when the page shows it. Only then does the action end, and the dimmed message is replaced by the real one. See [reloading page data](../pages-and-data/loading-data.md#pagetsx).
 5. On failure the action returns the typed values and the messages. The optimistic message goes away by itself, because the action ended without new page data.
 
 ## Decisions

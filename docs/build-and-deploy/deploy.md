@@ -1,5 +1,5 @@
 ---
-summary: 'How to put a Tifa app on a server: `tifa deploy`, ssh, systemd, GitHub Actions, Cloudflare, health check, Prometheus'
+summary: 'Put a Tifa app on a server: `tifa deploy`, ssh, systemd, GitHub Actions, Cloudflare, health check'
 audience: app
 order: 3
 read_when:

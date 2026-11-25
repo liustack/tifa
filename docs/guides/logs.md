@@ -1,5 +1,5 @@
 ---
-summary: 'Where the logs of a Tifa app are and how to write them: `tifa dev`, `log/slog`, format, level, `tifa.SetHTTPHandler`'
+summary: 'Where the logs are and how to write them: `tifa dev`, `log/slog`, format, level'
 audience: app
 order: 11
 read_when:

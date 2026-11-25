@@ -1,7 +1,7 @@
 ---
 summary: 'How sessions work in a Tifa app: cookie, memory store, Redis or SQL store, `tifa.SetSessionStore`'
 audience: app
-order: 5
+order: 10
 read_when:
   - Signing users in and out, or reading who is signed in
   - Keeping sessions in Redis, SQL or a file instead of the memory of the process, or writing a store for tifa.SetSessionStore

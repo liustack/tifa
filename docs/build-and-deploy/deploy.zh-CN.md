@@ -1,8 +1,8 @@
 ---
-summary: '怎样把 Tifa 应用放到服务器上：`tifa deploy`、ssh、systemd、GitHub Actions、Cloudflare、健康检查、Prometheus'
+summary: '怎样把 Tifa 应用放到服务器上：`tifa deploy`、ssh、systemd、GitHub Actions、Cloudflare、健康检查'
 audience: app
 order: 3
-translatedFrom: f224a4fb8d11
+translatedFrom: 0d9648ce60c6
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'

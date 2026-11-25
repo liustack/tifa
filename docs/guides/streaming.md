@@ -1,5 +1,5 @@
 ---
-summary: 'How to send an answer while it is being made in a Tifa app: server-sent events, streamed replies, Memo, Cache'
+summary: 'Send an answer while it is being made: server-sent events, streamed replies, Memo, Cache'
 audience: app
 order: 9
 read_when:
@@ -12,7 +12,7 @@ read_when:
 
 A page that shows the time of the server, updated every second, and answers a question word by word, the way a language model writes. The first is a stream of server-sent events that stays open. The second is an answer that is sent while it is being made, and ends.
 
-The code was run as written, in an app made with `tifa new`. The reference docs for the calls used here: [method handlers](../pages-and-data/routes.md#method-handlers-with-input-and-result), [Long requests](../build-and-deploy/config.md#long-requests).
+The code was run as written, in an app made with `tifa new`. The reference docs for the calls used here: [method handlers](../pages-and-data/handlers.md#method-handlers-with-input-and-result), [Long requests](../build-and-deploy/config.md#long-requests).
 
 ## What Tifa does for a stream
 

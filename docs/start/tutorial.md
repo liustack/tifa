@@ -1,5 +1,5 @@
 ---
-summary: 'A getting-started tutorial: `tifa new`, `tifa dev`, a page, a form, tests, one executable'
+summary: 'Getting started: `tifa new`, `tifa dev`, a page, a form, tests, one executable'
 audience: app
 order: 1
 read_when:
@@ -78,7 +78,7 @@ Look at `AddTodo` in `app/page.tsx`. After `POST` succeeds it calls `router.inva
       await router.invalidate({ sync: true })
 ```
 
-This is the rule to remember: Tifa never reloads page data after a write on its own, so the page has to ask. Without that line the todo is saved but the list stays old until you reload. `router.invalidate` loads the page and its Layouts again in one request, and `sync: true` waits until the page shows the new data. The button on `/todos/1` that marks a todo done does the same. Every write you add needs the same line. See [Calling method handlers from the browser](../pages-and-data/pages.md#calling-method-handlers-from-the-browser).
+This is the rule to remember: Tifa never reloads page data after a write on its own, so the page has to ask. Without that line the todo is saved but the list stays old until you reload. `router.invalidate` loads the page and its Layouts again in one request, and `sync: true` waits until the page shows the new data. The button on `/todos/1` that marks a todo done does the same. Every write you add needs the same line. See [Calling method handlers from the browser](../pages-and-data/handlers.md#calling-method-handlers-from-the-browser).
 
 ## 3. Add a page
 
@@ -165,7 +165,7 @@ In `app/layout.tsx`, add a link to the nav:
 
 Save `page.tsx` before or together with `route.go`. A `route.go` with a `Load` and no `page.tsx` fails the build with `Load is not allowed without page.tsx`, and `tifa dev` prints that line until the page exists.
 
-Open `/todos/1`, mark the todo done, then press Done in the nav. The todo is there. `page.useLoaderData()` is typed from what `Load` returns. Step 7 shows what happens when the Go type changes. See [route.go](../pages-and-data/routes.md#routego) and [page.tsx](../pages-and-data/pages.md#pagetsx).
+Open `/todos/1`, mark the todo done, then press Done in the nav. The todo is there. `page.useLoaderData()` is typed from what `Load` returns. Step 7 shows what happens when the Go type changes. See [route.go](../pages-and-data/loading-data.md#routego) and [page.tsx](../pages-and-data/loading-data.md#pagetsx).
 
 ## 4. A form with field errors
 
@@ -287,7 +287,7 @@ function RenameForm() {
 
 On `/todos/1`, clear the box and press Save: "Write what needs doing." shows under it. Type "Buy oat milk" and press Save: the heading changes. The browser shows the 422 in its console, which is the answer working as designed.
 
-A `tifa.Fields` reaches the browser as a `TifaError` whose `fields` hold the messages. Any other error from `Validate` is a 400 with its text in `message`. See [Method handlers with input and result](../pages-and-data/routes.md#method-handlers-with-input-and-result).
+A `tifa.Fields` reaches the browser as a `TifaError` whose `fields` hold the messages. Any other error from `Validate` is a 400 with its text in `message`. See [Method handlers with input and result](../pages-and-data/handlers.md#method-handlers-with-input-and-result).
 
 ## 5. Data in the Layout
 
@@ -342,7 +342,7 @@ And read it in `app/layout.tsx`:
 
 Add a todo and watch the nav: `Todos (1)`. Mark it done: `Todos (0)` and `Done (1)`. The numbers move because of the `router.invalidate` calls from step 2, which load the Layouts again too.
 
-If `tifa dev` prints a long "Hydration failed" message right after you save `layout.tsx`, it came from the tab that was open during the change. Reload the page and it is gone. See [Layout](../pages-and-data/pages.md#layout) and [Log](../build-and-deploy/dev.md#log).
+If `tifa dev` prints a long "Hydration failed" message right after you save `layout.tsx`, it came from the tab that was open during the change. Reload the page and it is gone. See [Layout](../pages-and-data/layouts.md#the-layout-of-a-folder) and [Log](../build-and-deploy/dev.md#log).
 
 ## 6. Tests
 

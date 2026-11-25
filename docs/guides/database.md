@@ -1,5 +1,5 @@
 ---
-summary: 'How to keep data in a Tifa app with SQLite: migrations, `database is locked`, `db.backup` to R2 or S3, Postgres'
+summary: 'Keep data with SQLite: migrations, `database is locked`, `db.backup` to R2 or S3, Postgres'
 audience: app
 order: 2
 read_when:
@@ -232,7 +232,7 @@ func Load(c *tifa.Ctx) (todos.Todo, error) {
 }
 ```
 
-- A missing row becomes `tifa.ErrNotFound`, which answers 404 ([route.go](../pages-and-data/routes.md#routego)).
+- A missing row becomes `tifa.ErrNotFound`, which answers 404 ([route.go](../pages-and-data/loading-data.md#routego)).
 - `Load` only reads. A `Load` can run more than once for one visit (navigation, the page cache), so writes belong in `POST`, `PUT`, `PATCH` and `DELETE` handlers.
 - Use `?` placeholders for every value that comes from a request. Never build SQL with string concatenation.
 - `QueryRowContext` with `RETURNING` does an insert and reads the new row in one call, as `AddTodo` in the `tifa new` app does.

@@ -1,8 +1,8 @@
 ---
 summary: '怎样用 go test 测试应用：tifatest.NewCtx、tifatest.Start、Load、OnRequest、时钟'
 audience: app
-order: 9
-translatedFrom: c5dfb7397fba
+order: 14
+translatedFrom: 2ef1dd4ed293
 read_when:
   - '为 Load、布局函数、方法处理函数或 OnRequest 写 Go 测试'
   - '在 go test 里用 tifatest.Start 或 tifatest.StartPages 测试一次完整的请求，比如登录后跟随重定向'
@@ -78,7 +78,7 @@ func TestSignInLeadsBackToTheWorkbench(t *testing.T) {
 - `srv.Client()` 信任服务器的证书，保留服务器设置的 cookie，并且不跟随重定向，所以测试能看到每个 3xx 和它的 `Location`。
 - 服务器在本机上监听 HTTPS。Tifa 的设置就是程序的设置，来自默认值和 `tifa.yaml`，只有地址和 HTTPS 例外。应用的选项保持默认值，因为命令行参数和环境变量到不了测试里，所以要在 `Start` 之前设置变量：`myapp.DBPath = filepath.Join(t.TempDir(), "test.db")`。
 - 没有前端时，页面把它的 `Load` 和 `Layout` 函数的结果按路由 ID 用 JSON 作为响应：`{"app/layout": …, "app/projects/project+/stats/route": …}`。方法处理函数的响应和在程序里一样。
-- 大于 2^53 的数字只在页面读取它的地方才会被拒绝（见 [JSON 规则](routes.zh-CN.md#json-rules)）。用 `Start` 时，`Load` 的响应按页面的规则检查，而处理函数只有在请求设置了 `X-Tifa-Call: 1` 头时才检查，页面生成的函数就是这样做的。要确认一个结果完整地到达浏览器，就带着这个头向处理函数 POST，期望得到 200 和那个字符串。用 `StartPages` 的测试会得到针对页面的检查。
+- 大于 2^53 的数字只在页面读取它的地方才会被拒绝（见 [JSON 规则](../reference/json.zh-CN.md)）。用 `Start` 时，`Load` 的响应按页面的规则检查，而处理函数只有在请求设置了 `X-Tifa-Call: 1` 头时才检查，页面生成的函数就是这样做的。要确认一个结果完整地到达浏览器，就带着这个头向处理函数 POST，期望得到 200 和那个字符串。用 `StartPages` 的测试会得到针对页面的检查。
 - 每次 `Start` 都新建一个服务器，带着它自己的会话，除非 `OnStart` 设置了存储。每个测试二进制同一时间只有一个应用，因为会话存储、`SetHTTPHandler` 和内容都属于进程，所以调用 `Start` 的测试不能调用 `t.Parallel`。
 - 当 `.tifa/tifaapp` 是用和现在代码不同的路由生成的，`Start` 会让测试失败。请再运行一次 `go tool tifa check`，或者让 `tifa dev` 一直运行。在全新的检出里 `.tifa` 不存在，在 `tifa check` 写出它之前，`go vet`、`go test` 和 `go mod tidy` 都会因为这个导入而失败。`tifa check` 在运行 `go vet` 和 `go test` 之前先生成，所以它不需要先做任何事。
 

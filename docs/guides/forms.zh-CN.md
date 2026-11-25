@@ -2,7 +2,7 @@
 summary: '怎样在 Tifa 应用里做一个表单：方法处理函数、tifa.Fields 错误、useActionState、useOptimistic'
 audience: app
 order: 1
-translatedFrom: af03d9f15173
+translatedFrom: 7a4271549880
 read_when:
   - '添加一个创建或修改数据的表单，想要从输入框到屏幕上错误信息的完整路径'
   - '表单不显示字段错误、按钮可以点两次，或者表单发送后列表没有变化'
@@ -13,7 +13,7 @@ read_when:
 
 一本留言簿。访客输入名字和留言，Go 一侧检查并保存留言，页面显示它。做完之后，表单会在每个错误的输入下面显示错误，发送时禁用按钮，立刻显示新留言，并在服务器回答之后加载真实的列表。
 
-这些代码是照写出来的样子运行过的。一共两个文件。参考文档说明了每个调用做什么：[方法处理函数](../pages-and-data/routes.zh-CN.md#method-handlers-with-input-and-result)、[从浏览器调用它们](../pages-and-data/pages.zh-CN.md#calling-method-handlers-from-the-browser)。
+这些代码是照写出来的样子运行过的。一共两个文件。参考文档说明了每个调用做什么：[方法处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result)、[从浏览器调用它们](../pages-and-data/handlers.zh-CN.md#calling-method-handlers-from-the-browser)。
 
 ## Go 一侧 {#the-go-side}
 
@@ -199,7 +199,7 @@ function Field({ label, name, state }: { label: string; name: 'name' | 'text'; s
 1. React 在一个 transition 里，用表单数据调用你给 `useActionState` 的函数。`useFormStatus` 报告 `pending`，所以按钮被禁用，并显示「Sending…」。
 2. `addOptimistic` 把新留言放在列表最上面，调暗显示。它必须在 action 里调用（见 [useOptimistic](https://react.dev/reference/react/useOptimistic)）。
 3. `POST` 把输入作为 JSON 发出。如果 Go 拒绝了它，这个调用会抛出 `TifaError`。`e.fields` 放着 `tifa.Fields` 的消息，每个输入一条，`e.message` 是其他任何错误的文字。
-4. 成功时，`router.invalidate({ sync: true })` 重新加载页面数据，并在页面显示它时完成。到那时 action 才结束，调暗的留言被真实的留言替换。见 [重新加载页面数据](../pages-and-data/pages.zh-CN.md#pagetsx)。
+4. 成功时，`router.invalidate({ sync: true })` 重新加载页面数据，并在页面显示它时完成。到那时 action 才结束，调暗的留言被真实的留言替换。见 [重新加载页面数据](../pages-and-data/loading-data.zh-CN.md#pagetsx)。
 5. 失败时，action 返回输入的值和消息。乐观的留言会自己消失，因为 action 结束时没有新的页面数据。
 
 ## 取舍 {#decisions}

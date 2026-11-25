@@ -1,7 +1,7 @@
 ---
 summary: 'What the server render has and lacks: beastjs APIs, Node modules, Intl, Temporal, hydration'
 audience: app
-order: 7
+order: 12
 read_when:
   - A page fails to render on the server or does not hydrate, and you want to know which browser APIs and library features the server has
   - A component shows nothing until the browser draws it, such as a chart or a map, and you wonder whether to render it on the server

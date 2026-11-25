@@ -24,7 +24,7 @@ func TestCheckSaysWhatTheTifaWayIsForOtherFrameworksHandlers(t *testing.T) {
 	for _, want := range []string{
 		"app/handlers/route.go:11: GET has the signature of a gin handler. In Tifa: ",
 		"app/svelte/+page.svelte:1: +page.svelte is a file of SvelteKit. In Tifa: ",
-		"app/next2/page.js:1: page.js is the page file of Next.js. In Tifa: Tifa reads only page.tsx for a page and layout.tsx for a Layout. See docs/start/app.md#the-files-of-a-folder (warning)",
+		"app/next2/page.js:1: page.js is the page file of Next.js. In Tifa: Tifa reads only page.tsx for a page and layout.tsx for a Layout. See docs/pages-and-data/routing.md#the-files-of-a-folder (warning)",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, stderr)

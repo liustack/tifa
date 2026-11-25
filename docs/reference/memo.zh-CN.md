@@ -1,8 +1,8 @@
 ---
-summary: '渲染记忆是什么，以及它和 Cache 有什么不同：`ssr.memo_size`、ETag、查询参数、登录后的页面、限制'
+summary: '渲染记忆是什么，以及它和 Cache 有什么不同：`ssr.memo_size`、ETag、查询参数、登录后的页面'
 audience: app
 order: 1
-translatedFrom: fe93ce00edaf
+translatedFrom: cecf0c73bb46
 read_when:
   - '想知道为什么叫记忆而不叫缓存，或者它会不会显示旧页面'
   - '想知道被记住的页面会不会把一位访客的数据显示给另一位，或者到达 CDN'
@@ -55,7 +55,7 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 页面能看到的查询参数，是它的 `Load` 和上面的布局函数用 `c.Query` 或 `c.QueryValues` 读取的那些。`tifa build` 会找出它们。服务端渲染只拿到路径和这些参数，按名字排序，同名参数的多个值保持请求里的顺序，键里放的也是同样的内容。其他每个参数在渲染之前就被丢掉，也不在键里。地址栏里每个参数都保持访客写的样子（`a%20b` 还是 `a%20b`），不管是一种语言还是几种。`OnRequest`、`Load` 和方法处理函数看到的是原样的请求。
 
 - **跟踪参数不会增加键，也不会触发服务端渲染。** 页面上的 `?utm_source=mail`、`?fbclid=...` 或 `?x=random` 和不带它们的页面得到同一个键，memo 直接回答。`Load` 仍然在每个请求上运行。参数顺序不同，键也相同。
-- **要按某个参数来渲染，就在 `Load` 里读它。** 没有任何 `Load` 读的参数改变不了数据，所以渲染不需要它。在组件里按名字读，比如用 `route.gen` 里该路由的 `useSearch` 写 `page.useSearch().q`。这个 `useSearch` 带有 `Load` 读取的那些参数的类型，同时放行其他任何参数，所以它不会让别的参数变得安全。见 [Link 和 navigate 里的查询参数](../pages-and-data/pages.zh-CN.md#query-parameters-in-link-and-navigate)。
+- **要按某个参数来渲染，就在 `Load` 里读它。** 没有任何 `Load` 读的参数改变不了数据，所以渲染不需要它。在组件里按名字读，比如用 `route.gen` 里该路由的 `useSearch` 写 `page.useSearch().q`。这个 `useSearch` 带有 `Load` 读取的那些参数的类型，同时放行其他任何参数，所以它不会让别的参数变得安全。见 [Link 和 navigate 里的查询参数](../pages-and-data/navigation.zh-CN.md#query-parameters-in-link-and-navigate)。
 - **读取其他参数的组件，水合时结果会不同。** 服务器渲染时没有这个参数，浏览器里有，所以 React 会报水合错误，并在浏览器里把这部分重新渲染。`tifa build` 会发出警告，带上文件和行号，指出这些渲染时的读取：服务器渲染那段代码时没有的参数，按名字通过 `useLocation`、`useRouterState`、`useSearch({ strict: false })` 或路由的 `useSearch` 读取，以及读取位置的整个 `search`、`searchStr` 或 `href`。它拿 `page.tsx` 和 `layout.tsx` 对照它们自己的参数检查，对其他模块里的每一处这样的读取都警告，因为那些模块可能在任何页面下渲染。在 `useEffect` 或 `useLayoutEffect` 里读取只在浏览器里运行，可以通过。这项检查一次只看一个模块，所以它调用的辅助函数里的读取看不到。这样的参数要在 `Load` 里读，或者只有浏览器需要时在 effect 里读。
 - **重定向保留 URL。** 路由把一个 URL 的另一种写法（如 `/%61`）重定向到它自己的写法时，重定向会把渲染没有看到的参数补回去。
 - **没有 SSR 的页面**（`SSR = false`）不在服务器上渲染，它的文档带着原样的 URL。
@@ -87,7 +87,7 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 
 多个请求同时没命中 memo，而且构建版本、URL 和数据都一样时（比如部署后一下子涌进来一批访客），它们共用一次渲染。每个请求仍然运行自己的中间件和 `Load`，保留它们设置的头（如 `Set-Cookie` 和 `Vary`），并拿到自己接受的编码。`ssr.memo_size` 为 0、页面太大放不进 memo、以及 `tifa dev` 下，这一点同样成立。数据不同或会话不同的请求各自渲染，`Memo = false` 的页面对每个请求都渲染。
 
-共享的那次渲染失败时，所有等它的请求都会得到同一个错误，并进入 `OnError`，panic 也一样。什么都不会保存，所以下一个请求会重新渲染。例外是组件抛了错，或渲染用光了 `ssr.vm_memory`：构建好的应用会把这次失败记住 5 秒（见 [页面上的错误](../pages-and-data/pages.zh-CN.md#errors-on-a-page)）。客户端走掉的请求会立刻停止等待，连接被切断，不发送任何响应：`OnRequest` 里的 `next(c)` 返回一个匹配 `context.Canceled` 的错误，但不会调用 `OnError`，也不记日志。渲染继续为其他请求进行。自己的截止时间在等待中到期的请求，和其他错误一样失败。没有任何请求在等之后，还在等 VM 的渲染会被丢弃，已经在运行的会跑完并存入 memo。如果这时它失败了，没有请求会把错误报给 `OnError`，所以会写日志。
+共享的那次渲染失败时，所有等它的请求都会得到同一个错误，并进入 `OnError`，panic 也一样。什么都不会保存，所以下一个请求会重新渲染。例外是组件抛了错，或渲染用光了 `ssr.vm_memory`：构建好的应用会把这次失败记住 5 秒（见 [页面上的错误](../pages-and-data/errors.zh-CN.md#errors-on-a-page)）。客户端走掉的请求会立刻停止等待，连接被切断，不发送任何响应：`OnRequest` 里的 `next(c)` 返回一个匹配 `context.Canceled` 的错误，但不会调用 `OnError`，也不记日志。渲染继续为其他请求进行。自己的截止时间在等待中到期的请求，和其他错误一样失败。没有任何请求在等之后，还在等 VM 的渲染会被丢弃，已经在运行的会跑完并存入 memo。如果这时它失败了，没有请求会把错误报给 `OnError`，所以会写日志。
 
 ## 限制 {#limits}
 

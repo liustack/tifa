@@ -111,8 +111,9 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 - The shape it alone can write, pages at the same URL level that share a Layout other pages at that level do not have, can be written today with a remount of the frame as its cost.
 
 **Instead.**
-- [`layout_.tsx`](../pages-and-data/pages.md#a-layout-without-the-layouts-above) for a part of the site with a frame of its own.
+- [`layout_.tsx`](../pages-and-data/layouts.md#a-layout-without-the-layouts-above) for a part of the site with a frame of its own.
 - For folders at the same URL level that share a frame: a URL prefix (`/app/settings`), or a Layout in each folder that renders the same component. The second remounts the frame and loads its data again when the visitor moves between the folders.
+- Each case is written out in [Instead of route groups](../pages-and-data/layouts.md#instead-of-route-groups).
 
 **Not to be reopened.** The docs for apps say that route groups are not planned, so apps are written on that.
 
@@ -133,7 +134,7 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 - A 404 is one status among others, so the export that shows errors shows it too, as in SvelteKit and React Router.
 - With two generated modules, a folder that only has method handlers would need a third name.
 
-**Instead.** `route.go` holds every Go name of the folder, `ErrorBoundary` shows every status, and each folder has one `./route.gen`: [The files of a folder](../start/app.md#the-files-of-a-folder).
+**Instead.** `route.go` holds every Go name of the folder, `ErrorBoundary` shows every status, and each folder has one `./route.gen`: [The files of a folder](../pages-and-data/routing.md#the-files-of-a-folder).
 
 ## Generated types by a module name or a path string
 
@@ -149,7 +150,7 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 
 **Why not.** A folder under `app/` is a Go package. An element of a Go import path may only hold letters, digits and `- . _ ~ +`, and the go command skips folders that start with `_` or `.`.
 
-**Instead.** `order+` for a parameter and `path++` for the rest of the path: [URLs come from folders](../start/app.md#urls-come-from-folders).
+**Instead.** `order+` for a parameter and `path++` for the rest of the path: [URLs come from folders](../pages-and-data/routing.md#urls-come-from-folders).
 
 ## The title and meta tags as elements in a component
 
@@ -157,7 +158,7 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 
 **Why not.** Tifa writes the head of the document as a string, the heads of nested routes are merged, and a 404 or error page needs a head when its component did not render.
 
-**Instead.** The `head` export and `documentHead` of the root Layout. The build warns about a `<title>` or `<meta>` written as JSX: [Title and meta tags](../pages-and-data/pages.md#title-and-meta-tags).
+**Instead.** The `head` export and `documentHead` of the root Layout. The build warns about a `<title>` or `<meta>` written as JSX: [Title and meta tags](../pages-and-data/head.md#title-and-meta-tags).
 
 ## Renaming the head export to metadata
 
@@ -168,7 +169,7 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 - `metadata` in Next.js is an object of meanings (`title`, `description`, `openGraph`) that Next.js turns into tags. `head` returns the tags themselves (`meta`, `links`, `styles`, `scripts`). Under the name `metadata`, people and agents would write the shape of Next.js.
 - The build warns about an exported `metadata` object and says to write `head`. With the same name for another shape it could not.
 
-**Instead.** [`head`](../pages-and-data/pages.md#title-and-meta-tags).
+**Instead.** [`head`](../pages-and-data/head.md#title-and-meta-tags).
 
 **Reopen when** Tifa stops passing `head` to TanStack Router and takes an object of meanings.
 
@@ -186,7 +187,7 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 
 **Why not.** What a request can set needs no constant, and no app used `LayoutSSR`.
 
-**Instead.** `c.SetBodyLimit` and `c.SetReadTimeout` in `OnRequest` ([Body limit and read time of a route](../pages-and-data/routes.md#body-limit-and-read-time-of-a-route)), and `const SSR = false` on each page. `SSR`, `Cache` and `Memo` stay, because the build needs them.
+**Instead.** `c.SetBodyLimit` and `c.SetReadTimeout` in `OnRequest` ([Body limit and read time of a route](../pages-and-data/handlers.md#body-limit-and-read-time-of-a-route)), and `const SSR = false` on each page. `SSR`, `Cache` and `Memo` stay, because the build needs them.
 
 ## Loading page data again after a write
 
@@ -194,7 +195,7 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 
 **Why not.** Tifa does not know what a write changed, and every request sent on a guess is load on the server. TanStack Router, which Tifa follows in the browser, has no such step.
 
-**Instead.** The page calls `router.invalidate()` when it should show what the write changed: [Calling method handlers from the browser](../pages-and-data/pages.md#calling-method-handlers-from-the-browser).
+**Instead.** The page calls `router.invalidate()` when it should show what the write changed: [Calling method handlers from the browser](../pages-and-data/handlers.md#calling-method-handlers-from-the-browser).
 
 ## Agent hooks written by tifa new
 

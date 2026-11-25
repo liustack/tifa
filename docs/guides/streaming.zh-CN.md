@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 Tifa 应用里边生成边发送答复：server-sent events、流式答复、Memo、Cache'
+summary: '怎样边生成边发送答复：server-sent events、流式答复、Memo、Cache'
 audience: app
 order: 9
-translatedFrom: c9506dc26395
+translatedFrom: ec0bdff6d9e2
 read_when:
   - '向打开的页面推送实时更新，比如时钟、计数器或新订单'
   - '把语言模型的回复一个词一个词地显示出来'
@@ -13,7 +13,7 @@ read_when:
 
 一个页面显示服务器的时间，每秒更新一次，还像语言模型写字那样一个词一个词地回答问题。第一个是一直开着的 server-sent events 流。第二个是边生成边发送、然后结束的响应。
 
-这些代码是照写出来的样子，在用 `tifa new` 建的应用里运行过的。这里用到的调用的参考文档：[方法处理函数](../pages-and-data/routes.zh-CN.md#method-handlers-with-input-and-result)、[长请求](../build-and-deploy/config.zh-CN.md#long-requests)。
+这些代码是照写出来的样子，在用 `tifa new` 建的应用里运行过的。这里用到的调用的参考文档：[方法处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result)、[长请求](../build-and-deploy/config.zh-CN.md#long-requests)。
 
 ## Tifa 为流做了什么 {#what-tifa-does-for-a-stream}
 

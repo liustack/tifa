@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa 应用每一项设置的含义和设置位置：tifa.yaml、参数、环境变量、.env、server.csp、HTTPS、跨站写入'
+summary: '每一项设置的含义和设置位置：tifa.yaml、参数、环境变量、.env、server.csp、HTTPS、跨站写入'
 audience: app
 order: 4
-translatedFrom: 1a8e6b2e5f61
+translatedFrom: 4daa8d4eea96
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -117,7 +117,7 @@ Cloud Run、Heroku、Render、Railway 和 Fly 这样的托管平台，通过 `PO
 | `i18n.prefix` | `off` | 仅项目文件 | `always` 会把语言放进每个有语言的路由的 URL，默认语言也不例外：`/store` 会以 308 跳转到 `/zh-CN/store`。`off` 让默认语言没有前缀。不在任何区域里的路由，两种模式下都没有前缀 |
 | `site.url` | 无 | 仅项目文件 | 站点对外提供服务的协议和主机，比如 `https://shop.example.com`，不带路径。有多种语言的站点需要它，没有它 `tifa build` 会失败。它把站点标记为公开：每个页面得到一个 canonical 链接和一个 `og:url` meta，程序提供 `/sitemap.xml`、默认的 `/robots.txt`、`/llms.txt`、`/llms-full.txt` 和内容页面的 Markdown 版本。没有它就没有这些。见[搜索引擎与语言模型](../guides/seo.zh-CN.md) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听的地址。在容器里用 `0.0.0.0:9527`。开启 [HTTPS](#https) 时，它提供的是 HTTPS，必须设置，通常是 `:443` |
-| `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体的最大大小。更大的会以 413 回答。`OnRequest` 里的 `c.SetBodyLimit` 可以为一个请求设置自己的，见 [routes.md](../pages-and-data/routes.zh-CN.md#body-limit-and-read-time-of-a-route) |
+| `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体的最大大小。更大的会以 413 回答。`OnRequest` 里的 `c.SetBodyLimit` 可以为一个请求设置自己的，见 [handlers.md](../pages-and-data/handlers.zh-CN.md#body-limit-and-read-time-of-a-route) |
 | `server.read_timeout` | `10s` | `--server-read-timeout`、`SERVER_READ_TIMEOUT` | 读完整个请求（包括请求体）的时间，从连接被接受起算。超过之后仍在到来的请求体会读取失败。见[长请求](#long-requests) |
 | `server.write_timeout` | `10s` | `--server-write-timeout`、`SERVER_WRITE_TIMEOUT` | 从请求头结束到响应结束的时间。超过之后仍在写的响应会被切断。见[长请求](#long-requests) |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`SERVER_SHUTDOWN_TIMEOUT` | 收到停止信号后，正在处理的请求用来完成的时间，之后是 `OnShutdown` 得到的时间。时间到了仍在运行的请求会被取消，并再得到一个 `shutdown_timeout` 的时间来返回。`OnShutdown` 在它们返回之后运行，没有返回就跳过。不管哪种，程序都以状态 1 退出 |
@@ -279,7 +279,7 @@ func POST(c *tifa.Ctx) error {
 - 要在截止时间过去之前移动它，也就是在处理函数一开始。在 HTTP/2 上，已经过去的写截止时间已经结束了响应，已经过去的读截止时间已经切断了请求体：新设一个并不能把它们找回来。同样的代码在 HTTP/1.1 上能工作，所以这个错误只在开了 HTTPS 时才显现。
 - 在两次写之间要等待的流（等事件或等语言模型），在等待时清掉写截止时间，并在每次写的前后设一个，这样不再读取的客户端不会永远占着处理函数，见[流式传输](../guides/streaming.zh-CN.md)。
 - 写超时从请求头结束起算，所以读长请求体的处理函数要把两个都放宽：它的响应是在请求体之后写的。
-- 带类型输入的处理函数，它的请求体在它运行之前就读完了，所以在处理函数里设置的截止时间对请求体来说太晚了。请改为在 `OnRequest` 里调用 `c.SetReadTimeout`，它在任何东西读取请求体之前放宽两个截止时间，见[路由的请求体限制和读取时间](../pages-and-data/routes.zh-CN.md#body-limit-and-read-time-of-a-route)和[上传](../guides/uploads.zh-CN.md#the-settings-and-the-body-limit)。
+- 带类型输入的处理函数，它的请求体在它运行之前就读完了，所以在处理函数里设置的截止时间对请求体来说太晚了。请改为在 `OnRequest` 里调用 `c.SetReadTimeout`，它在任何东西读取请求体之前放宽两个截止时间，见[路由的请求体限制和读取时间](../pages-and-data/handlers.zh-CN.md#body-limit-and-read-time-of-a-route)和[上传](../guides/uploads.zh-CN.md#the-settings-and-the-body-limit)。
 - `c.Writer()` 通过 Tifa 的 writer 和压缩层一路到达连接。
 - 前面的代理有它自己的超时，比如 nginx 的 `proxy_read_timeout` 的 60 秒。请为同样的路径把它们调高。
 

@@ -1,7 +1,7 @@
 ---
 summary: 'How a page is rendered and kept: SSR, Memo, Cache, Cache-Control, CDN, private pages'
 audience: app
-order: 8
+order: 13
 read_when:
   - Turning server render, the render memo or `Cache` on or off for a page with `SSR`, `Memo` or `Cache`
   - Letting a CDN keep a public page for a few minutes with `const Cache`, what becomes anonymous on it, or the build error about reading a cookie or the session on such a page

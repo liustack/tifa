@@ -2,7 +2,7 @@
 summary: '入门教程：`tifa new`、`tifa dev`、页面、表单、测试、一个可执行文件'
 audience: app
 order: 1
-translatedFrom: e32e66887fed
+translatedFrom: 8bbf95645177
 read_when:
   - '第一次用 Tifa，想从头跟着做一个应用'
   - '编写或检查新用户从 `tifa new` 到跑起可执行文件的步骤'
@@ -79,7 +79,7 @@ tifa dev: 19:57:44 ready in 804ms
       await router.invalidate({ sync: true })
 ```
 
-这是要记住的规则：Tifa 在写入之后从不自己重新加载页面数据，所以页面得自己去要。没有这一行，待办虽然保存了，但列表会一直是旧的，直到你刷新。`router.invalidate` 会在一次请求里重新加载页面和它的布局，`sync: true` 会等到页面显示出新数据为止。`/todos/1` 上把待办标为完成的按钮也是这么做的。你以后加的每个写入，都需要同样的一行。见[在浏览器里调用方法处理函数](../pages-and-data/pages.zh-CN.md#calling-method-handlers-from-the-browser)。
+这是要记住的规则：Tifa 在写入之后从不自己重新加载页面数据，所以页面得自己去要。没有这一行，待办虽然保存了，但列表会一直是旧的，直到你刷新。`router.invalidate` 会在一次请求里重新加载页面和它的布局，`sync: true` 会等到页面显示出新数据为止。`/todos/1` 上把待办标为完成的按钮也是这么做的。你以后加的每个写入，都需要同样的一行。见[在浏览器里调用方法处理函数](../pages-and-data/handlers.zh-CN.md#calling-method-handlers-from-the-browser)。
 
 ## 3. 添加页面 {#3-add-a-page}
 
@@ -166,7 +166,7 @@ export const head = () => ({
 
 先保存 `page.tsx`，或者和 `route.go` 一起保存。只有 `Load` 而没有 `page.tsx` 的 `route.go` 会让构建失败，报 `Load is not allowed without page.tsx`，在页面出现之前，`tifa dev` 会一直打印这一行。
 
-打开 `/todos/1`，把待办标为完成，然后点导航栏里的 Done。这个待办就在那里。`page.useLoaderData()` 的类型来自 `Load` 返回的内容。第 7 步会展示 Go 类型改变时会发生什么。见 [route.go](../pages-and-data/routes.zh-CN.md#routego) 和 [page.tsx](../pages-and-data/pages.zh-CN.md#pagetsx)。
+打开 `/todos/1`，把待办标为完成，然后点导航栏里的 Done。这个待办就在那里。`page.useLoaderData()` 的类型来自 `Load` 返回的内容。第 7 步会展示 Go 类型改变时会发生什么。见 [route.go](../pages-and-data/loading-data.zh-CN.md#routego) 和 [page.tsx](../pages-and-data/loading-data.zh-CN.md#pagetsx)。
 
 ## 4. 带字段错误的表单 {#4-a-form-with-field-errors}
 
@@ -288,7 +288,7 @@ function RenameForm() {
 
 在 `/todos/1` 上，清空输入框并按 Save：下面会显示 "Write what needs doing."。输入 "Buy oat milk" 再按 Save：标题会变。浏览器的控制台里会显示那个 422，这是响应按设计在工作。
 
-`tifa.Fields` 到达浏览器时是一个 `TifaError`，它的 `fields` 里是各条消息。`Validate` 返回的其他任何错误，都是 400，文字放在 `message` 里。见[带输入和结果的方法处理函数](../pages-and-data/routes.zh-CN.md#method-handlers-with-input-and-result)。
+`tifa.Fields` 到达浏览器时是一个 `TifaError`，它的 `fields` 里是各条消息。`Validate` 返回的其他任何错误，都是 400，文字放在 `message` 里。见[带输入和结果的方法处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result)。
 
 ## 5. 布局里的数据 {#5-data-in-the-layout}
 
@@ -343,7 +343,7 @@ func Layout(c *tifa.Ctx) (todos.Counts, error) {
 
 添加一个待办，看导航栏：`Todos (1)`。把它标为完成：`Todos (0)` 和 `Done (1)`。数字会变，是因为第 2 步里的 `router.invalidate` 调用，它们也会重新加载布局。
 
-如果在你保存 `layout.tsx` 之后，`tifa dev` 马上打印出一长段 "Hydration failed" 消息，那是改动期间开着的那个标签页引起的。刷新页面就没了。见[布局](../pages-and-data/pages.zh-CN.md#layout)和[日志](../build-and-deploy/dev.zh-CN.md#log)。
+如果在你保存 `layout.tsx` 之后，`tifa dev` 马上打印出一长段 "Hydration failed" 消息，那是改动期间开着的那个标签页引起的。刷新页面就没了。见[布局](../pages-and-data/layouts.zh-CN.md#the-layout-of-a-folder)和[日志](../build-and-deploy/dev.zh-CN.md#log)。
 
 ## 6. 测试 {#6-tests}
 

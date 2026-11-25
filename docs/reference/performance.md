@@ -1,5 +1,5 @@
 ---
-summary: 'What a Tifa app serves on one core and how to size it: Next.js, TanStack Start, CPUs, `ssr.vms`, memory, overload, compression'
+summary: 'What a Tifa app serves on one core and how to size it: Next.js, TanStack Start, `ssr.vms`, memory, overload, compression'
 audience: app
 order: 2
 read_when:

@@ -1,8 +1,8 @@
 ---
-summary: '怎样在 Tifa 应用里用 SQLite 保存数据：迁移、`database is locked`、把 `db.backup` 备份到 R2 或 S3、Postgres'
+summary: '怎样用 SQLite 保存数据：迁移、`database is locked`、把 `db.backup` 备份到 R2 或 S3、Postgres'
 audience: app
 order: 2
-translatedFrom: 0986a43e4479
+translatedFrom: ca0b5bb67938
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'
@@ -233,7 +233,7 @@ func Load(c *tifa.Ctx) (todos.Todo, error) {
 }
 ```
 
-- 缺失的行变成 `tifa.ErrNotFound`，响应 404（[route.go](../pages-and-data/routes.zh-CN.md#routego)）。
+- 缺失的行变成 `tifa.ErrNotFound`，响应 404（[route.go](../pages-and-data/loading-data.zh-CN.md#routego)）。
 - `Load` 只读。一次访问里 `Load` 可能运行不止一次（导航、页面缓存），所以写入要放在 `POST`、`PUT`、`PATCH` 和 `DELETE` 处理函数里。
 - 来自请求的每个值都用 `?` 占位符。永远不要用字符串拼接来构建 SQL。
 - 带 `RETURNING` 的 `QueryRowContext` 一次调用就能插入并读回新行，`tifa new` 应用里的 `AddTodo` 就是这样做的。
