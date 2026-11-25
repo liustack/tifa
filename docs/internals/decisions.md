@@ -1,5 +1,5 @@
 ---
-summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports, folders that group pages without a URL segment, dropping a chosen number of Layouts, more convention files in a folder, generated types by a module name or a path string, another mark for a parameter folder, title and meta tags as elements, setup code in the root Layout, route constants for what a request can set, loading page data again after a write, renaming the head export to metadata, agent hooks written by tifa new, other ways to keep the generated types fresh'
+summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports, folders that group pages without a URL segment, dropping a chosen number of Layouts, more convention files in a folder, generated types by a module name or a path string, another mark for a parameter folder, title and meta tags as elements, setup code in the root Layout, route constants for what a request can set, loading page data again after a write, renaming the head export to metadata, agent hooks written by tifa new, other ways to keep the generated types fresh, a place for styles collected after the render'
 audience: dev
 order: 3
 read_when:
@@ -215,3 +215,13 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 - Files kept in git are as old after a change to `route.go` as files that are not, until a command writes them again. They would also add a diff, and conflicts, to every change of a route.
 
 **Instead.** The same as for the entry above.
+
+## A place for styles collected after the render
+
+**Turned down (2026-11-25).** A way for an app to put text into the head once the render is over, which styled-components (`ServerStyleSheet`) and the cssinjs of Ant Design need: they keep the styles of a render in a sheet and expect the server to write the sheet into the head afterwards.
+
+**Why not.** Both libraries are on their way out, and Tifa does not add API for them. Libraries that write a style next to each component as they render (Emotion, so MUI and Chakra UI), that ship a CSS file (Mantine, daisyUI) or that have no styles of their own (Base UI, React Aria, Radix) need no such place.
+
+**Instead.** Nothing in Tifa. `test/apps/uilibs` shows what an app can do by itself: write the sheet out at the end of the page for styled-components, and the static `antd/dist/antd.css` for Ant Design. Those two pages are there because their code once made the build run without end, not to keep the libraries working: when an upgrade breaks what the test says about their styles, that part of the test goes.
+
+**Reopen when** a library that many new apps choose needs it.
