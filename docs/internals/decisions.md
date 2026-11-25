@@ -233,9 +233,29 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Why not.** A guess by the look of the value gives a different type for the same parameter on different URLs: `?q=1.0` became the number 1 and `?q=007` became 7, so a search for those words changed (commit 665a754d turned it off for this reason). Go and the browser would have to guess alike for every text, floats included, or the server render and the hydration would differ.
 
-**Instead.** The Go struct of the `Load` says the type of each field, and the browser converts by that declaration and by nothing else. A value is valid only in the one way to write it, so Go and the browser read the same text the same way, and one table of cases tests both (`internal/core/testdata/query-values.txt`). This is for the query string of a page: a handler has no address to keep and no memo key, so `c.BindQuery` and the input of a `GET` or `DELETE` handler decode as they did. The browser does not convert yet and keeps the values as strings.
+**Instead.** The Go struct of the `Load` says the type of each field, and the browser converts by that declaration and by nothing else. A value is valid only in the one way to write it, so Go and the browser read the same text the same way, and one table of cases tests both (`internal/core/testdata/query-values.txt`). This is for the query string of a page: a handler has no address to keep and no memo key, so `c.BindQuery` and the input of a `GET` or `DELETE` handler decode as they did. The browser converts so since 2026-11-26 (`searchCodec` in `js/runtime/searchcodec.ts`, and the table is read in Go, in Node and in beastjs).
 
 **Reopen when** a type that the rules cannot say is needed in a query string, such as a date or an id with its own text form.
+
+### A float32 field in a query struct
+
+**Turned down (2026-11-26).** A `float32` field, or a slice of them, in the struct a `Load` or `Layout` takes as its second parameter. The build fails and says to declare `float64`.
+
+**Why not.** A value is valid only in the one way to write it, so that Go and the browser read the same text the same way. A browser has no 32 bit float that it can write the shortest text of: `String(Math.fround(0.1))` is `0.10000000149011612`, and Go writes `0.1` for the same float32. The two sides could not agree on which texts are valid. Handler inputs are not part of this, since they have no address to keep.
+
+**Instead.** `float64`. The page reads the number as the Go field holds it, and a price in the query string is rarely a 32 bit value anyway.
+
+**Reopen when** a writer of the shortest text of a 32 bit float for the browser is small and passes the same table as the other kinds.
+
+### An empty number or bool in a query string
+
+**Turned down (2026-11-26).** Answering `?page=` with a redirect to the address without it, or keeping the empty text as a value in the browser.
+
+**Why not.** The router reads an empty number as not passed and writes the address back without it, so the server render found the address spelled differently and answered 308. A browser keeps a 308 for good, and a plain GET form that is sent with its fields left empty (`?q=&min=&max=`) would cost a round trip each time. Keeping the empty text as a value cannot work for a number.
+
+**Instead.** An empty value of a field that is not a string counts as not passed, in Go and in the browser. The server leaves it out of the URL it renders the page at (and so out of the memo key and the canonical link) and answers 200. Before the browser takes the page over, it writes the address as the router reads it, without the empty value, so the router has nothing to load again: no request for data, no reload, no hydration warning. A page without SSR carries its boot URL without the empty values for the same reason. For a string, empty is a value and stays.
+
+**Reopen when** the router stops comparing the address it reads with the one it writes, or a browser shows a flash or a warning for the address change before the page is taken over.
 
 ### A Layout with query parameters passed to tifa.Use
 
