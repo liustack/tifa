@@ -73,6 +73,10 @@ for p in $(cat `+etc+`/dpkg-installed); do case "$p" in nginx*) st=ii; grep -qx 
 	tool("certbot.fake", `echo "certbot $*" >> `+log+`
 case "$1" in
 plugins) [ -f `+etc+`/plugin ] && echo "* nginx" ;;
+certificates)
+	app=""; while [ $# -gt 0 ]; do case "$1" in --cert-name) app=${2#tifa-} ;; esac; shift; done
+	echo "Found the following certs:"; echo "  Certificate Name: tifa-$app"; echo "    Domains: $(cut -c5- `+etc+`/letsencrypt/live/tifa-$app/cert.pem | head -n 1) www.unused.example"
+	;;
 certonly)
 	app=""; host=""
 	while [ $# -gt 0 ]; do case "$1" in --cert-name) app=${2#tifa-} ;; -d) host=$2 ;; esac; shift; done
@@ -566,6 +570,24 @@ func TestNginxSiteRestoresWhenTheReloadFails(t *testing.T) {
 	_, errOut, err = b.run(nginxRemoveSiteScript("shop"))
 	if err == nil || !strings.Contains(errOut, "the site is back") || b.read("nginx/conf.d/tifa-shop.conf") != good {
 		t.Errorf("removal: %v\n%s", err, errOut)
+	}
+}
+
+// A server without the openssl program tells the name of a certificate from certbot. Without both, the name is
+// unknown, which the plan reads as a certificate to ask for again, not as one that fits.
+func TestNginxProbeReadsTheNameOfACertificate(t *testing.T) {
+	b := newNginxBox(t)
+	writeFile(t, filepath.Join(b.etc, "letsencrypt", "live", "tifa-shop", "cert.pem"), "DNS:shop.example.com\n")
+	writeFile(t, filepath.Join(b.etc, "letsencrypt", "renewal", "tifa-shop.conf"), "")
+	if err := os.Remove(filepath.Join(b.bin, "openssl")); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := b.state().cert("shop"); !ok || c.Host != "?" {
+		t.Errorf("no openssl, no certbot: %+v", c)
+	}
+	b.have("certbot")
+	if c, ok := b.state().cert("shop"); !ok || c.Host != "shop.example.com" {
+		t.Errorf("certbot says: %+v", c)
 	}
 }
 

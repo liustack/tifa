@@ -196,6 +196,14 @@ func TestSetupNginxCertificateStates(t *testing.T) {
 		t.Errorf("the site has no HTTPS:\n%s", srv.unquoted())
 	}
 
+	// A certificate whose name the server could not read is asked for again, not taken as a match.
+	srv3 := newSetupServer(t, "", nginxUserFacts(9527, "shop"))
+	srv3.nginx(t, nginxFacts(true, []string{"shop ?"}, siteOf("shop", "shop.example.com", 9527, true)))
+	out, err = runSetup(t, root, false, "")
+	if err == nil || !strings.Contains(out, "change  server: the certificate of shop.example.com") {
+		t.Errorf("unreadable certificate: %v\n%s", err, out)
+	}
+
 	srv2 := newSetupServer(t, "", nginxUserFacts(9527, "shop"))
 	srv2.nginx(t, nginxFacts(true, []string{"shop old.example.com"}, siteOf("shop", "old.example.com", 9527, true)))
 	out, err = runSetup(t, root, false, "", "--yes")

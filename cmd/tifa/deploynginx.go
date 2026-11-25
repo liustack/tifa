@@ -294,6 +294,9 @@ for f in "$etc"/letsencrypt/renewal/tifa-*.conf; do
 	if command -v openssl >/dev/null 2>&1; then
 		h=$(openssl x509 -noout -ext subjectAltName -in "$etc/letsencrypt/live/tifa-$a/cert.pem" 2>/dev/null | grep -o 'DNS:[^, ]*' | head -n 1 | cut -c5-)
 	fi
+	if [ -z "$h" ] && command -v certbot >/dev/null 2>&1; then
+		h=$(certbot certificates --cert-name "tifa-$a" 2>/dev/null | sed -n 's/^ *Domains: *//p' | head -n 1 | cut -d' ' -f1)
+	fi
 	echo "cert $a ${h:-?}"
 done
 ss -Hltnp 2>/dev/null | sed 's/^/listen /'

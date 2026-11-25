@@ -84,7 +84,8 @@ func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
 	}
 
 	cert, hasCert := ns.cert(app)
-	certHost := hasCert && (cert.Host == host || cert.Host == "?")
+	// A name the server could not read ("?") does not fit: the certificate is asked for again.
+	certHost := hasCert && cert.Host == host
 	tlsNow := host != "" && certHost
 	want := nginxSiteFile(app, host, r.port, tlsNow, ns.IPv6)
 	text := nginxSiteText(app, host, r.port)
