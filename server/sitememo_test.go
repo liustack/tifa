@@ -580,3 +580,29 @@ func TestSiteFilesWithoutAFrontEnd(t *testing.T) {
 		}
 	}
 }
+
+// An app without pages has a front end that holds the build ID and the public files only, and its
+// site files answer as before: the sitemap and llms files are there and empty, and a .md names no
+// page.
+func TestSiteFilesOfAnAppWithoutPages(t *testing.T) {
+	app := App{
+		SiteURL: "https://api.example.com",
+		Routes:  []Route{{ID: "app/api/route", Path: "/api", GET: func(c *tifa.Ctx) error { return c.Text(200, "api") }}},
+	}
+	s := newAppServer(t, app)
+	if err := s.setFront(fstest.MapFS{"build.json": {Data: []byte(`{"buildId":"np1"}`)}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.sitemap = (&theSite{sm: tifa.Sitemap{Name: "Api"}}).fn
+	for p, want := range map[string]string{"/sitemap.xml": "<urlset", "/llms.txt": "# Api\n", "/llms-full.txt": "# Api\n"} {
+		w := get(s, p)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), want) || w.Header().Get("ETag") == "" {
+			t.Errorf("GET %s: %d %v %s", p, w.Code, w.Header(), w.Body.String())
+		}
+	}
+	for _, p := range []string{"/a.md", "/index.md"} {
+		if w := get(s, p); w.Code != 404 {
+			t.Errorf("GET %s: %d", p, w.Code)
+		}
+	}
+}
