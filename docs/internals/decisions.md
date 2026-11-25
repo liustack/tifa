@@ -239,13 +239,13 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 ### A float32 field in a query struct
 
-**Turned down (2026-11-26).** A `float32` field, or a slice of them, in the struct a `Load` or `Layout` takes as its second parameter. The build fails and says to declare `float64`.
+**Turned down (2026-11-26).** Accepting a `float32` field, or a slice of them, in the struct a `Load` or `Layout` takes as its second parameter, as other Go frameworks do. gin, echo, gorilla/schema, go-playground/form and grpc-gateway parse such a field with `strconv.ParseFloat(value, 32)` and keep the rounded value, huma marks it `format: float` in OpenAPI, and tools that write TypeScript from Go map `float32` and `float64` both to `number`, so with them Go and the browser can hold different numbers for the same address.
 
-**Why not.** A value is valid only in the one way to write it, so that Go and the browser read the same text the same way. A browser has no 32 bit float that it can write the shortest text of: `String(Math.fround(0.1))` is `0.10000000149011612`, and Go writes `0.1` for the same float32. The two sides could not agree on which texts are valid. Handler inputs are not part of this, since they have no address to keep.
+**Why not.** This step exists so that Go and the browser read every query value the same way, and `float32` would be the one silent exception. A browser has only 64 bit numbers and no way to write the shortest text of a 32 bit float: `?price=1234567.89` is 1234567.9 in a float32 and the page would show 1234567.89, and `String(Math.fround(0.1))` is `0.10000000149011612`, where Go writes `0.1`. Handler inputs are not part of this, since they have no address to keep.
 
-**Instead.** `float64`. The page reads the number as the Go field holds it, and a price in the query string is rarely a 32 bit value anyway.
+**Instead.** `float64`, and the build says so.
 
-**Reopen when** a writer of the shortest text of a 32 bit float for the browser is small and passes the same table as the other kinds.
+**Reopen when** apps are seen to need `float32` in the query of a page for a reason `float64` does not serve.
 
 ### An empty number or bool in a query string
 

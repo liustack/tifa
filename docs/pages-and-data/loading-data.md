@@ -67,6 +67,17 @@ A `Load` that reads none takes only the Ctx. The second parameter is a struct va
 - A field is named by its `json` tag, then by its Go name. A field with `json:"-"` and an unexported field are left out. No field may be named `_tifa`, which Tifa keeps for navigation.
 - Tifa reads the names from the struct when it builds. The page loads again when one of them changes, the server renders the page with these parameters and no others (a `?utm_source=` is left out), and `Link`, `navigate` and `useSearch` know the names (see [Navigation](navigation.md#query-parameters-in-link-and-navigate)).
 - A field is a string, a `bool`, a whole number, a `float64`, or a slice of one of them. Embedded fields, pointers, maps, types with `MarshalText` or `UnmarshalText` and `float32` fail the build, and the message names the field. A browser cannot write the shortest text of a 32 bit float the way Go does, so the two could not read a value alike: declare it `float64`. Pages that share parameters write the fields again in each struct, and a name that a Layout and a page below it both declare has the same type in both.
+- What the page gets for each type of field, in TypeScript:
+
+| Go field | TypeScript (in `useSearch()` and `PageSearch`) |
+| --- | --- |
+| `string` | `string` |
+| `bool` | `boolean` |
+| `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64` | `number` |
+| `float64` | `number` |
+| a slice of one of them | an array of that type |
+
+- A field may not be a `float32`, and the build fails if it is. A query value must be the same number in Go and in the browser, and the browser has only 64-bit numbers. A `float32` would round the value: `?price=1234567.89` is 1234567.9 in a float32, while the page in the browser would show 1234567.89. Declare the field as `float64`. This is a rule for the query struct of a `Load` or `Layout` only: the input of a method handler still takes `float32`.
 - A value is valid only in the one way to write it, so that reading it and writing it again gives the same text:
 
 | Type | Valid | Not valid |

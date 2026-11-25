@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
 audience: app
 order: 3
-translatedFrom: 4588830f56c2
+translatedFrom: 64841746ebff
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -68,6 +68,17 @@ func Load(c *tifa.Ctx, q Filter) (products.List, error) {
 - 字段名取 `json` 标签，没有标签就取 Go 字段名。带 `json:"-"` 的字段和未导出的字段不算。任何字段都不能叫 `_tifa`，Tifa 把它留给导航使用。
 - 构建时 Tifa 从这个结构体读出参数名。其中一个变化时页面会重新加载，服务端渲染页面时只带这些参数，不带别的（比如 `?utm_source=` 会被去掉），`Link`、`navigate` 和 `useSearch` 也知道这些名字（见[导航](navigation.zh-CN.md#query-parameters-in-link-and-navigate)）。
 - 字段可以是字符串、`bool`、整数、`float64`，或者它们的切片。嵌入字段、指针、map、带 `MarshalText` 或 `UnmarshalText` 的类型，以及 `float32` 会让构建失败，报错里会指出是哪个字段。浏览器没法像 Go 那样写出 32 位浮点数的最短文本，两边就没法对同一个值读出同样的结果，所以要声明成 `float64`。几个页面共用的参数，在每个结构体里各写一遍，布局和它下面的页面都声明的同名参数，在两处类型相同。
+- 每种字段类型，页面在 TypeScript 里拿到的类型：
+
+| Go 字段 | TypeScript（在 `useSearch()` 和 `PageSearch` 里） |
+| --- | --- |
+| `string` | `string` |
+| `bool` | `boolean` |
+| `int`、`int8`、`int16`、`int32`、`int64`、`uint`、`uint8`、`uint16`、`uint32`、`uint64` | `number` |
+| `float64` | `number` |
+| 以上任一种的切片 | 该类型的数组 |
+
+- 字段不能是 `float32`，否则构建失败。查询值在 Go 和浏览器里必须是同一个数，而浏览器只有 64 位的数。`float32` 会把值四舍五入：`?price=1234567.89` 在 float32 里是 1234567.9，浏览器里的页面却会显示 1234567.89。把字段声明成 `float64`。这条规则只管 `Load` 和 `Layout` 的查询结构体：方法处理函数的输入仍然可以用 `float32`。
 - 值只有一种合法写法，这样读进来再写出去，得到的文本和原来一样：
 
 | 类型 | 合法 | 不合法 |
