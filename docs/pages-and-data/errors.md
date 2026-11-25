@@ -1,27 +1,58 @@
 ---
-summary: 'Errors and 404: what Go returns, ErrorBoundary, which one shows'
+summary: 'What an error you return becomes, who sees its text, 404 and ErrorBoundary'
 audience: app
 order: 7
 read_when:
+  - Finding out whether a visitor can see the error you return, and how to give them a message
   - Returning an error from `Load` or a handler, such as `tifa.Fields`, `tifa.Redirect` or `tifa.ErrNotFound`
   - Showing a 404 or an error in a page, or finding out which `ErrorBoundary` shows
 ---
 
 # Errors and 404
 
-## Errors from Load and handlers
+## What an error you return becomes
 
-When an error is returned:
+Every function Tifa calls for a request returns an `error`: `Load`, `Layout`, a method handler, a `Validate` method and `OnRequest`. All of them go through the same place. An error reaches the visitor only when its type says it may be public. Any other error is unexpected: its text goes to the log, and the visitor gets a 500 with the plain status text. So `return err` is always safe.
 
-| Returned | Result |
-| --- | --- |
-| `tifa.ErrNotFound` | 404 |
-| `tifa.Redirect(url, status)` | A redirect. Page loads and navigation follow it, and so does a handler function called from the browser (see [Calling method handlers from the browser](handlers.md#calling-method-handlers-from-the-browser)). Panics when `status` is not 3xx |
-| `tifa.Error{Status, Message}` | Answered with its status code and message, does not go to `OnError`. A status outside 400 to 599 is handled as an unexpected error |
-| `tifa.Fields{"carrier": "pick a carrier"}` | 422 with a message per input field by its json name, does not go to `OnError` |
-| Any other error, a panic | Goes to `OnError`. Without one, it is logged and answered with 500 |
+| Returned | Status | The visitor sees | Goes to `OnError` |
+| --- | --- | --- | --- |
+| `tifa.ErrNotFound` | 404 | `Not Found` | No |
+| `tifa.Redirect(url, status)` | A redirect | The redirect. Page loads and navigation follow it, and so does a handler function called from the browser (see [Calling method handlers from the browser](handlers.md#calling-method-handlers-from-the-browser)). It panics when `status` is not 3xx | No |
+| `tifa.Error{Status, Message}` | Its `Status` | Its `Message`, or the status text when `Message` is empty. A status outside 400 to 599 is handled as an unexpected error | No |
+| `tifa.Fields{"carrier": "pick a carrier"}` | 422 | A message per input field, by its json name | No |
+| Any other error, a panic | 500 | The status text, or what `OnError` returns | Yes |
 
-A method handler that fails answers JSON: `{"error": "message"}`, and for `tifa.Fields` also `"fields": {"carrier": "pick a carrier"}`.
+Errors from a database or another service often hold an address, a user name or a query. Because only the types above are public, none of that text reaches a visitor by accident.
+
+### Giving the visitor a sentence
+
+Return `tifa.Error` with a status and a message you wrote. For a message that belongs to one input, return `tifa.Fields`. Do not put `err.Error()` into `Message`, since that makes the text of any error public.
+
+```go
+func POST(c *tifa.Ctx, in ShipInput) (Shipment, error) {
+	order, err := findOrder(c.Context(), in.OrderID)
+	if err != nil {
+		return Shipment{}, err // the visitor sees 500
+	}
+	if order.Shipped {
+		return Shipment{}, tifa.Error{Status: 409, Message: "This order has already shipped."}
+	}
+	return ship(c.Context(), order)
+}
+```
+
+- Wrapping does not change this. Tifa looks for these types with `errors.Is` and `errors.As`, so `fmt.Errorf("ship: %w", tifa.Fields{...})` is still a 422. A wrapped `tifa.Error` shows only its `Message`, not the text around it.
+- `tifa.Fields` is a map with an `Error` method, so an empty `tifa.Fields{}` returned as an `error` is not nil. End a validator with `return fields.Err()` (see [Method handlers](handlers.md#method-handlers-with-input-and-result)).
+- A plain error from a `Validate` method is unexpected, like one from the handler. Only `tifa.Error` and `tifa.Fields` reach the visitor.
+- When the request body or the query string cannot be decoded, the handler does not run. Tifa answers with a fixed short message (400, 413, 415 or 408), with no Go type names in it (see [Method handlers](handlers.md#method-handlers-with-input-and-result)).
+
+### OnError
+
+`OnError` in `hooks.go` gets every unexpected error once, a panic in `Load`, a handler or `OnRequest` included. It returns the `tifa.Error` the visitor sees. Report to your error tracker and write the log there (see [Hooks](hooks.md#hooksgo)). Without it, Tifa logs the error and answers 500. When `OnError` returns a status outside 400 to 599, the answer is 500, and an empty `Message` becomes the status text.
+
+### What the browser gets
+
+A method handler that fails answers JSON: `{"error": "message"}`, and for `tifa.Fields` also `"fields": {"carrier": "pick a carrier"}`. A call from a page throws a `TifaError` with `status`, `message` and `fields`. A failed `Load` or `Layout` reaches `ErrorBoundary` as the same `TifaError` (see [Errors on a page](#errors-on-a-page)). `tifa dev` shows the original error on the page. A built program never does.
 
 ## 404
 

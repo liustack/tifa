@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
 audience: app
 order: 3
-translatedFrom: 2c73e2640f1d
+translatedFrom: 974412883c3c
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -45,7 +45,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 
 在 `Load` 里只能设置响应头和 cookie。调用 `c.JSON`、`c.Text` 或 `c.NoContent` 会返回错误。
 
-`Load` 失败时返回什么，见[Load 和处理函数返回的错误](errors.zh-CN.md#errors-from-load-and-handlers)。
+`Load` 失败时返回什么，见[你返回的错误会变成什么](errors.zh-CN.md#what-an-error-you-return-becomes)。
 
 ## page.tsx {#pagetsx}
 

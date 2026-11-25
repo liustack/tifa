@@ -51,7 +51,7 @@ A page with `const Cache` may be kept by a CDN and shown to everyone. Tifa remov
 
 ### Error details stay in the log
 
-An error that `Load`, a handler or a `Validate` method returns, other than `tifa.Error`, `tifa.Fields` and `tifa.ErrNotFound`, is logged and answered with a 500 and the plain status text. The visitor never sees its text. What `OnError` returns is what visitors see. The text of a `tifa.Error` is public, so put nothing internal in it. A built app does not show the error behind a failed page either, and only `tifa dev` does. See [Errors and 404](../pages-and-data/errors.md#errors-from-load-and-handlers).
+An error that `Load`, a handler or a `Validate` method returns, other than `tifa.Error`, `tifa.Fields` and `tifa.ErrNotFound`, is logged and answered with a 500 and the plain status text. The visitor never sees its text. What `OnError` returns is what visitors see. The text of a `tifa.Error` is public, so put nothing internal in it. A built app does not show the error behind a failed page either, and only `tifa dev` does. See [Errors and 404](../pages-and-data/errors.md#what-an-error-you-return-becomes).
 
 ### Every way in is a folder
 
