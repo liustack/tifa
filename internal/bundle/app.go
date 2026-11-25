@@ -313,6 +313,8 @@ func publicHashes(dir string) (map[string]string, error) {
 // files costs a walk and not a copy. A copy keeps the modification time of its source, which is
 // what the next call compares. A missing src is a folder without files. The files of dst are
 // replaced by renaming a finished copy over them, so a reader sees the old file or the new one.
+// A file or folder whose name starts with a dot is skipped, apart from .well-known: a .DS_Store or
+// a .env left in public/ is not published.
 func syncDir(src, dst string) error {
 	files := map[string]fs.FileInfo{}
 	dirs := map[string]bool{}
@@ -326,6 +328,12 @@ func syncDir(src, dst string) error {
 		rel, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
+		}
+		if name := d.Name(); path != src && strings.HasPrefix(name, ".") && name != ".well-known" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			dirs[rel] = true

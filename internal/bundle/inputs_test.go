@@ -3,6 +3,7 @@ package bundle
 import (
 	"context"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -377,5 +378,50 @@ func TestPublicLinksAreFollowed(t *testing.T) {
 	slices.Sort(got)
 	if want := "public/img/a.png public/logo.svg public/robots.txt"; strings.Join(got, " ") != want {
 		t.Errorf("inputs %q, want %q", got, want)
+	}
+}
+
+// Files and folders of public/ whose names start with a dot are not copied, so a .DS_Store or a
+// .env that was left there is not published. .well-known is the standard public folder and is
+// copied. A dot file that an earlier sync copied is removed by the next one.
+func TestPublicDotFilesAreNotCopied(t *testing.T) {
+	root := t.TempDir()
+	public := filepath.Join(root, "public")
+	for _, name := range []string{".DS_Store", ".env", ".hidden/x.txt", ".well-known/security.txt", "ok.txt", "sub/.DS_Store", "sub/b.txt"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(public, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(public, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dst := filepath.Join(root, "dist", "public")
+	// An earlier build copied a dot file.
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, ".env"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncDir(public, dst); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	err := filepath.WalkDir(dst, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(dst, path)
+			got = append(got, filepath.ToSlash(rel))
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	if want := ".well-known/security.txt ok.txt sub/b.txt"; strings.Join(got, " ") != want {
+		t.Errorf("copied %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".hidden")); err == nil {
+		t.Error(".hidden folder was copied")
 	}
 }

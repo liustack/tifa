@@ -2,7 +2,7 @@
 summary: 'Tifa 默认替你防住了什么（跨站写入、会话 cookie、上限、响应头），以及你必须自己做的事'
 audience: app
 order: 12
-translatedFrom: 35fcb248cbbb
+translatedFrom: ce0dd010c820
 read_when:
   - '准备上线，想知道 Tifa 已经防了什么、还有什么留给你'
   - '检查一个应用，或者 coding agent 写的代码，看有没有安全漏洞'
@@ -60,13 +60,13 @@ Tifa 默认打开的，是它不用懂你的业务就能做的检查，其余的
 
 ### 构建不需要密钥 {#building-needs-no-secrets}
 
-`tifa build` 只读你的代码，从不运行它，所以构建（包括在 CI 里）不需要数据库，也不需要任何密钥。`.env` 不会被放进程序。`tifa.Secret` 选项不能用命令行参数设置，因为参数会出现在进程列表里，`./bin/app config` 也不会输出它的值。详见[应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app)。
+`tifa build` 只读你的代码，从不运行它，所以构建（包括在 CI 里）不需要数据库，也不需要任何密钥。`.env` 不会被放进程序，`public/` 里名字以点开头的文件和文件夹（如 `.DS_Store`）也不会，`.well-known` 除外。`tifa.Secret` 选项不能用命令行参数设置，因为参数会出现在进程列表里，`./bin/app config` 也不会输出它的值。详见[应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app)。
 
 ## 你要做的 {#what-you-do}
 
 ### 决定谁能做什么 {#decide-who-may-do-what}
 
-Tifa 存会话。它不认识你的用户、角色和所有者。访问检查写在 `OnRequest` 里，或者写在处理函数或 `Load` 的开头，读 `tifa.Session` 来判断。每个处理函数都要在服务端检查：`useSession` 和 `SignedIn` 显示什么，只决定浏览器展示什么。对某个东西所有者的检查（这个订单是他的吗？）要写在读取或修改它的处理函数里。[登录和退出](sign-in.zh-CN.md#the-guard)里有一个守卫的例子。
+Tifa 存会话。它不认识你的用户、角色和所有者。访问检查写在 `OnRequest` 里，或者写在处理函数或 `Load` 的开头，读 `tifa.Session` 来判断。每个处理函数都要在服务端检查：`useSession` 和 `SignedIn` 显示什么，只决定浏览器展示什么。对某个东西所有者的检查（这个订单是他的吗？）要写在读取或修改它的处理函数里。根 Layout 的 `Layout` 函数对每个 URL 都会运行，包括 404 页和登录页，所以不要让它返回只有登录后才该看的数据，或者先在里面读会话。[登录和退出](sign-in.zh-CN.md#the-guard)里有一个守卫的例子。
 
 密码只存慢哈希，比如 argon2id，并且对不存在的邮箱和错误的密码给出同样的回答。同一篇指南里有做法。
 

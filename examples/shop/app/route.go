@@ -5,6 +5,7 @@ package app
 
 import (
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/examples/shop"
 	"github.com/liustack/tifa/examples/shop/app/projects"
 )
 
@@ -12,8 +13,9 @@ func GET(c *tifa.Ctx) error {
 	return tifa.Redirect("/projects/studio", 302)
 }
 
-// Shell is what every visitor of the workbench gets alike. The page of an order is cached, so nothing
-// about the signed-in user goes here: the name and the avatar come from useSession in the browser.
+// Shell is what every signed-in visitor of the workbench gets alike. The page of an order is cached,
+// so nothing about the signed-in user goes here: the name and the avatar come from useSession in the
+// browser. A visitor who is not signed in gets no projects.
 type Shell struct {
 	Projects []projects.Project `json:"projects"`
 	// SidebarOpen is the state the sidebar was left in. The sidebar component keeps it in the
@@ -22,13 +24,19 @@ type Shell struct {
 	SidebarOpen bool `json:"sidebarOpen"`
 }
 
+// Layout runs for every URL, the 404 page included, and the guard in OnRequest covers only the
+// workbench, so the projects are left out here for a visitor who may not see the workbench.
 func Layout(c *tifa.Ctx) (Shell, error) {
+	list := []projects.Project{}
+	if shop.Open || tifa.Session[shop.Session](c) != nil {
+		list = projects.ListProjects()
+	}
 	open := true
 	if cookie, err := c.Cookie("sidebar_state"); err == nil && cookie.Value == "false" {
 		open = false
 	}
 	return Shell{
-		Projects:    projects.ListProjects(),
+		Projects:    list,
 		SidebarOpen: open,
 	}, nil
 }

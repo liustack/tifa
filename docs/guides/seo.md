@@ -241,6 +241,8 @@ A page with `Content` has a Markdown version at its URL with `.md`: `/blog/hello
 
 `/llms-full.txt` puts every Markdown version in one file, each with its title and a `Source:` line with the URL of the page.
 
+The Markdown versions and `/llms-full.txt` do not run the `Load` of the page. A check made in a `Load` does not guard them, so put it in `OnRequest`, or keep the entry out of `Content`.
+
 ## `robots.txt`
 
 Without `public/robots.txt` the program answers:
