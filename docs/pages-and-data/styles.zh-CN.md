@@ -1,8 +1,8 @@
 ---
 summary: '怎样给应用加 CSS、Tailwind CSS 和 shadcn/ui'
 audience: app
-order: 3
-translatedFrom: a2bf40705740
+order: 8
+translatedFrom: cec95094451b
 read_when:
   - '给应用加 CSS、Tailwind CSS 或 shadcn/ui'
   - '在样式表里放字体或图片，以及它要不要放进 `public/`'

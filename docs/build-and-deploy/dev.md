@@ -1,5 +1,5 @@
 ---
-summary: 'How to use `tifa dev`: pages, build errors, `tifa errors`, `--background`, `status`, `logs`, `stop`'
+summary: 'Use `tifa dev`: pages, build errors, `tifa errors`, `--background`, `status`, `logs`, `stop`'
 audience: app
 order: 1
 read_when:
@@ -128,7 +128,7 @@ The same error again adds to a counter (`×3`) instead of adding an entry. The p
 
 ## When a page fails to render
 
-When a component throws while the page renders on the server, the app renders the page again with the error shown by an `ErrorBoundary` component (see [Errors on a page](../pages-and-data/pages.md#errors-on-a-page)). Under `tifa dev` an overlay over that page names the request, shows the public message when it differs from the status text, and shows the whole error with its stack trace in your source files. When no `ErrorBoundary` renders, or a page request fails before the app can render a page, such as when `OnRequest` returns an unexpected error, the app answers with a plain page from Go, which under `tifa dev` shows the same. Either page has the status code that `OnError` picked, so `curl -i` sees it too, and reloads once you save a fix, also a fix in TSX that does not reload other pages. A built app shows only the status and the public message.
+When a component throws while the page renders on the server, the app renders the page again with the error shown by an `ErrorBoundary` component (see [Errors on a page](../pages-and-data/errors.md#errors-on-a-page)). Under `tifa dev` an overlay over that page names the request, shows the public message when it differs from the status text, and shows the whole error with its stack trace in your source files. When no `ErrorBoundary` renders, or a page request fails before the app can render a page, such as when `OnRequest` returns an unexpected error, the app answers with a plain page from Go, which under `tifa dev` shows the same. Either page has the status code that `OnError` picked, so `curl -i` sees it too, and reloads once you save a fix, also a fix in TSX that does not reload other pages. A built app shows only the status and the public message.
 
 These pages show internal errors. `tifa dev` listens on `127.0.0.1` by default. With `--addr 0.0.0.0:<port>`, other machines on the network can see them.
 

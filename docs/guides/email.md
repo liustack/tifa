@@ -1,5 +1,5 @@
 ---
-summary: 'How to send email from a Tifa app over SMTP with a pure Go library: SMTP, mail.go, background job, same transaction'
+summary: 'Send email from a Tifa app over SMTP: SMTP, mail.go, background job, same transaction'
 audience: app
 order: 5
 read_when:

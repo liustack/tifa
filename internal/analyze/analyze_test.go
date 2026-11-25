@@ -354,7 +354,7 @@ func TestViolations(t *testing.T) {
 			{"app/x~1/page.tsx:1:", "x~1"},
 		}},
 		{"foreignfolders", [][]string{
-			{"app/$id/page.tsx:1:", "Remix or React Router", "id+", ". See docs/start/app.md#urls-come-from-folders"},
+			{"app/$id/page.tsx:1:", "Remix or React Router", "id+", ". See docs/pages-and-data/routing.md#urls-come-from-folders"},
 			{"app/(marketing)/page.tsx:1:", "route group of Next.js", "there are no route groups"},
 			{"app/[...slug]/page.tsx:1:", "catch-all route of Next.js", "slug++"},
 			{"app/@modal/page.tsx:1:", "parallel route slot of Next.js"},

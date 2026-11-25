@@ -1,5 +1,5 @@
 ---
-summary: 'How to do work outside a request in a Tifa app: OnStart loops, OnShutdown, timers, SQLite jobs table with retries'
+summary: 'Do work outside a request in a Tifa app: OnStart loops, OnShutdown, timers, SQLite jobs table'
 audience: app
 order: 6
 read_when:

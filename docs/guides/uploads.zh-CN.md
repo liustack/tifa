@@ -2,7 +2,7 @@
 summary: '怎样让访客在 Tifa 应用里上传文件：文件输入、请求体上限、类型检查、存放位置、测试'
 audience: app
 order: 4
-translatedFrom: 6ee823ad836b
+translatedFrom: cc8ed5741c91
 read_when:
   - '添加文件上传，比如图片、头像或附件'
   - '上传失败，返回 400、408、413、415 或 422，或者处理函数看不到文件'
@@ -13,7 +13,7 @@ read_when:
 
 一个让访客上传带标题的图片、并看到它们列表的页面。处理函数检查标题、大小和文件种类，把文件保存在一个文件夹里，再把它提供回去。
 
-这些代码是照写出来的样子运行过的：它就是 Tifa 仓库里的应用 `test/apps/upload`，端到端测试会构建它并在浏览器里操作它。这里用到的调用的参考文档：[输入里的文件](../pages-and-data/routes.zh-CN.md#files-in-the-input)、[路由的请求体上限和读取时间](../pages-and-data/routes.zh-CN.md#body-limit-and-read-time-of-a-route)、[应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app)。
+这些代码是照写出来的样子运行过的：它就是 Tifa 仓库里的应用 `test/apps/upload`，端到端测试会构建它并在浏览器里操作它。这里用到的调用的参考文档：[输入里的文件](../pages-and-data/handlers.zh-CN.md#files-in-the-input)、[路由的请求体上限和读取时间](../pages-and-data/handlers.zh-CN.md#body-limit-and-read-time-of-a-route)、[应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app)。
 
 ## 文件如何到达处理函数 {#how-a-file-gets-to-the-handler}
 

@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa 站点怎样被搜索引擎找到、被语言模型读到：site.url、/sitemap.xml、/robots.txt、/llms.txt、og 标签、`tifa.SetSitemap`'
+summary: '搜索引擎和语言模型怎样找到 Tifa 站点：site.url、sitemap.xml、robots.txt、llms.txt、og 标签'
 audience: app
 order: 8
-translatedFrom: d5275982e054
+translatedFrom: c9182b60d028
 read_when:
   - '设置页面的标题、描述或分享卡片（`og:title`、`og:image`、`twitter:card`），或者站点链接在聊天或信息流里不显示图片'
   - '让搜索引擎收录 Tifa 站点，或者添加 sitemap 或 robots.txt'
@@ -48,7 +48,7 @@ site:
 
 ## 分享卡片 {#share-cards}
 
-把你的页面链接发到聊天或社交动态里，会显示一张卡片：标题、一行文字和一张图。卡片读取 `og:` meta 标签，缺了的会被猜一个，或者留空。把它们写在页面的 `head` 里（见[标题和 meta 标签](../pages-and-data/pages.zh-CN.md#title-and-meta-tags)），数据来自它的 `Load`。`og:url` 由 Tifa 自己写。
+把你的页面链接发到聊天或社交动态里，会显示一张卡片：标题、一行文字和一张图。卡片读取 `og:` meta 标签，缺了的会被猜一个，或者留空。把它们写在页面的 `head` 里（见[标题和 meta 标签](../pages-and-data/head.zh-CN.md#title-and-meta-tags)），数据来自它的 `Load`。`og:url` 由 Tifa 自己写。
 
 ```go
 // app/products/product+/route.go

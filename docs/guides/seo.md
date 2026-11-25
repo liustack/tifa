@@ -1,5 +1,5 @@
 ---
-summary: 'How a Tifa site gets found by search engines and read by language models: site.url, /sitemap.xml, /robots.txt, /llms.txt, og tags, `tifa.SetSitemap`'
+summary: 'How search engines and language models find a Tifa site: site.url, sitemap.xml, robots.txt, llms.txt, og tags'
 audience: app
 order: 8
 read_when:
@@ -47,7 +47,7 @@ A site whose pages all have fixed paths, such as `/`, `/about` and `/pricing`, n
 
 ## Share cards
 
-A link to your page in a chat or a social feed shows a card: a title, a line of text and an image. The card reads `og:` meta tags, and a missing one is filled with a guess or left empty. Write them in the `head` of the page (see [Title and meta tags](../pages-and-data/pages.md#title-and-meta-tags)), with data from its `Load`. Tifa writes `og:url` itself.
+A link to your page in a chat or a social feed shows a card: a title, a line of text and an image. The card reads `og:` meta tags, and a missing one is filled with a guess or left empty. Write them in the `head` of the page (see [Title and meta tags](../pages-and-data/head.md#title-and-meta-tags)), with data from its `Load`. Tifa writes `og:url` itself.
 
 ```go
 // app/products/product+/route.go

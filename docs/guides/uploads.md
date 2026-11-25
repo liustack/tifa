@@ -1,5 +1,5 @@
 ---
-summary: 'How to let visitors upload a file in a Tifa app: file input, body limit, type check, storage, tests'
+summary: 'Let visitors upload a file: file input, body limit, type check, storage, tests'
 audience: app
 order: 4
 read_when:
@@ -12,7 +12,7 @@ read_when:
 
 A page where visitors upload pictures with a title, and see them listed. The handler checks the title, the size and the kind of file, keeps the file in a folder and serves it back.
 
-The code was run as written: it is the app `test/apps/upload` of the Tifa repository, which its end-to-end tests build and drive in a browser. The reference docs for the calls used here: [files in the input](../pages-and-data/routes.md#files-in-the-input), [body limit and read time of a route](../pages-and-data/routes.md#body-limit-and-read-time-of-a-route), [options of the app](../build-and-deploy/config.md#options-of-the-app).
+The code was run as written: it is the app `test/apps/upload` of the Tifa repository, which its end-to-end tests build and drive in a browser. The reference docs for the calls used here: [files in the input](../pages-and-data/handlers.md#files-in-the-input), [body limit and read time of a route](../pages-and-data/handlers.md#body-limit-and-read-time-of-a-route), [options of the app](../build-and-deploy/config.md#options-of-the-app).
 
 ## How a file gets to the handler
 

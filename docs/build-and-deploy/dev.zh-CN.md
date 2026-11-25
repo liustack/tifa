@@ -2,7 +2,7 @@
 summary: '怎样使用 `tifa dev`：页面、构建错误、`tifa errors`、`--background`、`status`、`logs`、`stop`'
 audience: app
 order: 1
-translatedFrom: ea765c14e00f
+translatedFrom: 0cc0ac1958ea
 read_when:
   - '第一次在本地运行 Tifa 应用'
   - '修改 internal/devserver、cmd/tifa 里的 dev 命令，或者 internal/bundle 里的 dev 构建'
@@ -129,7 +129,7 @@ tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
 
 ## 页面渲染失败时 {#when-a-page-fails-to-render}
 
-服务端渲染页面时如果组件抛了错，应用会把页面重新渲染一遍，用 `ErrorBoundary` 组件显示错误（见[页面上的错误](../pages-and-data/pages.zh-CN.md#errors-on-a-page)）。在 `tifa dev` 下，这个页面上会有一个覆盖层，写出这个请求，在公开消息和状态文字不同时显示公开消息，并显示完整的错误，堆栈指向你的源文件。如果没有 `ErrorBoundary` 渲染，或者页面请求在应用能渲染页面之前就失败了（比如 `OnRequest` 返回了意料之外的错误），应用会用 Go 返回一个朴素的页面，在 `tifa dev` 下它显示同样的内容。两种页面都带着 `OnError` 选的状态码，所以 `curl -i` 也能看到，并且在你保存修复之后重新加载，用 TSX 做的、不会重新加载其他页面的修复也一样。构建出来的应用只显示状态和公开消息。
+服务端渲染页面时如果组件抛了错，应用会把页面重新渲染一遍，用 `ErrorBoundary` 组件显示错误（见[页面上的错误](../pages-and-data/errors.zh-CN.md#errors-on-a-page)）。在 `tifa dev` 下，这个页面上会有一个覆盖层，写出这个请求，在公开消息和状态文字不同时显示公开消息，并显示完整的错误，堆栈指向你的源文件。如果没有 `ErrorBoundary` 渲染，或者页面请求在应用能渲染页面之前就失败了（比如 `OnRequest` 返回了意料之外的错误），应用会用 Go 返回一个朴素的页面，在 `tifa dev` 下它显示同样的内容。两种页面都带着 `OnError` 选的状态码，所以 `curl -i` 也能看到，并且在你保存修复之后重新加载，用 TSX 做的、不会重新加载其他页面的修复也一样。构建出来的应用只显示状态和公开消息。
 
 这些页面会显示内部错误。`tifa dev` 默认监听 `127.0.0.1`。用 `--addr 0.0.0.0:<port>` 时，网络上的其他机器能看到它们。
 

@@ -1,8 +1,8 @@
 ---
 summary: 'Tifa 应用里的会话怎样工作：cookie、内存存储、Redis 或 SQL 存储、`tifa.SetSessionStore`'
 audience: app
-order: 5
-translatedFrom: b5fa75603d85
+order: 10
+translatedFrom: 657c993b8bd0
 read_when:
   - '让用户登录和登出，或者读取谁已登录'
   - '把会话放在 Redis、SQL 或文件里，而不是进程的内存里，或者为 tifa.SetSessionStore 写一个存储'

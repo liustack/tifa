@@ -175,7 +175,7 @@ go tool tifa agents
 | [应用的代码结构](docs/start/structure.zh-CN.md) | 决定领域代码、存储和共享资源放在哪，包之间按什么方向 import |
 | [和编程 agent 一起用 Tifa](docs/start/agents.zh-CN.md) | 用 Claude Code、Codex、Cursor 或别的编程 agent 开发应用 |
 | [应用怎么写](docs/start/app.zh-CN.md) | 安排目录，弄清目录怎么变成 URL，以及接下来该读哪篇 |
-| 应用的各个部分：[路由](docs/pages-and-data/routes.zh-CN.md)、[页面](docs/pages-and-data/pages.zh-CN.md)、[渲染开关与缓存](docs/pages-and-data/ssr-and-cache.zh-CN.md)、[服务端渲染](docs/pages-and-data/server-render.zh-CN.md)、[样式](docs/pages-and-data/styles.zh-CN.md)、[钩子](docs/pages-and-data/hooks.zh-CN.md)、[测试](docs/pages-and-data/testing-apps.zh-CN.md) | 写路由的 Go 和 React 代码、Layout、404、head 标签、给 CDN 用的 `Cache`、服务端有什么、CSS、启动代码和 Go 测试 |
+| 应用的各个部分：[路由](docs/pages-and-data/routing.zh-CN.md)、[布局](docs/pages-and-data/layouts.zh-CN.md)、[加载数据](docs/pages-and-data/loading-data.zh-CN.md)、[方法处理函数](docs/pages-and-data/handlers.zh-CN.md)、[链接和导航](docs/pages-and-data/navigation.zh-CN.md)、[head](docs/pages-and-data/head.zh-CN.md)、[错误](docs/pages-and-data/errors.zh-CN.md)、[渲染开关与缓存](docs/pages-and-data/ssr-and-cache.zh-CN.md)、[服务端渲染](docs/pages-and-data/server-render.zh-CN.md)、[样式](docs/pages-and-data/styles.zh-CN.md)、[钩子](docs/pages-and-data/hooks.zh-CN.md)、[测试](docs/pages-and-data/testing-apps.zh-CN.md) | 写路由的 Go 和 React 代码、Layout、404、head 标签、给 CDN 用的 `Cache`、服务端有什么、CSS、启动代码和 Go 测试 |
 | [会话](docs/pages-and-data/sessions.zh-CN.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
 | [内容](docs/pages-and-data/content.zh-CN.md) | 把博客或文档写成 Markdown 文件，在 Go 里读它们 |
 | [构建与运行](docs/build-and-deploy/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |

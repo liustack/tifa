@@ -121,7 +121,7 @@ func TestCheckFactsReportsTitleAndMetaWrittenInAComponent(t *testing.T) {
 		name := f.Tags[i].Name
 		if !g.Warning || g.Line != 3+i || g.Column != 5 ||
 			!strings.HasPrefix(g.Msg, "<"+name+"> written in a component lands in <body>, where crawlers do not read it") ||
-			!strings.Contains(g.Msg, "export const head") || !strings.HasSuffix(g.Msg, "See docs/pages-and-data/pages.md#title-and-meta-tags") {
+			!strings.Contains(g.Msg, "export const head") || !strings.HasSuffix(g.Msg, "See docs/pages-and-data/head.md#title-and-meta-tags") {
 			t.Errorf("finding %d: %q", i, g.String())
 		}
 	}

@@ -1,8 +1,8 @@
 ---
-summary: '怎样和编程 agent 一起开发 Tifa 应用：AGENTS.md、Tifa skill、Claude Code、Cursor、Codex、`tifa agents`、`tifa dev --background`'
+summary: '和编程 agent 一起开发 Tifa 应用：AGENTS.md、Tifa skill、Claude Code、Cursor、Codex、`tifa agents`'
 audience: app
 order: 5
-translatedFrom: 80c57ffacfed
+translatedFrom: 60e828e28d5a
 read_when:
   - '用编程 agent 新建 Tifa 应用，或者把一个早先建的应用交给 agent'
   - 'agent 好像不知道 Tifa 的约定'

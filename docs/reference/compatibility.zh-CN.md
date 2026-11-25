@@ -1,8 +1,8 @@
 ---
-summary: 'Tifa v0.1 对应用保持稳定的东西，以及哪些可能变：包、文件约定、命令、设置、HTTP 名称'
+summary: 'Tifa v0.1 对应用保持稳定的东西，以及哪些可能变：包、文件约定、命令'
 audience: app
 order: 3
-translatedFrom: 839d668c100c
+translatedFrom: 5a3aa7909ecc
 read_when:
   - '判断升级 Tifa 会不会弄坏你的应用'
   - '在 Tifa 程序前面放 CDN、代理或监控'
@@ -16,7 +16,7 @@ read_when:
 
 ## 稳定的内容 {#stable}
 
-**Go 包。** `github.com/liustack/tifa`、`github.com/liustack/tifa/content` 和 `github.com/liustack/tifa/tifatest` 导出的名称。包括 `hooks.go` 里各个 hook 的名称，`route.go` 里 `Load`、`Layout` 和方法处理函数的签名，`route.go` 会读取的常量（`SSR`、`Memo`、`Cache`），`Validate` 和 `Exposed` 方法，`tifa.Stats()` 的字段，以及[路由](../pages-and-data/routes.zh-CN.md)里的 JSON 规则。
+**Go 包。** `github.com/liustack/tifa`、`github.com/liustack/tifa/content` 和 `github.com/liustack/tifa/tifatest` 导出的名称。包括 `hooks.go` 里各个 hook 的名称，`route.go` 里 `Load`、`Layout` 和方法处理函数的签名，`route.go` 会读取的常量（`SSR`、`Memo`、`Cache`），`Validate` 和 `Exposed` 方法，`tifa.Stats()` 的字段，以及[JSON 规则](json.zh-CN.md)。
 
 **文件约定。** 根目录的文件（`go.mod`、`tifa.yaml`、`hooks.go`、`setup.ts`、`options.go`、`content.go`、`content/`、`public/`、`app/`），`app/` 里文件夹名的含义（`name`、`name+`、`name++`），文件夹里的约定文件（`route.go`、`page.tsx`、`layout.tsx`、`layout_.tsx`），`page.tsx` 和 `layout.tsx` 导出的内容，`_locales/<language>.json`，以及 `*.client.tsx`。
 

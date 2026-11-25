@@ -1,7 +1,7 @@
 ---
-summary: 'How to add CSS, Tailwind CSS and shadcn/ui to an app'
+summary: 'Add CSS, Tailwind CSS and shadcn/ui to an app'
 audience: app
-order: 3
+order: 8
 read_when:
   - Adding CSS, Tailwind CSS or shadcn/ui to an app
   - Putting a font or an image in a stylesheet, and whether it goes in `public/`

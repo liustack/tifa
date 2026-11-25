@@ -44,7 +44,7 @@ myapp/
 ```
 
 - **Where the code goes.** A domain gets a file named after it in its folder: `app/projects/project.go` holds `package projects`. When a domain has a list page and a page per item, its code goes in the list folder (`orders/`), not in the folder of one item (`order+/`). The list folder does not need a page: in [examples/shop](../../examples/shop) the orders are listed on the project page, and `orders/` holds the domain and the `POST` that places an order.
-- **Package names.** A literal folder takes its own name (`projects`, `orders`). A parameter folder takes the parameter name (`project+` holds `package project`), as in [app.md](app.md#urls-come-from-folders).
+- **Package names.** A literal folder takes its own name (`projects`, `orders`). A parameter folder takes the parameter name (`project+` holds `package project`), as in [app.md](../pages-and-data/routing.md#urls-come-from-folders).
 - **Pages use the domain.** A page in the same folder is the same package and calls the domain directly. Pages below import it:
 
   ```go

@@ -1,5 +1,5 @@
 ---
-summary: 'What Tifa v0.1 keeps stable for apps and what may change: packages, file conventions, commands, settings, HTTP names'
+summary: 'What Tifa v0.1 keeps stable for apps and what may change: packages, file conventions, commands'
 audience: app
 order: 3
 read_when:
@@ -15,7 +15,7 @@ From v0.1, a change that breaks anything on the stable list below ships in a min
 
 ## Stable
 
-**Go packages.** The exported names of `github.com/liustack/tifa`, `github.com/liustack/tifa/content` and `github.com/liustack/tifa/tifatest`. That includes the names of the hooks in `hooks.go`, the signatures of `Load`, `Layout` and the method handlers in `route.go`, the constants `route.go` reads (`SSR`, `Memo`, `Cache`), the `Validate` and `Exposed` methods, the fields of `tifa.Stats()`, and the JSON rules in [routes.md](../pages-and-data/routes.md).
+**Go packages.** The exported names of `github.com/liustack/tifa`, `github.com/liustack/tifa/content` and `github.com/liustack/tifa/tifatest`. That includes the names of the hooks in `hooks.go`, the signatures of `Load`, `Layout` and the method handlers in `route.go`, the constants `route.go` reads (`SSR`, `Memo`, `Cache`), the `Validate` and `Exposed` methods, the fields of `tifa.Stats()`, and the JSON rules in [JSON rules](json.md).
 
 **File conventions.** The root files (`go.mod`, `tifa.yaml`, `hooks.go`, `setup.ts`, `options.go`, `content.go`, `content/`, `public/`, `app/`), the meaning of folder names in `app/` (`name`, `name+`, `name++`), the convention files in a folder (`route.go`, `page.tsx`, `layout.tsx`, `layout_.tsx`), what `page.tsx` and `layout.tsx` export, `_locales/<language>.json`, and `*.client.tsx`.
 

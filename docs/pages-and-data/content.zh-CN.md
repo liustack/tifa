@@ -1,8 +1,8 @@
 ---
-summary: '应用怎样把文字作为 Markdown 放在 content/ 下：content.go、front matter、slug、草稿、remark、`tifa build`'
+summary: '应用怎样把文字作为 Markdown 放在 content/ 下：content.go、front matter、slug、草稿、remark'
 audience: app
-order: 4
-translatedFrom: 304ec71c49c0
+order: 9
+translatedFrom: 22a7f958d32f
 read_when:
   - '给 Tifa 应用加博客、文档或其他 Markdown 内容'
   - '编写或修改 content.go，或者嵌入 content.Entry 的 schema 类型'
@@ -147,7 +147,7 @@ tags: [search]
 ---
 ```
 
-它的键是 schema 结构体各字段的 `json` 名，构建按和 `Load` 结果、处理函数输入同样的 JSON 规则来检查它们（[JSON 规则](routes.zh-CN.md#json-rules)）。
+它的键是 schema 结构体各字段的 `json` 名，构建按和 `Load` 结果、处理函数输入同样的 JSON 规则来检查它们（[JSON 规则](../reference/json.zh-CN.md)）。
 
 - 字段可以是字符串、数字、布尔值、`time.Time`、指针、切片、键为字符串的 map，或嵌套结构体。`time.Time` 接受 `2006-01-02`（UTC 午夜）和 RFC 3339，加不加引号都行。自己读取 JSON 的类型、`[]byte`、`time.Duration`、接口，以及除 `omitempty` 和 `omitzero` 之外的 json 选项（比如 `,string`），都会让构建失败。
 - 字段是必填的，除非它是指针、切片或 map，或者带 `omitempty` 或 `omitzero`。这和页面的 TypeScript 类型里可选字段的规则一样。
@@ -285,7 +285,7 @@ export default function PostPage() {
 }
 ```
 
-- `Body() tifa.HTML` 每次被调用时，都从程序里读取条目的 HTML（`tifa dev` 从 `.tifa/dist` 读取），不保留副本。页面用 `<HTML>` 显示它，见[显示应用信任的 HTML](pages.zh-CN.md#showing-html-the-app-trusts)。正文里的链接走路由器。
+- `Body() tifa.HTML` 每次被调用时，都从程序里读取条目的 HTML（`tifa dev` 从 `.tifa/dist` 读取），不保留副本。页面用 `<HTML>` 显示它，见[显示应用信任的 HTML](loading-data.zh-CN.md#showing-html-the-app-trusts)。正文里的链接走路由器。
 - `Headings() []content.Heading` 按顺序列出正文的 `h1` 到 `h6`，每个写成 `{Depth, ID, Text}`：它的级别、它在 HTML 里的 `id` 和它的文字。
 
 ## Markdown 转 HTML {#markdown-to-html}

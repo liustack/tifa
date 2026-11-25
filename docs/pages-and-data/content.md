@@ -1,7 +1,7 @@
 ---
-summary: 'How an app keeps its writing as Markdown under content/: content.go, front matter, slugs, drafts, remark, `tifa build`'
+summary: 'Keep writing as Markdown under content/: content.go, front matter, slugs, drafts, remark'
 audience: app
-order: 4
+order: 9
 read_when:
   - Adding a blog, docs or other Markdown content to a Tifa app
   - Writing or changing content.go, or a schema type that embeds content.Entry
@@ -146,7 +146,7 @@ tags: [search]
 ---
 ```
 
-Its keys are the `json` names of the fields of the schema struct, and the build checks them with the same JSON rules as `Load` results and handler inputs ([JSON rules](routes.md#json-rules)).
+Its keys are the `json` names of the fields of the schema struct, and the build checks them with the same JSON rules as `Load` results and handler inputs ([JSON rules](../reference/json.md)).
 
 - A field may be a string, number, bool, `time.Time`, pointer, slice, map with string keys or nested struct. `time.Time` takes `2006-01-02` (midnight UTC) and RFC 3339, quoted or not. Types that read their own JSON, `[]byte`, `time.Duration`, interfaces and the json options other than `omitempty` and `omitzero` (such as `,string`) fail the build.
 - A field is required unless it is a pointer, slice or map, or has `omitempty` or `omitzero`. This is the same rule as for optional fields in the TypeScript types of the page.
@@ -284,7 +284,7 @@ export default function PostPage() {
 }
 ```
 
-- `Body() tifa.HTML` reads the HTML of the entry from the program each time it is called (`tifa dev` reads it from `.tifa/dist`) and keeps no copy. A page shows it with `<HTML>`, see [Showing HTML the app trusts](pages.md#showing-html-the-app-trusts). Links inside the body go through the router.
+- `Body() tifa.HTML` reads the HTML of the entry from the program each time it is called (`tifa dev` reads it from `.tifa/dist`) and keeps no copy. A page shows it with `<HTML>`, see [Showing HTML the app trusts](loading-data.md#showing-html-the-app-trusts). Links inside the body go through the router.
 - `Headings() []content.Heading` lists the `h1` to `h6` of the body in order, each as `{Depth, ID, Text}`: its level, the `id` it has in the HTML and its text.
 
 ## Markdown to HTML

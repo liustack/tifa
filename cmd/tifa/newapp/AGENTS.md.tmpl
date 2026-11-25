@@ -33,7 +33,7 @@ Never edit `.tifa/`. It is generated.
 
 ## Go side
 
-- Return `tifa.Redirect(url, status)` to redirect. Return `tifa.ErrNotFound`, `tifa.Error{Status, Message}` or `tifa.Fields{"field": "message"}` (422) for an error that a page shows in the nearest `ErrorBoundary` as a `TifaError` and a handler answers as JSON. Any other error or a panic goes to `OnError`, or a logged 500. See `docs/pages-and-data/routes.md`.
+- Return `tifa.Redirect(url, status)` to redirect. Return `tifa.ErrNotFound`, `tifa.Error{Status, Message}` or `tifa.Fields{"field": "message"}` (422) for an error that a page shows in the nearest `ErrorBoundary` as a `TifaError` and a handler answers as JSON. Any other error or a panic goes to `OnError`, or a logged 500. See `docs/pages-and-data/errors.md`.
 - A typed handler: `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`. Tifa decodes `in` from a JSON or form body (the query string for `GET` and `DELETE`), runs `in.Validate()` when it exists and writes the result as JSON. `func POST(c *tifa.Ctx) error` writes its own answer.
 - Data, inputs and results travel as JSON, and Tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null`, so write `?? []`. An integer above 9007199254740991 is refused where a page reads it: add `json:",string"` or send milliseconds.
 - The build fails with the file and line when `Load` or `Layout`:
@@ -42,12 +42,12 @@ Never edit `.tifa/`. It is generated.
   - passes `c` anywhere but a plain function or method of this module or of Tifa,
   - calls `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`.
 
-  `c.JSON`, `c.Text` and `c.NoContent` return an error there. Headers and cookies are fine. Pass `c.Context()` when a function needs only the context. See "How Load may use Ctx" in `docs/pages-and-data/routes.md`.
+  `c.JSON`, `c.Text` and `c.NoContent` return an error there. Headers and cookies are fine. Pass `c.Context()` when a function needs only the context. See "How Load may use Ctx" in `docs/pages-and-data/loading-data.md`.
 
 ## React side
 
 - Import from the generated `./route.gen` of the folder: `page.useLoaderData()`, `layout.useLoaderData()`, the `PageData` and `LayoutData` types, their Go structs by name (`Item`), and one function per handler, such as `POST({ params, input })`. A page reads the data of an enclosing Layout from the `route.gen` of that folder, such as `../route.gen`.
-- A handler function throws `TifaError` (`status`, `message`, `fields`) for an error answer. It never reloads page data: after a write, call `router.invalidate()`. See `docs/pages-and-data/pages.md#calling-method-handlers-from-the-browser`.
+- A handler function throws `TifaError` (`status`, `message`, `fields`) for an error answer. It never reloads page data: after a write, call `router.invalidate()`. See `docs/pages-and-data/handlers.md#calling-method-handlers-from-the-browser`.
 - Components that need the browser at import time go in `*.client.tsx` and load with `clientOnly` from `tifa/client`. See `docs/pages-and-data/server-render.md`.
 - `page.tsx` may also export `head` and `ErrorBoundary`. Styles are CSS files imported from TSX, see `docs/pages-and-data/styles.md`.
 

@@ -1,5 +1,5 @@
 ---
-summary: 'How a value from the environment reaches a page: Load, `import.meta.env.VITE_*`, `process.env`'
+summary: 'How an environment value reaches a page: Load, `import.meta.env.VITE_*`, `process.env`'
 audience: app
 order: 10
 read_when:

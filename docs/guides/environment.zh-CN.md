@@ -2,7 +2,7 @@
 summary: '环境里的值怎样到达页面：Load、`import.meta.env.VITE_*`、`process.env`'
 audience: app
 order: 10
-translatedFrom: d4c2aa469f11
+translatedFrom: ea0a48f120b5
 read_when:
   - '你来自 Next.js 或 Vite，在页面里习惯性地用 `import.meta.env.VITE_*`、`NEXT_PUBLIC_*` 或 `process.env`'
   - '构建警告说 `import.meta.env.VITE_*` 在构建时就固定了'
