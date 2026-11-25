@@ -267,6 +267,16 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Reopen when** apps are seen to need `float32` in the query of a page for a reason `float64` does not serve.
 
+### A pointer field in a query struct
+
+**Turned down (2026-11-26).** Accepting `*int` and other pointer fields in the struct a `Load` or `Layout` takes, so that a parameter not passed is `nil` and `?page=0` can be told from no `page`.
+
+**Why not.** It adds a second way to write every field for a need that is rare: in Go the zero value is the default, and a page number or a price limit of 0 reads well as "the first page" or "no limit". A choice that needs its own on and off is clearer as a `bool` field of its own.
+
+**Instead.** Value fields only, and the docs on query parameters say to let the zero value be the default.
+
+**Reopen when** apps are seen needing to tell 0 from no value in a way a `bool` field does not serve.
+
 ### An empty number or bool in a query string
 
 **Turned down (2026-11-26).** Answering `?page=` with a redirect to the address without it, or keeping the empty text as a value in the browser.

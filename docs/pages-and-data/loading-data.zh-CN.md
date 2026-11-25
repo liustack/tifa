@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
 audience: app
 order: 3
-translatedFrom: c12dbaf34521
+translatedFrom: 2c5180b2848a
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -96,6 +96,7 @@ func Load(c *tifa.Ctx, q Filter) (products.List, error) {
 - 不合法的值就是写错的地址，和没有页面的路径一样。访客看到什么由页面的 `ErrorBoundary` 决定，比如一句简短的提示，加一个去掉这个筛选的链接。不要为了躲开 400 把字段声明成 `string`：那样页面就丢了类型、最短的地址和链接的当前状态，每个值还得自己检查。
 - 页面拿到的值带着字段的类型：`useSearch()` 和 `PageSearch` 里，整数和浮点数是 `number`，`bool` 是 `boolean`，字符串是 `string`，切片是它们的数组（见[导航](navigation.zh-CN.md#query-parameters-in-link-and-navigate)）。浏览器只按声明的类型转换，不按别的，所以 `string` 字段里的 `?q=1.0` 和 `?q=007` 还是文本 `1.0` 和 `007`。
 - 不是字符串的字段，值为空（`?page=`）算没传，字段保持零值，所以会发送空字段的表单也能用。数字或 bool 列表里的空元素会被跳过。对字符串来说，空串就是一个值。服务端渲染时当作没有这个空值，返回 200，不重定向。页面加载之后，地址栏会去掉它（`?page=&q=x` 变成 `?q=x`），不请求数据，不重新加载，也没有水合警告。在浏览器里它的值是 `undefined`，零值只是 Go 字段里放的东西。
+- 所以 Go 分不清一个参数是没传，还是传了零值：`?page=0` 和没有 `page` 都得到 0。让零值就是默认值（page 为 0 就是第一页，`max` 为 0 就是不限）。需要单独开关的选择，比如只看免费书，用一个单独的 `bool` 字段。字段不能是指针。
 - 没有字段对应的参数会被忽略。
 - 访客改地址栏，或者填一个不用 JavaScript 的普通 `<form method="get">`，可以写 `007`、`1.0` 或 `.5`，页面照收。这些规则只管页面的查询字符串：`GET` 或 `DELETE` 处理函数的输入照旧，由 `c.BindQuery` 解码。
 - 这个结构体不带 `Validate`，带了构建就失败。请在 `Load` 里检查值，返回 `tifa.Error{Status: 400, Message: "page must be at least 1"}` 或 `tifa.ErrNotFound`。
