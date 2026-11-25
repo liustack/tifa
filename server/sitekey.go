@@ -19,16 +19,31 @@ import (
 //     ID and file), since its Markdown is in the build and does not change within one.
 //     TestSiteKeyCoversEveryFieldOfTheSitemap fails for a field the key does not hold.
 //   - the file asked for: its escaped path, which names the page of a .md and the part of a sitemap
-//     index, and the language of the request
+//     index, and the language of the request (the list key is all of it but the path)
 //   - the build ID, which changes the Markdown under tifa dev
 //
 // What the build and the process fix is not in it: the routes, site.url and the languages of the
 // site. A page key does not hold them either.
 func siteKey(build, file, language string, sm tifa.Sitemap) string {
+	return siteFileKey(siteListKey(build, language, sm), file)
+}
+
+// siteFileKey is the key of the file at the escaped path file for the list that listKey stands for.
+func siteFileKey(listKey, file string) string {
 	k := siteHash{sha256.New()}
 	k.str("site")
-	k.str(build)
+	k.str(listKey)
 	k.str(file)
+	return `"` + hex.EncodeToString(k.Sum(nil)[:16]) + `"`
+}
+
+// siteListKey is the hash of the part of the input that decides which pages the list has and what
+// they say: everything of siteKey but the file. The pages that the checks (sitePages) make of a
+// list are the same for every file of it, so they are kept by this key (listedPages).
+func siteListKey(build, language string, sm tifa.Sitemap) string {
+	k := siteHash{sha256.New()}
+	k.str("list")
+	k.str(build)
 	k.str(language)
 	k.str(sm.Name)
 	k.str(sm.Summary)
@@ -65,7 +80,7 @@ func siteKey(build, file, language string, sm tifa.Sitemap) string {
 			k.str(a.Path)
 		}
 	}
-	return `"` + hex.EncodeToString(k.Sum(nil)[:16]) + `"`
+	return hex.EncodeToString(k.Sum(nil)[:16])
 }
 
 // siteHash writes values to a hash so that two lists of values never write the same bytes:

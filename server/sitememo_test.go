@@ -132,7 +132,7 @@ func TestSiteFilesAreNotMadeAgainForTheSameList(t *testing.T) {
 		return next(c)
 	}
 	for _, p := range []string{"/sitemap.xml", "/llms.txt", "/llms-full.txt", "/store/journal/a.md", "/en-US/store/journal/hi.md"} {
-		callsBefore, readsBefore, logsBefore, hooksBefore := site.calls.Load(), files.reads.Load(), log.count(), onRequest.Load()
+		callsBefore, readsBefore, hooksBefore := site.calls.Load(), files.reads.Load(), onRequest.Load()
 		first := get(s, p)
 		if first.Code != 200 {
 			t.Fatalf("GET %s: %d %s", p, first.Code, first.Body.String())
@@ -150,15 +150,17 @@ func TestSiteFilesAreNotMadeAgainForTheSameList(t *testing.T) {
 		if got := onRequest.Load() - hooksBefore; got != 3 {
 			t.Errorf("GET %s: OnRequest ran %d times for 3 requests", p, got)
 		}
-		if got := log.count() - logsBefore; got != 1 {
-			t.Errorf("GET %s: the mistake of the list was logged %d times for 3 requests", p, got)
-		}
 		if got := files.reads.Load() - readsBefore; strings.HasSuffix(p, ".md") && got != 1 || p == "/llms-full.txt" && got != 2 || strings.HasSuffix(p, ".xml") && got != 0 {
 			t.Errorf("GET %s: %d Markdown reads", p, got)
 		}
 	}
 	if w := get(s, "/store/journal/a.md"); w.Header().Get("Link") != `<https://shop.example.com/store/journal/a>; rel="canonical"` || w.Header().Get("Content-Type") != "text/markdown; charset=utf-8" || w.Body.String() != "# A\n\ntext of a\n" {
 		t.Errorf("a kept .md: %v %q", w.Header(), w.Body.String())
+	}
+	// The pages of a list are checked once: one list for zh-CN, the language of the site files and of
+	// the first .md, one for en-US.
+	if log.count() != 2 {
+		t.Errorf("the mistake of the lists was logged %d times", log.count())
 	}
 	if st, _ := s.memo.stats(); st.Entries != 5 || st.Misses != 5 || st.Hits != 11 {
 		t.Errorf("memo %+v", st)
@@ -314,17 +316,17 @@ func TestSiteFilesAnswerHEAD(t *testing.T) {
 
 // Only a 200 is kept: made-up URLs cannot fill the memo, and an error is not remembered.
 func TestOnlyAnAnswerIsKept(t *testing.T) {
-	s, site, _, log := noteSite(t, nil)
+	s, site, _, _ := noteSite(t, nil)
 	entries := func() int { st, _ := s.memo.stats(); return st.Entries }
 	for _, p := range []string{"/store/journal/zzz.md", "/en-US/store/journal/a.md", "/sitemap-9.xml", "/sitemap-1.xml"} {
-		calls, logs := site.calls.Load(), log.count()
+		calls := site.calls.Load()
 		for range 3 {
 			if w := get(s, p); w.Code != 404 {
 				t.Errorf("GET %s: %d", p, w.Code)
 			}
 		}
-		if site.calls.Load()-calls != 3 || log.count()-logs != 3 || entries() != 0 {
-			t.Errorf("GET %s: %d function calls, %d computations, %d entries", p, site.calls.Load()-calls, log.count()-logs, entries())
+		if site.calls.Load()-calls != 3 || entries() != 0 {
+			t.Errorf("GET %s: %d function calls, %d entries", p, site.calls.Load()-calls, entries())
 		}
 	}
 	site.err = http.ErrAbortHandler
@@ -414,10 +416,67 @@ func TestSitemapInSeveralPartsIsKeptPerPart(t *testing.T) {
 	if bodies[0] == bodies[1] || bodies[1] == bodies[2] || !strings.Contains(bodies[0], "<sitemapindex") {
 		t.Errorf("the parts: %q", bodies)
 	}
-	if site.calls.Load() != 6 || log.count() != 3 {
-		t.Errorf("%d function calls, %d computations", site.calls.Load(), log.count())
+	if site.calls.Load() != 6 || log.count() != 1 {
+		t.Errorf("%d function calls, the list was checked %d times", site.calls.Load(), log.count())
 	}
 	if st, _ := s.memo.stats(); st.Entries != 3 {
 		t.Errorf("memo %+v", st)
+	}
+}
+
+// The files of one list check its pages once, whichever file asks first. A file whose answer is not
+// in the memo yet, such as the .md of each post, reuses them, and a changed list is checked again.
+func TestFilesOfOneListCheckItsPagesOnce(t *testing.T) {
+	s, site, files, log := noteSite(t, nil)
+	files.entry("zh-CN", "b", "text of b\n")
+	site.sm.Pages = append(site.sm.Pages, tifa.SitemapPage{Language: "zh-CN", Path: "/store/journal/b", Title: "B", Content: files.entry("zh-CN", "b", "text of b\n")})
+	for _, p := range []string{"/store/journal/a.md", "/store/journal/b.md", "/llms.txt", "/sitemap.xml", "/llms-full.txt", "/store/journal/zzz.md", "/sitemap-4.xml"} {
+		get(s, p)
+	}
+	if log.count() != 1 {
+		t.Errorf("the pages of the zh-CN list were checked %d times", log.count())
+	}
+	// Another language has a list of its own.
+	get(s, "/en-US/store/journal/hi.md")
+	get(s, "/en-US/store/journal/hi.md")
+	if log.count() != 2 {
+		t.Errorf("the pages of the en-US list were checked, in all %d times", log.count())
+	}
+	// A changed list is checked again by the next file, whichever it is, and its new pages are there.
+	site.sm.Pages[1].Title = "Hi, changed"
+	site.sm.Pages = append(site.sm.Pages, tifa.SitemapPage{Language: "zh-CN", Path: "/store/journal/c", Title: "C", Content: files.entry("zh-CN", "c", "text of c\n")})
+	if w := get(s, "/store/journal/c.md"); w.Code != 200 || !strings.Contains(w.Body.String(), "text of c") || log.count() != 3 {
+		t.Errorf("a .md of the new list: %d %q, checked %d times", w.Code, w.Body.String(), log.count())
+	}
+	if w := get(s, "/store/journal/b.md"); w.Code != 200 || log.count() != 3 {
+		t.Errorf("another .md of the new list: %d, checked %d times", w.Code, log.count())
+	}
+	// Only the list of the language of the file is replaced.
+	if w := get(s, "/en-US/store/journal/hi.md"); !strings.Contains(w.Body.String(), "# Hi, changed") || log.count() != 4 {
+		t.Errorf("the en-US list after the change: %q, checked %d times", w.Body.String(), log.count())
+	}
+	// With the memo off nothing is kept: every request checks.
+	cfg := config.Default()
+	cfg.SSR.MemoSize = 0
+	s, _, _, log = noteSite(t, &cfg)
+	for range 2 {
+		get(s, "/store/journal/a.md")
+		get(s, "/llms.txt")
+	}
+	if log.count() != 4 {
+		t.Errorf("without a memo the pages were checked %d times for 4 requests", log.count())
+	}
+}
+
+// The key of a list is the key of a file without the file.
+func TestListKeyLeavesTheFileOut(t *testing.T) {
+	sm := tifa.Sitemap{Name: "x", Pages: []tifa.SitemapPage{{Path: "/a", Title: "A"}}}
+	if siteListKey("b", "l", sm) != siteListKey("b", "l", sm) || siteFileKey("k", "/a.md") == siteFileKey("k", "/b.md") || siteFileKey("k", "/a.md") == siteFileKey("j", "/a.md") {
+		t.Error("the keys do not follow their input")
+	}
+	sm2 := sm
+	sm2.Pages = []tifa.SitemapPage{{Path: "/a", Title: "B"}}
+	if siteListKey("b", "l", sm) == siteListKey("b", "l", sm2) || siteListKey("b", "l", sm) == siteListKey("b", "m", sm) || siteListKey("b", "l", sm) == siteListKey("c", "l", sm) {
+		t.Error("the key of a list lacks part of the list")
 	}
 }

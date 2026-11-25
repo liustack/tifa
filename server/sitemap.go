@@ -175,7 +175,7 @@ type siteBody struct {
 // siteAnswer answers a request for a file of the site. The function of SetSitemap runs on each
 // request, and its result is the input of the answer: the memo keeps the answer by the hash of it
 // (siteKey) and makes it with build only for a result it has not seen, with the pages the result
-// lists. Requests for the same file and result at the same time share one build. build returns
+// lists, which the files of one result share (listedPages). Requests for the same file and result at the same time share one build. build returns
 // tifa.ErrNotFound for a file that the result has none of, and only a 200 is kept, so that made-up
 // URLs do not fill the memo. The answer has the ETag and the 304 of a page.
 func (s *server) siteAnswer(c *tifa.Ctx, build func(sm tifa.Sitemap, pages []sitePage) (siteBody, error)) error {
@@ -187,7 +187,9 @@ func (s *server) siteAnswer(c *tifa.Ctx, build func(sm tifa.Sitemap, pages []sit
 		}
 	}
 	r := c.Request()
-	key := siteKey(s.front.Load().build.ID, r.URL.EscapedPath(), c.Language(), sm)
+	language := c.Language()
+	list := siteListKey(s.front.Load().build.ID, language, sm)
+	key := siteFileKey(list, r.URL.EscapedPath())
 	etag := key
 	if s.cfg.Compress {
 		etag = "W/" + key
@@ -207,7 +209,7 @@ func (s *server) siteAnswer(c *tifa.Ctx, build func(sm tifa.Sitemap, pages []sit
 		}
 	}
 	got, err := s.memo.fetch(r.Context(), key, unheard, func(ctx context.Context) (cachedPage, keep, error) {
-		body, err := build(sm, s.sitePages(ctx, sm))
+		body, err := build(sm, s.listedPages(ctx, language, list, sm))
 		if err != nil {
 			return cachedPage{}, keepNot, err
 		}
@@ -304,8 +306,9 @@ func pageMarkdown(p sitePage, siteName string) (string, error) {
 
 // The kinds of mistakes in what the function of SetSitemap returns. A mistake leaves out the page
 // or the Exclude pattern it is in, or the Content of a page, and the files answer with the rest:
-// a search engine still gets a sitemap while the app is being fixed. Each time an answer is made
-// (not on each request: see siteAnswer) one line per kind is logged, which names the pages, by
+// a search engine still gets a sitemap while the app is being fixed. Each time a list is checked
+// (once for each list the function returns, not on each request or file: see listedPages) one line
+// per kind is logged, which names the pages, by
 // their path and language, or the patterns.
 const (
 	stalePattern  = "Exclude patterns that match no page are ignored"
@@ -341,6 +344,31 @@ func pageName(sp tifa.SitemapPage) string {
 		return sp.Path
 	}
 	return sp.Path + " (" + sp.Language + ")"
+}
+
+// siteList is the checked pages of a list, by its key.
+type siteList struct {
+	key   string
+	pages []sitePage
+}
+
+// listedPages returns what sitePages returns for sm, whose key without the file is listKey. The
+// newest list of each language is kept, so that the files of one list, such as the .md of every
+// post, check its pages once: a file whose own answer is not in the memo reuses them while the
+// list key is the same. A list that has changed has another key and is checked again, and its
+// mistakes are logged then. Nothing is kept with the memo off.
+func (s *server) listedPages(ctx context.Context, language, listKey string, sm tifa.Sitemap) []sitePage {
+	if s.memo.off() {
+		return s.sitePages(ctx, sm)
+	}
+	s.listMu.Lock()
+	defer s.listMu.Unlock()
+	if l, ok := s.lists[language]; ok && l.key == listKey {
+		return l.pages
+	}
+	pages := s.sitePages(ctx, sm)
+	s.lists[language] = siteList{listKey, pages}
+	return pages
 }
 
 // sitePages returns the pages of the sitemap that sm, what the function of SetSitemap returned,
