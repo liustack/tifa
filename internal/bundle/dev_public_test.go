@@ -61,7 +61,7 @@ func TestDevRebuildSyncsPublicInPlace(t *testing.T) {
 	defer d.Close()
 	build := func() {
 		t.Helper()
-		if _, err := d.Build(context.Background(), public, true); err != nil {
+		if _, err := d.Build(context.Background(), public, nil, true); err != nil {
 			t.Fatalf("Build: %v", err)
 		}
 	}
@@ -160,7 +160,7 @@ func TestDevBuildWithoutPublic(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 }
@@ -177,10 +177,37 @@ func TestDevBuildFollowsALinkedPublic(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if got := readFile(t, filepath.Join(root, ".tifa", "dist", "public", "a.txt")); got != "a" {
 		t.Errorf("a.txt holds %q", got)
+	}
+}
+
+// tifa dev copies the dot names that build.public_dotfiles lists and leaves the others out, and a
+// change of the list shows on the next build.
+func TestDevCopiesNamedDotFiles(t *testing.T) {
+	root := devApp(t)
+	public := filepath.Join(root, "public")
+	writeTree(t, root, map[string]string{"public/.nojekyll": "", "public/.env": "secret", "public/a.txt": "a"})
+	d, err := NewDev(root, freePort(t), io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	out := filepath.Join(root, ".tifa", "dist", "public")
+	exists := func(name string) bool { _, err := os.Stat(filepath.Join(out, name)); return err == nil }
+	if _, err := d.Build(context.Background(), public, []string{".nojekyll"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(".nojekyll") || exists(".env") || !exists("a.txt") {
+		t.Errorf("named: .nojekyll %v, .env %v", exists(".nojekyll"), exists(".env"))
+	}
+	if _, err := d.Build(context.Background(), public, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if exists(".nojekyll") {
+		t.Error(".nojekyll stays after it was taken off the list")
 	}
 }

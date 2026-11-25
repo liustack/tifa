@@ -129,3 +129,34 @@ func TestRoutesBuiltInMarkdown(t *testing.T) {
 func TestRoutesBuiltInChallenge(t *testing.T) {
 	wantRow(t, builtIn(t, "--dir", testApp("valid")), "/.well-known/acme-challenge/<token>", "server.tls_domains is set, on server.http_addr only")
 }
+
+// The /<file> row says how many dot files of public/ are left out, and counts the files that are
+// served without them. build.public_dotfiles puts a named one back.
+func TestRoutesBuiltInPublicDotFiles(t *testing.T) {
+	dir := apiApp(t) // has public/robots.txt
+	writeFile(t, filepath.Join(dir, "public", ".DS_Store"), "x")
+	writeFile(t, filepath.Join(dir, "public", ".foo", "a.txt"), "x")
+	writeFile(t, filepath.Join(dir, "public", ".nojekyll"), "")
+	wantRow(t, builtIn(t, "--dir", dir), "/<file>", "public/ has 1 file (3 dot files or folders left out)")
+
+	writeFile(t, filepath.Join(dir, "tifa.yaml"), "build:\n  public_dotfiles: .nojekyll\n")
+	wantRow(t, builtIn(t, "--dir", dir), "/<file>", "public/ has 2 files (2 dot files or folders left out)")
+}
+
+// A public folder with nothing but dot files still gets the row, which says why it is empty.
+func TestRoutesBuiltInPublicHoldsOnlyDotFiles(t *testing.T) {
+	dir := apiApp(t)
+	removePublicRobots(t, dir)
+	writeFile(t, filepath.Join(dir, "public", ".DS_Store"), "x")
+	wantRow(t, builtIn(t, "--dir", dir), "/<file>", "public/ has no files (1 dot file left out)")
+}
+
+// A name that build.public_dotfiles lists and public/ lacks stops tifa routes like the other commands.
+func TestRoutesFailOnADotFileThatIsNotThere(t *testing.T) {
+	dir := apiApp(t)
+	writeFile(t, filepath.Join(dir, "tifa.yaml"), "build:\n  public_dotfiles: .nojekyll\n")
+	_, _, err := run(t, "routes", "--dir", dir)
+	if err == nil || !strings.Contains(err.Error(), `build.public_dotfiles: ".nojekyll" is not in public/`) {
+		t.Errorf("routes: %v", err)
+	}
+}

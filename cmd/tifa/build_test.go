@@ -356,3 +356,60 @@ func TestTargetSystemIsTheOneGoSees(t *testing.T) {
 		t.Errorf("GOOS=windows: %q, %v", got, err)
 	}
 }
+
+// tifa build says which dot files of public/ it leaves out and where to name them, and says nothing
+// when nothing is left out. A dot file that build.public_dotfiles names is copied and not listed.
+func TestBuildSaysWhatPublicLeavesOut(t *testing.T) {
+	dir := apiApp(t)
+	var out bytes.Buffer
+	if err := checkPublic(dir, &out); err != nil || out.Len() != 0 {
+		t.Fatalf("nothing left out: %v, %q", err, out.String())
+	}
+	writeFile(t, filepath.Join(dir, "public", ".DS_Store"), "x")
+	writeFile(t, filepath.Join(dir, "public", ".nojekyll"), "")
+	writeFile(t, filepath.Join(dir, "public", ".foo", "a.txt"), "x")
+	writeFile(t, filepath.Join(dir, "tifa.yaml"), "build:\n  public_dotfiles: .nojekyll\n")
+	if err := checkPublic(dir, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := "tifa: public: 2 dot files or folders in public/ are not copied: .DS_Store, .foo/. To copy one, list it in build.public_dotfiles in tifa.yaml.\n"
+	if out.String() != want {
+		t.Errorf("got\n%q\nwant\n%q", out.String(), want)
+	}
+}
+
+// With many, the line lists the first few and counts the rest.
+func TestBuildPublicHintListsTheFirstFew(t *testing.T) {
+	dir := apiApp(t)
+	for _, name := range []string{".a", ".b", ".c", ".d", ".e", ".f", ".g"} {
+		writeFile(t, filepath.Join(dir, "public", name), "x")
+	}
+	var out bytes.Buffer
+	if err := checkPublic(dir, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := "tifa: public: 7 dot files in public/ are not copied: .a, .b, .c, .d, .e and 2 more. To copy one, list it in build.public_dotfiles in tifa.yaml.\n"
+	if out.String() != want {
+		t.Errorf("got\n%q\nwant\n%q", out.String(), want)
+	}
+}
+
+// A name in build.public_dotfiles that public/ lacks fails tifa check and tifa build, before the
+// slow steps, with the key and the name. A name of the wrong shape fails with the key and the name too.
+func TestBuildAndCheckRejectWrongDotFileNames(t *testing.T) {
+	for _, tc := range []struct{ value, want string }{
+		{".nojekyll", `build.public_dotfiles: ".nojekyll" is not in public/`},
+		{"README.md", `build.public_dotfiles: "README.md"`},
+		{"../.env", `build.public_dotfiles: "../.env"`},
+		{".a,,.b", "build.public_dotfiles"},
+	} {
+		for _, command := range []string{"check", "build"} {
+			dir := apiApp(t)
+			writeFile(t, filepath.Join(dir, "tifa.yaml"), "build:\n  public_dotfiles: '"+tc.value+"'\n")
+			_, _, err := run(t, command, "--dir", dir)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("%s with %q: %v, want %q", command, tc.value, err, tc.want)
+			}
+		}
+	}
+}

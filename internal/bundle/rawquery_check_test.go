@@ -32,7 +32,7 @@ func buildWarnings(t *testing.T, files map[string]string, query string) string {
 	var output strings.Builder
 	n := NewNode(root, &output)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, true, nil); err != nil {
 		t.Fatalf("the build failed: %v\n%s", err, output.String())
 	}
 	return output.String()

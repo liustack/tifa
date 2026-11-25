@@ -23,7 +23,7 @@ func TestDevSSRBundleHasTheEnvOfTheBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatal(err)
 	}
 	ssr, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))

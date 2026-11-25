@@ -86,7 +86,7 @@ func TestDevRunsOneNodeProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if n := nodeChildren(t) - before; n != 1 {
@@ -114,7 +114,7 @@ func TestAppIgnoresInheritedNodeEnv(t *testing.T) {
 	root := devApp(t)
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, true, nil); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -138,7 +138,7 @@ func TestDevIgnoresInheritedNodeEnv(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer d.Close()
-			if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+			if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 				t.Fatalf("Build: %v", err)
 			}
 			if !strings.Contains(d.head, "@react-refresh") {
@@ -172,7 +172,7 @@ func TestDevSSRUsesTheDevServerURLsOfAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -215,7 +215,7 @@ func TestDevHeadLinksTheStylesheetsOfTheServerRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	link := `<link rel="stylesheet" href="` + DevBase + `app/page/page.css" data-vite-dev-id="` +
@@ -279,7 +279,7 @@ func TestAppResolvesImportsByTheTsconfigPaths(t *testing.T) {
 	root := aliasApp(t)
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, true, nil); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -315,7 +315,7 @@ func TestDevResolvesImportsByTheTsconfigPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	code, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -354,7 +354,7 @@ func TestDevWarnsOfTheRequiresLeftInTheBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer d.Close()
-		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 			t.Fatalf("Build: %v", err)
 		}
 		// What Node printed is complete once it exited.
@@ -419,7 +419,7 @@ func TestDevPrintsAllTheSSRWorkerPrinted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true)
+	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), nil, true)
 	if err := d.Close(); err != nil || buildErr != nil {
 		t.Fatalf("build: %v, close: %v", buildErr, err)
 	}
@@ -452,7 +452,7 @@ func TestDevBuildsOnANewWorkerAfterTenBuilds(t *testing.T) {
 	}
 	defer d.Close()
 	for i := 1; i <= 12; i++ {
-		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 			t.Fatalf("build %d: %v", i, err)
 		}
 	}
@@ -493,13 +493,13 @@ func TestDevBuildsOnANewWorkerAfterTheThreadDied(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err == nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err == nil {
 		t.Fatal("the build on the thread the plugin ended worked")
 	}
 	if err := os.Remove(broken); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("the build after the plugin was fixed: %v", err)
 	}
 }
@@ -521,8 +521,8 @@ func TestDevWarnsOfHeadTagsThatProductionLacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true)
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), nil, true)
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.Close(); err != nil || buildErr != nil {
@@ -557,7 +557,7 @@ func devBuild(t *testing.T, root string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), true)
+	_, buildErr := d.Build(context.Background(), filepath.Join(root, "public"), nil, true)
 	if err := d.Close(); err != nil || buildErr != nil {
 		t.Fatalf("build: %v, close: %v", buildErr, err)
 	}
@@ -601,7 +601,7 @@ func TestDevBaseURLIsTheSiteRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%sapp/page/base.ts", port, DevBase))
@@ -645,7 +645,7 @@ func TestDevStylesChecksThePlainStylesheets(t *testing.T) {
 	if err := d.Styles(context.Background()); err == nil {
 		t.Fatal("Styles before a Build worked")
 	}
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	plain := d.PlainStyles()
@@ -677,7 +677,7 @@ func TestDevStylesChecksThePlainStylesheets(t *testing.T) {
 		}
 	}
 	// The SSR build of the edited stylesheets makes the same bundle.
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if again, err := os.ReadFile(filepath.Join(dist, "ssr.js")); err != nil || !bytes.Equal(again, ssr) {
@@ -700,7 +700,7 @@ func TestDevStylesChecksThePlainStylesheets(t *testing.T) {
 		"?url":       "import './page.css'\nimport url from './theme.css?url'\nexport default function View() { return <link href={url} /> }\n",
 	} {
 		writeTree(t, root, map[string]string{"app/page/card.module.css": ".card { color: red }\n", "app/page/view.tsx": view})
-		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 			t.Fatalf("%s: Build: %v", name, err)
 		}
 		if d.PlainStyles()("app/page/page.css") {
@@ -733,7 +733,7 @@ func TestDevPlainStylesAreModulesOfTheBundle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if !d.Reads()("app/tokens.css") {
@@ -762,16 +762,16 @@ func TestDevBuildFailsOnABrokenStylesheet(t *testing.T) {
 	defer d.Close()
 	public := filepath.Join(root, "public")
 	for i := range 2 {
-		if _, err := d.Build(context.Background(), public, true); err == nil || !strings.Contains(err.Error(), "missing.css") {
+		if _, err := d.Build(context.Background(), public, nil, true); err == nil || !strings.Contains(err.Error(), "missing.css") {
 			t.Fatalf("build %d with a broken stylesheet: %v", i, err)
 		}
 	}
 	writeTree(t, root, map[string]string{"app/page/page.css": ".page { color: red }\n"})
-	if _, err := d.Build(context.Background(), public, true); err != nil {
+	if _, err := d.Build(context.Background(), public, nil, true); err != nil {
 		t.Fatalf("Build after the fix: %v", err)
 	}
 	writeTree(t, root, map[string]string{"app/page/page.css": "@import './gone.css';\n"})
-	if _, err := d.Build(context.Background(), public, true); err == nil || !strings.Contains(err.Error(), "gone.css") {
+	if _, err := d.Build(context.Background(), public, nil, true); err == nil || !strings.Contains(err.Error(), "gone.css") {
 		t.Fatalf("build with a stylesheet broken since the last: %v", err)
 	}
 }
@@ -840,7 +840,7 @@ func TestDevStylesheetsInTheBundleTakeTheFullPath(t *testing.T) {
 			}
 			defer d.Close()
 			public := filepath.Join(root, "public")
-			if _, err := d.Build(context.Background(), public, true); err != nil {
+			if _, err := d.Build(context.Background(), public, nil, true); err != nil {
 				t.Fatalf("Build: %v", err)
 			}
 			before, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
@@ -854,7 +854,7 @@ func TestDevStylesheetsInTheBundleTakeTheFullPath(t *testing.T) {
 				return
 			}
 			writeTree(t, root, map[string]string{tc.edited: tc.next})
-			if _, err := d.Build(context.Background(), public, true); err != nil {
+			if _, err := d.Build(context.Background(), public, nil, true); err != nil {
 				t.Fatalf("Build after the edit: %v", err)
 			}
 			after, err := os.ReadFile(filepath.Join(root, ".tifa", "dist", "ssr.js"))
