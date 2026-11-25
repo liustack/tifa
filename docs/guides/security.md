@@ -71,7 +71,7 @@ Keep passwords as a slow hash, such as argon2id, and say the same thing for an u
 
 ### Turn on HTTPS and HSTS
 
-The program serves HTTPS itself with a certificate from Let's Encrypt: set `server.tls_domains`. `tifa deploy` with `front: none` does this for you, and `front: cloudflare` puts a Cloudflare Tunnel in front. Once HTTPS works, set `server.hsts: true`, which is off by default, so browsers keep to HTTPS for a year. See [HTTPS](../build-and-deploy/config.md#https), [Port 80 and HSTS](../build-and-deploy/config.md#port-80-and-hsts) and [The app serves visitors itself](../build-and-deploy/deploy.md#the-app-serves-visitors-itself).
+The program serves HTTPS itself with a certificate from Let's Encrypt: set `server.tls_domains`. `tifa deploy` with `front: none` does this for you, `front: cloudflare` puts a Cloudflare Tunnel in front, and `front: nginx` an nginx that Tifa installs, with a certificate from certbot. Once HTTPS works, set `server.hsts: true`, which is off by default, so browsers keep to HTTPS for a year. See [HTTPS](../build-and-deploy/config.md#https), [Port 80 and HSTS](../build-and-deploy/config.md#port-80-and-hsts) and [The app serves visitors itself](../build-and-deploy/deploy.md#the-app-serves-visitors-itself).
 
 ### Turn on a Content-Security-Policy
 
