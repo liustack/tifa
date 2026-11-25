@@ -12,8 +12,9 @@ import (
 )
 
 // appDocsIndex lists the docs for writing an app that this tifa carries, for the managed block of
-// AGENTS.md: a line with each section folder, in the order of its index.md, then one line per doc
-// in its order with the file name and the whole summary, so an agent sees the head and the keywords after it.
+// AGENTS.md: one line per section folder, in the order of its index.md, with the file names of its
+// docs in their order. An agent reads AGENTS.md at the start of every session, so what each doc
+// covers is not here: tifa docs prints it.
 func appDocsIndex() (string, error) {
 	return docsIndexOf(tifadocs.FS)
 }
@@ -23,8 +24,8 @@ func appDocsIndex() (string, error) {
 // TestDocLayoutOfTheRepository keep every doc of a release from that.
 func docsIndexOf(files fs.FS) (string, error) {
 	type doc struct {
-		name, summary string
-		order         int
+		name  string
+		order int
 	}
 	type section struct {
 		dir   string
@@ -57,7 +58,7 @@ func docsIndexOf(files fs.FS) (string, error) {
 		if meta.summary == "" {
 			return fmt.Errorf("docs/%s has no summary in its front matter", p)
 		}
-		s.docs = append(s.docs, doc{name, strings.Join(strings.Fields(meta.summary), " "), meta.order})
+		s.docs = append(s.docs, doc{name, meta.order})
 		return nil
 	})
 	if err != nil {
@@ -72,15 +73,13 @@ func docsIndexOf(files fs.FS) (string, error) {
 	}
 	slices.SortFunc(list, func(a, b *section) int { return cmp.Compare(a.order, b.order) })
 	var out strings.Builder
-	for i, s := range list {
-		if i > 0 {
-			out.WriteString("\n")
-		}
-		fmt.Fprintf(&out, "`docs/%s`\n", s.dir)
+	for _, s := range list {
 		slices.SortFunc(s.docs, func(a, b doc) int { return cmp.Compare(a.order, b.order) })
-		for _, d := range s.docs {
-			fmt.Fprintf(&out, "- `%s`: %s\n", d.name, d.summary)
+		names := make([]string, len(s.docs))
+		for i, d := range s.docs {
+			names[i] = "`" + d.name + "`"
 		}
+		fmt.Fprintf(&out, "- `docs/%s`: %s\n", s.dir, strings.Join(names, ", "))
 	}
 	return strings.TrimSuffix(out.String(), "\n"), nil
 }

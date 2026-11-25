@@ -97,7 +97,7 @@ func TestDocsPrintsTheDocsOfTheModuleTheAppUses(t *testing.T) {
 	for _, want := range []string{
 		"github.com/liustack/tifa v0.0.0",
 		"Docs: " + filepath.Join(tifaDir, "docs"),
-		"docs/app.md - Writing an app\n",
+		"docs/app.md - Writing an app: layout, routes and pages\n",
 		"docs/config.md - Settings\n",
 		"2 more docs are about developing tifa itself: run `go tool tifa docs --all`",
 		"`go tool tifa docs --when`",
@@ -140,7 +140,7 @@ func TestDocsAllAndWhenListEverythingWithTheReadWhenLines(t *testing.T) {
 	}
 	for _, want := range []string{
 		"For writing an app:\n",
-		"docs/app.md - Writing an app\n  Read when: Writing a page | Adding a route\n",
+		"docs/app.md - Writing an app: layout, routes and pages\n  Read when: Writing a page | Adding a route\n",
 		"For developing tifa itself:\n",
 		"docs/studies/speed.md - How fast it is\n",
 	} {
@@ -165,22 +165,6 @@ func TestDocsListsEveryDocWhenNoDocHasAnAudience(t *testing.T) {
 	}
 	if !strings.Contains(out, "docs/a.md - First\n") || !strings.Contains(out, "docs/b.md - Second\n") || strings.Contains(out, "developing tifa") {
 		t.Errorf("output:\n%s", out)
-	}
-}
-
-func TestFirstSentence(t *testing.T) {
-	long := "How tifa new starts an app, what tifa build does, what tifa check runs, what tifa gen writes, what Tifa docs prints, and more"
-	for in, want := range map[string]string{
-		"How to write a Tifa app: folder layout, routes": "How to write a Tifa app",
-		"Settings": "Settings",
-		long:       "How tifa new starts an app, what tifa build does, what tifa check runs, what tifa gen writes",
-		// A cut inside parentheses ends before them, so no parenthesis is left open.
-		"How to set up the whole app in hooks.go (OnStart, OnShutdown, OnRequest, OnError, the log handler, net/http middleware) and in setup.ts": "How to set up the whole app in hooks.go",
-		"What Tifa keeps stable (packages, conventions) and what may change, which this sentence makes long enough to be cut somewhere":           "What Tifa keeps stable (packages, conventions) and what may change",
-	} {
-		if got := firstSentence(in); got != want {
-			t.Errorf("firstSentence(%q) = %q, want %q", in, got, want)
-		}
 	}
 }
 
