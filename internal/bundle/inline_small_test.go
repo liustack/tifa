@@ -1,11 +1,14 @@
 package bundle
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liustack/tifa/js"
 )
@@ -74,8 +77,14 @@ const out = JSON.parse(await (await import('node:stream/consumers')).text(proces
 })
 process.stdout.write(JSON.stringify(out))
 `
-	cmd := nodeWithInput(testdata(t), script, input, plugin)
+	// A source that sends the plugin into a search without end fails the test and does not hold it.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := nodeWithInputContext(ctx, testdata(t), script, input, plugin)
 	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		t.Fatalf("inlineSmallFunctions did not finish in a minute")
+	}
 	if err != nil {
 		t.Fatalf("inlineSmallFunctions: %v", err)
 	}
@@ -136,6 +145,29 @@ func checkSmallCases(t *testing.T, cases []smallCase) {
 				}
 			}
 		})
+	}
+}
+
+// Whether a name is set where a call reads it depends on every function that can lead to the call.
+// Each of them is looked at once, not once per way to reach it: with sixty layers of functions
+// that each name the one below twice, the ways are 2 to the power of 60. Ant Design has code of
+// this shape, and its build did not end.
+func TestPluginLooksAtEachFunctionOnceWhenFunctionsNameEachOtherOften(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("\nconst k = 1;\nfunction same(x) { return x; }\nfunction f0(d) { return same(k); }\n")
+	for i := 1; i <= 60; i++ {
+		fmt.Fprintf(&b, "function f%d(d) { return d ? f%d(d) : f%d(d); }\n", i, i-1, i-1)
+	}
+	b.WriteString("function run() { return f60(log('d')); }\n")
+	got := inlineSmallOnNode(t, []string{b.String()})[0]
+	if want := "function f0(d) { return (k); }"; !strings.Contains(got.Code, want) {
+		t.Errorf("the call same(k) in f0 was not written out, want %q:\n%s", want, got.Code)
+	}
+	if !got.Parses {
+		t.Errorf("the new code does not parse:\n%s", got.Code)
+	}
+	if got.Before != got.After || got.Before != "d | => 1" {
+		t.Errorf("the code gives %q, before %q, want %q both times", got.After, got.Before, "d | => 1")
 	}
 }
 

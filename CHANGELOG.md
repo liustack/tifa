@@ -4,6 +4,17 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- `route.gen.ts` and `session.gen.ts` now declare each Go struct the data uses once, under its Go name, and export it: `type Order struct` is the TypeScript type `Order`, and a component can write `import { type Order } from './route.gen'` instead of `PageData['orders'][number]`. `PageData`, `LayoutData`, `<METHOD>Input`, `<METHOD>Output` and `SessionData` are aliases of those names, so the old way of writing still type checks. A struct of another package with the same name gets its package name in front (`CartOrder`), and a name that `route.gen` uses itself gets `Go` in front (`GoParams`). Generated files are shorter: the order page of `examples/shop` went from 6,032 to 3,821 bytes. Types that were `GoName` for a recursive struct are now `Name`. See [page.tsx](docs/pages-and-data/pages.md#pagetsx).
+
+- The `typecheck` script of a new app is now `go tool tifa gen && tsc --noEmit`, so `pnpm typecheck` reads the types of the `route.go` as it is now, not the ones the last `tifa dev` or `tifa build` left in `.tifa/`. When the Go code does not compile, it stops at `gen` and prints the Go file and line. The first lines of every `route.gen.ts` and of `session.gen.ts` name the `route.go`, `page.tsx` and `layout.tsx` (or the session type) it was written from and say to run `go tool tifa gen` when they no longer match. The notes block of `AGENTS.md` and the Tifa skill tell a coding agent to run it once after a batch of Go changes. An app made earlier can change its `typecheck` script to the same line.
+
+### Fixed
+
+- `tifa build` and `tifa dev` no longer run without end on an app that imports a package whose functions name each other in many ways, such as Ant Design: the build step that writes out the calls of small functions looked at a function once for every way to reach it, and now looks at it once.
+- The `schema.sql` of a new app says that editing a `CREATE TABLE` there changes no table that exists, and where the migrations are described.
+
 ## [0.5.2] - 2026-11-25
 
 ### Changed

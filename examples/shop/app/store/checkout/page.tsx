@@ -26,7 +26,7 @@ import { storeTitle, useStore } from '../i18n'
 import { ProductCard, ProductGrid, ProductImage } from '../product-card'
 import { arrival } from '../cart/arrival'
 import { addressSchema, checkoutSchema, type Address } from './checkout-schema'
-import { POST, page, type PageData, type POSTInput } from './route.gen'
+import { POST, page, type PageData, type Placed as PlacedOrder, type POSTInput } from './route.gen'
 
 export const head = ({ matches }: { matches: ReadonlyArray<{ loaderData?: unknown }> }) => ({
   meta: [{ title: storeTitle(matches, { key: 'checkout.title' }) }],
@@ -38,7 +38,7 @@ export default function CheckoutPage() {
   return <Checkout view={view} />
 }
 
-function Placed({ placed }: { placed: NonNullable<PageData['placed']> }) {
+function Placed({ placed }: { placed: PlacedOrder }) {
   const { t } = useStore()
   const day = { month: 'long', day: 'numeric' } as const
   return (

@@ -208,7 +208,7 @@ The value `Load` or a `Layout` function returns, and the input and result of a m
 | `[]byte`, `[N]byte` (the element is exactly `byte` or `uint8`) | `string`, written as base64. A nil `[]byte` is `""`. A slice or array of a named byte type is an ordinary array of numbers |
 | array | `T[]`, or `[]` when the length is 0 |
 | map | `Record<string, V>`. A nil map is written as `{}` |
-| struct | an object of its exported fields |
+| struct | an object of its exported fields. A named struct is also declared in `route.gen` under its Go name, see [page.tsx](pages.md#pagetsx) |
 
 - Map keys are written in sorted order, so the same value always gives the same text. They must be string or integer types, or types that output a string under the `MarshalText` rule below. Interfaces and pointers cannot be keys.
 - An exported embedded struct (a pointer works too) without a json name has its fields promoted to the outer object. Fields reached through an embedded pointer are optional. When fields of different structs have the same name, the shallowest wins, then the one with a json tag, and if that still leaves several, all of them are dropped. An embedded field needs a json name when its type is not a struct, and an embedded struct may not have json tag options or a method named `MarshalJSON`, `MarshalJSONTo`, `MarshalText`, `AppendText`, `UnmarshalJSON`, `UnmarshalJSONFrom` or `UnmarshalText`. Unexported embedded fields are not accepted unless tagged `json:"-"`.

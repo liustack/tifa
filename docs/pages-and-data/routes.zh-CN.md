@@ -2,7 +2,7 @@
 summary: '怎样在 route.go 里写路由的 Go 部分：Load、方法处理函数、带类型的输入、错误、Ctx、JSON 规则'
 audience: app
 order: 1
-translatedFrom: 4a2cbeeb1f82
+translatedFrom: c9912192c2c2
 read_when:
   - '编写页面或 API 路由的 route.go：Load、方法处理函数，以及它们返回的 `tifa.Fields`、`tifa.Redirect` 之类的错误'
   - '构建报出关于 Ctx 用法或 Load 返回类型的错误，想把它修好'
@@ -209,7 +209,7 @@ Tifa 只检查 `Load` 和 `Layout` 能到达的代码。如果你在 `OnRequest`
 | `[]byte`、`[N]byte`（元素恰好是 `byte` 或 `uint8`） | `string`，以 base64 写出。nil 的 `[]byte` 是 `""`。命名的字节类型的切片或数组，是普通的数字数组 |
 | 数组 | `T[]`，长度为 0 时是 `[]` |
 | map | `Record<string, V>`。nil 的 map 写成 `{}` |
-| 结构体 | 由它的导出字段组成的对象 |
+| 结构体 | 由它的导出字段组成的对象。具名结构体还会在 `route.gen` 里按它的 Go 名字声明，见 [page.tsx](pages.zh-CN.md#pagetsx) |
 
 - map 的键按排序后的顺序写出，所以同一个值总是得到同样的文本。键必须是字符串或整数类型，或者按下面的 `MarshalText` 规则输出字符串的类型。接口和指针不能做键。
 - 没有 json 名的导出嵌入结构体（指针也可以），它的字段会提升到外层对象里。通过嵌入指针到达的字段是可选的。不同结构体的字段同名时，层级最浅的胜出，然后是带 json 标签的，如果这样还剩下多个，就全部丢弃。嵌入字段的类型不是结构体时，需要一个 json 名。嵌入的结构体不能带 json 标签选项，也不能有名为 `MarshalJSON`、`MarshalJSONTo`、`MarshalText`、`AppendText`、`UnmarshalJSON`、`UnmarshalJSONFrom` 或 `UnmarshalText` 的方法。未导出的嵌入字段不被接受，除非标成 `json:"-"`。

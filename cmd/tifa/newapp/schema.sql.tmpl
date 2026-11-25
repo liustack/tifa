@@ -1,5 +1,7 @@
 -- The tables of the app. OnStart runs this file every time the app starts, so each statement
--- must be safe to run again.
+-- must be safe to run again. A table that exists is not changed by editing its CREATE TABLE here:
+-- to add or change a column of one, see "Change the tables with migrations" in
+-- docs/guides/database.md of Tifa (go tool tifa docs prints where the docs are).
 {{if not .Empty}}CREATE TABLE IF NOT EXISTS todos (
   id    INTEGER PRIMARY KEY,
   title TEXT    NOT NULL,

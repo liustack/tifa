@@ -29,7 +29,23 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
 })
 ```
 
-- UI only, no data loading. `./route.gen` is a generated module, one per folder, that exports `page` and `layout` (the TanStack routes of the page and the Layout, only when the folder has them), `PageData` and `LayoutData` (the return types of `Load` and `Layout`), `PageSearch` and `LayoutSearch` (the query parameters they read, see [Query parameters in Link and navigate](#query-parameters-in-link-and-navigate)), `Params`, and a function per method handler. Child components in the same folder also import `./route.gen`. A Layout's data comes from the `route.gen` of its folder: `layout.tsx` imports `layout` from `'./route.gen'`, and a page reads its project Layout with `layout` from `'../../route.gen'`, for example. A folder with no generated module fails the build when something imports its `route.gen`.
+- UI only, no data loading. `./route.gen` is a generated module, one per folder, that exports `page` and `layout` (the TanStack routes of the page and the Layout, only when the folder has them), `PageData` and `LayoutData` (the return types of `Load` and `Layout`), `PageSearch` and `LayoutSearch` (the query parameters they read, see [Query parameters in Link and navigate](#query-parameters-in-link-and-navigate)), `Params`, the types of the Go structs they hold (see below), and a function per method handler. Child components in the same folder also import `./route.gen`. A Layout's data comes from the `route.gen` of its folder: `layout.tsx` imports `layout` from `'./route.gen'`, and a page reads its project Layout with `layout` from `'../../route.gen'`, for example. A folder with no generated module fails the build when something imports its `route.gen`.
+- `./route.gen` also exports each Go struct that the data of the folder uses, under its Go name, so a component can name a part of the data. `PageData`, `LayoutData` and the `<METHOD>Input` and `<METHOD>Output` of the handlers are the same types under their usual names. With `type Order struct` and `type Item struct` in the Go package of the folder:
+
+  ```tsx
+  import { page, type Item } from './route.gen'
+
+  function Row({ item }: { item: Item }) {
+    return <li>{item.sku}</li>
+  }
+  ```
+
+  - A struct of the package of the folder keeps its name. When two packages have a struct of one name, the other package's gets its package name in front (`cart.Order` is `CartOrder`), and if that is still taken the struct stays written in place, with no name.
+  - A struct named like something `route.gen` exports or uses itself, such as `Params`, `PageData`, `Record`, `Blob` or `HTML`, gets `Go` in front (`GoParams`). A Go struct named `PageData` that `Load` returns is the one `PageData`.
+  - Only structs get names. A type such as `type Status string`, a slice or map type, a generic type such as `Page[Order]`, a type declared inside a function and an anonymous struct are written in place.
+  - Each folder has its own copy of the types, and `route.gen` files do not import each other. Import a type from the `route.gen` of the folder you are in.
+  - Writing `PageData['orders'][number]` still works.
+- `route.gen` is written from `route.go`, `page.tsx` and `layout.tsx`, and its first lines name the files it comes from. After a change to a return type or input type in Go, or after you add or remove a `page.tsx` or `layout.tsx`, run `go tool tifa gen` once, then write the TypeScript that uses the new types: one run for the whole batch of Go changes is enough. `go tool tifa check` and `pnpm typecheck` run it for you, and while `tifa dev` runs it rewrites the types after each saved change (a Go build that fails keeps the old ones).
 - The default export is the page component. Optional exports: `head` and `ErrorBoundary`. A 404 shows in `ErrorBoundary` too (see [404](#404)), and exporting `NotFound` fails the build.
 - In the browser, each `page.tsx`, and each `layout.tsx` or `layout_.tsx` but the root Layout's, is a chunk of its own with everything it imports, `head` included. It loads the first time its route is needed, and the router waits for it before it shows the page or runs `head`. The HTML of a page preloads the chunks of its Layouts and route, so they arrive with the entry script. Code at the top level of the file, side-effect imports included, runs then and not when the app starts, so put setup that every page needs in [`setup.ts`](hooks.md#setupts), which runs before any route module. See [Route modules in the browser](../build-and-deploy/build.md#route-modules-in-the-browser).
 - Go slices and maps are never `null`: a nil slice arrives as `[]` and a nil map as `{}`, and their TypeScript types have no `| null` (see [JSON rules](routes.md#json-rules)).

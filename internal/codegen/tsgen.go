@@ -199,7 +199,7 @@ func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, v
 	modules := map[string]*routeGen{}
 	moduleOf := func(dir string, segs []pathSeg) *routeGen {
 		if modules[dir] == nil {
-			modules[dir] = &routeGen{dir: dir, segs: segs}
+			modules[dir] = &routeGen{dir: dir, pkg: m.Module + "/" + dir, segs: segs}
 		}
 		return modules[dir]
 	}
@@ -1061,6 +1061,7 @@ func subtree(r *tsRoute) string {
 // directory, as nodes of the route tree, and its method handlers.
 type routeGen struct {
 	dir      string
+	pkg      string // the import path of the Go package of dir
 	segs     []pathSeg
 	page     *tsNode // nil without page.tsx
 	layout   *tsNode // nil without a Layout
@@ -1070,32 +1071,64 @@ type routeGen struct {
 	languages []string
 }
 
+// sourcesComment is the comment under the header of a route.gen module: the files it comes from,
+// and what to run when they no longer match it.
+func sourcesComment(g *routeGen) string {
+	var files []string
+	hasGo := len(g.handlers) > 0
+	for _, n := range []*tsNode{g.layout, g.page} {
+		hasGo = hasGo || n != nil && n.load != nil
+	}
+	if hasGo {
+		files = append(files, g.dir+"/route.go")
+	}
+	if g.layout != nil && g.layout.tsx {
+		name := "layout.tsx"
+		if g.layout.replace {
+			name = "layout_.tsx"
+		}
+		files = append(files, g.dir+"/"+name)
+	}
+	if g.page != nil {
+		files = append(files, g.dir+"/page.tsx")
+	}
+	verb := "it changed"
+	if len(files) > 1 {
+		verb = "they changed"
+	}
+	return "// Generated from " + strings.Join(files, " and ") + ". If " + verb + ", run `go tool tifa gen`.\n"
+}
+
 // routeModule writes the route.gen module of a directory: page and layout for the hooks of its
 // page and Layout, PageData and LayoutData for the result of its Load and Layout functions,
 // Params for its path parameters, and a function per method handler, named after its method,
 // that sends a request to it.
 func routeModule(g *routeGen) ([]byte, error) {
-	// The data and the inputs and results of the handlers share the declarations of recursive types.
+	// The data and the inputs and results of the handlers share the declarations of the structs.
+	// exports names what the module exports for each type.
 	var goTypes []types.Type
+	var exports []string
 	for _, n := range []*tsNode{g.layout, g.page} {
 		if n != nil && n.load != nil {
 			if n.load.Result == nil {
 				return nil, fmt.Errorf("codegen: %s: the manifest carries no Load result type, analyze the application in this process", n.id)
 			}
 			goTypes = append(goTypes, n.load.Result)
+			exports = append(exports, map[string]string{"layout": "LayoutData", "route": "PageData"}[n.file])
 		}
 	}
 	for _, h := range g.handlers {
 		if (h.Input != "") != (h.InputType != nil) || (h.Output != "") != (h.OutputType != nil) {
 			return nil, fmt.Errorf("codegen: %s: the manifest carries no types of %s, analyze the application in this process", g.dir, h.Method)
 		}
-		for _, t := range []types.Type{h.InputType, h.OutputType} {
+		for i, t := range []types.Type{h.InputType, h.OutputType} {
 			if t != nil {
 				goTypes = append(goTypes, t)
+				exports = append(exports, h.Method+[]string{"Input", "Output"}[i])
 			}
 		}
 	}
-	shapes, decls, html, err := analyze.TSShapes(goTypes)
+	shapes, decls, html, err := analyze.TSShapes(goTypes, analyze.TSScope{Own: g.pkg, Exports: exports})
 	if err != nil {
 		return nil, fmt.Errorf("codegen: %s: %w", g.dir, err)
 	}
@@ -1106,7 +1139,7 @@ func routeModule(g *routeGen) ([]byte, error) {
 	}
 
 	var b strings.Builder
-	b.WriteString(tsHeader)
+	b.WriteString(tsHeader + sourcesComment(g))
 	if g.page != nil || g.layout != nil {
 		b.WriteString(`import { getRouteApi } from "@tanstack/react-router"` + "\n")
 	}
@@ -1146,7 +1179,9 @@ func routeModule(g *routeGen) ([]byte, error) {
 		} else {
 			fmt.Fprintf(&b, "// %s has no Go %s function.\n", g.dir, fn)
 		}
-		fmt.Fprintf(&b, "export type %s = %s\n\n", name, shape)
+		if shape != name { // the struct of that very name is declared above
+			fmt.Fprintf(&b, "export type %s = %s\n\n", name, shape)
+		}
 	}
 	if g.layout != nil {
 		data(g.layout, "LayoutData", "Layout")
@@ -1184,12 +1219,16 @@ func routeModule(g *routeGen) ([]byte, error) {
 		}
 		result, answer := "Response", "raw"
 		if h.Input != "" {
-			fmt.Fprintf(&b, "export type %sInput = %s\n", h.Method, next())
+			if shape := next(); shape != h.Method+"Input" {
+				fmt.Fprintf(&b, "export type %sInput = %s\n", h.Method, shape)
+			}
 			options = append(options, fmt.Sprintf("{ input: %sInput }", h.Method))
 			result, answer = "void", "none"
 		}
 		if h.Output != "" {
-			fmt.Fprintf(&b, "export type %sOutput = %s\n", h.Method, next())
+			if shape := next(); shape != h.Method+"Output" {
+				fmt.Fprintf(&b, "export type %sOutput = %s\n", h.Method, shape)
+			}
 			// The promise of a redirected call resolves to undefined, see call in
 			// js/runtime/call.ts. Whether a handler redirects is not known statically: OnRequest
 			// may redirect any request, and a redirect is an error value that can come from
@@ -1250,7 +1289,11 @@ func urlTemplate(segs []pathSeg) string {
 // session type returns, and never when the app has no session or the type has no such method.
 func sessionModule(s *analyze.Session) ([]byte, error) {
 	var b strings.Builder
-	b.WriteString(tsHeader + "\n")
+	from := "the calls of tifa.SetSession, of which the app has none"
+	if s != nil {
+		from = "the session type " + s.Type
+	}
+	b.WriteString(tsHeader + "// Generated from " + from + ". If it changed, run `go tool tifa gen`.\n\n")
 	b.WriteString("// SessionEnabled is true when the app calls tifa.SetSession.\n")
 	fmt.Fprintf(&b, "export type SessionEnabled = %t\n\n", s != nil)
 	if s == nil || !s.Exposed {
@@ -1260,7 +1303,7 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 	if s.ExposedResult == nil {
 		return nil, fmt.Errorf("codegen: the manifest carries no Exposed result type, analyze the application in this process")
 	}
-	shape, decls, html, err := analyze.TSShape(s.ExposedResult)
+	shape, decls, html, err := analyze.TSShape(s.ExposedResult, analyze.TSScope{Own: s.Package, Exports: []string{"SessionData"}})
 	if err != nil {
 		return nil, fmt.Errorf("codegen: session Exposed result: %w", err)
 	}
@@ -1274,7 +1317,9 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 		b.WriteString("\n")
 	}
 	b.WriteString("// SessionData is what the Exposed method of the session type returns, as JSON.\n")
-	fmt.Fprintf(&b, "export type SessionData = %s\n", shape)
+	if shape != "SessionData" {
+		fmt.Fprintf(&b, "export type SessionData = %s\n", shape)
+	}
 	return []byte(b.String()), nil
 }
 

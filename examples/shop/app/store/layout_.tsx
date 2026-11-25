@@ -12,7 +12,7 @@ import { refreshMine, useMine } from './mine'
 import { catalogueNo, Price, ProductImage } from './product-card'
 import { TifaError, useAlternates } from 'tifa/client'
 import { I18nProvider, i18n } from 'tifa/i18n'
-import { layout, type LayoutData } from './route.gen'
+import { layout, type LayoutData, type MenuGroup as Group } from './route.gen'
 
 // The title of every page of the store, in the language of the page. A page sets its own title
 // over this one. Without the data, when the Layout failed, the page has no title of its own. Tifa
@@ -61,7 +61,6 @@ function Announcement() {
   )
 }
 
-type Group = LayoutData['menu'][number]
 
 function StoreHeader() {
   const shell = layout.useLoaderData()

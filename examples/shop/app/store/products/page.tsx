@@ -35,7 +35,7 @@ import { useMine } from '../mine'
 import { JournalCover, ProductCard, ProductGrid, ProductImage } from '../product-card'
 import { layout } from '../route.gen'
 import { filterSchema, sorts, type FilterValues } from './filter-schema'
-import { page as list, type PageData } from './route.gen'
+import { page as list, type Facet, type Filter, type PageData } from './route.gen'
 
 export const head = ({ loaderData, matches }: { loaderData?: PageData; matches: ReadonlyArray<{ loaderData?: unknown }> }) => {
   const category = (loaderData?.categories ?? []).find((c) => c.id === loaderData?.filter.category)
@@ -43,7 +43,7 @@ export const head = ({ loaderData, matches }: { loaderData?: PageData; matches: 
 }
 
 // formValues turns the filter Go read from the query string into the values of the form.
-function formValues(f: PageData['filter']) {
+function formValues(f: Filter) {
   return {
     query: f.query,
     category: f.category,
@@ -317,7 +317,7 @@ type Chosen = { key: string; label: string; without: FilterValues }
 // away, so a chip can link there.
 function chosenFilters(results: PageData, values: FilterValues, t: TFunction): Chosen[] {
   const out: Chosen[] = []
-  const name = (list: PageData['colors'], id: string) => list.find((f) => f.id === id)?.name ?? id
+  const name = (list: Facet[], id: string) => list.find((f) => f.id === id)?.name ?? id
   if (values.query) out.push({ key: 'q', label: `“${values.query}”`, without: { ...values, query: '' } })
   if (values.category) out.push({ key: 'category', label: name(results.categories, values.category), without: { ...values, category: '' } })
   for (const c of values.colors) out.push({ key: `color-${c}`, label: name(results.colors, c), without: { ...values, colors: values.colors.filter((x) => x !== c) } })
@@ -340,7 +340,7 @@ function bandLabel(t: TFunction, min: number, max: number) {
 function QuickFilters({ results, values }: { results: PageData; values: FilterValues }) {
   const { t } = useStore()
   const listHref = useListHref()
-  const count = (list: PageData['badges'], id: string) => list.find((f) => f.id === id)?.count ?? 0
+  const count = (list: Facet[], id: string) => list.find((f) => f.id === id)?.count ?? 0
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
   const items = [
     { key: 'new', label: t('badge.new'), count: count(results.badges, 'new'), on: values.badges.includes('new'), next: { ...values, badges: toggle(values.badges, 'new') } },
@@ -514,7 +514,7 @@ function FilterForm({ results, values, issues }: { results: PageData; values: Fi
   }
 
   // A checkbox group keeps the ids that are on in one array field.
-  function checks(name: 'colors' | 'materials' | 'badges', facets: PageData['colors'], swatch = false) {
+  function checks(name: 'colors' | 'materials' | 'badges', facets: Facet[], swatch = false) {
     return (
       <Controller
         name={name}

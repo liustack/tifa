@@ -1,5 +1,5 @@
 ---
-summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports'
+summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports, folders that group pages without a URL segment, dropping a chosen number of Layouts, more convention files in a folder, generated types by a module name or a path string, another mark for a parameter folder, title and meta tags as elements, setup code in the root Layout, route constants for what a request can set, loading page data again after a write, renaming the head export to metadata, agent hooks written by tifa new, other ways to keep the generated types fresh'
 audience: dev
 order: 3
 read_when:
@@ -10,7 +10,7 @@ read_when:
 
 # Decisions against
 
-Ideas that were weighed and turned down. Before proposing one again, check that what would reopen it has happened. Add an entry when an idea is turned down.
+Ideas that were weighed and turned down. Before proposing one again, check that what would reopen it has happened. Add an entry when an idea is turned down. Speed experiments that were measured and dropped are in [What was tried and not done](../studies/optimizations.md#what-was-tried-and-not-done).
 
 ## Keeping the assets of older builds
 
@@ -100,3 +100,117 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 **Turned down.** A convention that the root package of an app imports nothing from `app/`.
 
 **Why not.** How an app arranges its own imports is the app's business, not the framework's.
+
+## Folders that group pages without a URL segment
+
+**Turned down (2026-11-01), and for good (2026-11-25).** A folder such as `(shop)` that gives the pages in it a Layout and adds nothing to the URL, as Next.js, SvelteKit, Nuxt, TanStack Router and React Router have.
+
+**Why not.**
+- A path under `app/` is the URL, and it is the Go import path too. A folder that is in one and not in the other ends that.
+- No app needed it. The one case in `examples/shop`, a storefront that must not show the workbench around it, is one part of the site leaving the Layouts above it, which `layout_.tsx` does.
+- The shape it alone can write, pages at the same URL level that share a Layout other pages at that level do not have, can be written today with a remount of the frame as its cost.
+
+**Instead.**
+- [`layout_.tsx`](../pages-and-data/pages.md#a-layout-without-the-layouts-above) for a part of the site with a frame of its own.
+- For folders at the same URL level that share a frame: a URL prefix (`/app/settings`), or a Layout in each folder that renders the same component. The second remounts the frame and loads its data again when the visitor moves between the folders.
+
+**Not to be reopened.** The docs for apps say that route groups are not planned, so apps are written on that.
+
+## Dropping a chosen number of Layouts
+
+**Turned down (2026-11-01).** A file name that says how many of the Layouts above to drop, or which one to keep, as SvelteKit's `+page@item.svelte` does.
+
+**Why not.** More rules to learn, the file name has to carry the name of a level, and adding or removing a Layout in between changes what the file does without a word.
+
+**Instead.** `layout_.tsx` has one meaning: every Layout above is dropped, the root Layout too.
+
+## More convention files in a folder
+
+**Turned down (2026-10-31, 2026-11-01).** `layout.go` for the `Layout` function, `not-found.tsx` and `error.tsx`, a `NotFound` export next to the error export, and two generated modules, `./page.gen` and `./layout.gen`.
+
+**Why not.**
+- A folder is easier to remember with at most three convention files.
+- A 404 is one status among others, so the export that shows errors shows it too, as in SvelteKit and React Router.
+- With two generated modules, a folder that only has method handlers would need a third name.
+
+**Instead.** `route.go` holds every Go name of the folder, `ErrorBoundary` shows every status, and each folder has one `./route.gen`: [The files of a folder](../start/app.md#the-files-of-a-folder).
+
+## Generated types by a module name or a path string
+
+**Turned down (2026-10-31).** Importing the types of a route from a module without a path, such as `'tifa:page'`, or looking them up by the path of the route.
+
+**Why not.** TypeScript cannot resolve a module without a path by the file that imports it, so the type of the data would be lost. A path string writes the URL a second time, and it no longer matches once a folder is renamed.
+
+**Instead.** A relative import of `./route.gen`, the way SvelteKit's `./$types` and React Router's `./+types` work.
+
+## Another mark for a parameter folder
+
+**Turned down (2026-10-31).** `$order`, `[order]`, `@order` or `_order` in place of `order+`.
+
+**Why not.** A folder under `app/` is a Go package. An element of a Go import path may only hold letters, digits and `- . _ ~ +`, and the go command skips folders that start with `_` or `.`.
+
+**Instead.** `order+` for a parameter and `path++` for the rest of the path: [URLs come from folders](../start/app.md#urls-come-from-folders).
+
+## The title and meta tags as elements in a component
+
+**Turned down (2026-11-23).** Dropping the `head` export for `<title>` and `<meta>` written in components, which React 19 moves into the head.
+
+**Why not.** Tifa writes the head of the document as a string, the heads of nested routes are merged, and a 404 or error page needs a head when its component did not render.
+
+**Instead.** The `head` export and `documentHead` of the root Layout. The build warns about a `<title>` or `<meta>` written as JSX: [Title and meta tags](../pages-and-data/pages.md#title-and-meta-tags).
+
+## Renaming the head export to metadata
+
+**Turned down (2026-11-23, again 2026-11-25).** Calling the `head` export of `page.tsx` and `layout.tsx` `metadata`, as Next.js does.
+
+**Why not.**
+- The exports of a `page.tsx` are the options of its route. `head` is passed on as the route option `head` of TanStack Router, with the same name and the same shape.
+- `metadata` in Next.js is an object of meanings (`title`, `description`, `openGraph`) that Next.js turns into tags. `head` returns the tags themselves (`meta`, `links`, `styles`, `scripts`). Under the name `metadata`, people and agents would write the shape of Next.js.
+- The build warns about an exported `metadata` object and says to write `head`. With the same name for another shape it could not.
+
+**Instead.** [`head`](../pages-and-data/pages.md#title-and-meta-tags).
+
+**Reopen when** Tifa stops passing `head` to TanStack Router and takes an object of meanings.
+
+## Setup code at the top of the root Layout
+
+**Turned down (2026-11-23).** Dropping `setup.ts` and putting what every page needs at the top of `app/layout.tsx`.
+
+**Why not.** A `layout_.tsx` drops the root Layout, the root Layout may be left out, and a reader could not tell the code of the Layout from the code of the app.
+
+**Instead.** [`setup.ts`](../pages-and-data/hooks.md#setupts).
+
+## Route constants for what a request can set
+
+**Turned down (2026-11-23).** `BodyLimit`, `ReadTimeout` and `LayoutSSR` as constants in `route.go`. All three existed and were removed.
+
+**Why not.** What a request can set needs no constant, and no app used `LayoutSSR`.
+
+**Instead.** `c.SetBodyLimit` and `c.SetReadTimeout` in `OnRequest` ([Body limit and read time of a route](../pages-and-data/routes.md#body-limit-and-read-time-of-a-route)), and `const SSR = false` on each page. `SSR`, `Cache` and `Memo` stay, because the build needs them.
+
+## Loading page data again after a write
+
+**Turned down (2026-11-03).** After a method handler answers, loading the data of the page and its Layouts again without being asked, as Remix and React Router do.
+
+**Why not.** Tifa does not know what a write changed, and every request sent on a guess is load on the server. TanStack Router, which Tifa follows in the browser, has no such step.
+
+**Instead.** The page calls `router.invalidate()` when it should show what the write changed: [Calling method handlers from the browser](../pages-and-data/pages.md#calling-method-handlers-from-the-browser).
+
+## Agent hooks written by tifa new
+
+**Turned down (2026-11-25).** `tifa new` writing a hook into the settings of a coding agent, such as `.claude/settings.json`, that runs `go tool tifa gen` after every edit of a Go file, so the types of `route.gen` are never old.
+
+**Why not.** How an agent is set up is its user's business. Tifa gives an agent notes and a skill to read, and changes nothing about what the agent runs.
+
+**Instead.** The notes and the skill say to run `go tool tifa gen` once after a batch of Go changes. The `typecheck` script of an app runs it before `tsc`, `go tool tifa check` writes `.tifa/` again before it runs `tsc`, and each `route.gen.ts` names the files it comes from: [`tifa gen`](../build-and-deploy/build.md#tifa-gen).
+
+## Other ways to keep the generated types fresh
+
+**Turned down (2026-11-25).** Three ways to make sure `route.gen.ts` is never older than its `route.go` when `tifa dev` is not running: a TypeScript language service plugin that writes the types again, `tifa gen --watch`, and keeping `.tifa/` in git.
+
+**Why not.**
+- A language service plugin runs in an editor only. `tsc` does not load it, and an agent runs commands, not an editor.
+- `tifa gen --watch` is a second process to start and to forget. `tifa dev` already writes `.tifa/` again on every save.
+- Files kept in git are as old after a change to `route.go` as files that are not, until a command writes them again. They would also add a diff, and conflicts, to every change of a route.
+
+**Instead.** The same as for the entry above.

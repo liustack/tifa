@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "prepare": "go tool tifa gen",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "go tool tifa gen && tsc --noEmit"
   },
   "dependencies": {
     "@fontsource-variable/newsreader": "5.3.0",
