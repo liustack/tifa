@@ -18,6 +18,7 @@ read_when:
   - Reading the log of a deployed app, checking which release runs and whether it is healthy, or taking an app off its server and out of Cloudflare and GitHub, with tifa deploy logs, status or remove
   - Putting several apps on one server, or finding the log, the .env or the data of a deployed app
   - A deployed app with `front: none` does not answer from outside, setup stopped because port 80 or 443 is taken, you want to know which ports to open, or what setup and remove change in ufw
+  - Putting several Tifa apps on one server without Cloudflare, with `deploy.front: nginx`, or setup stopped because the server has an nginx that Tifa did not install
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
   - Pages show old content or a missing script after a deploy
@@ -36,7 +37,7 @@ A Tifa app is one executable. The server needs that file, the settings in its en
 
 `tifa deploy` puts a Tifa app on your own server, and one command sets up the whole CI/CD path from push to live.
 
-`go tool tifa deploy` puts the app on a Linux server with systemd over ssh: it builds on your machine for the server, uploads the program, restarts the app without refusing a request, checks it on the server and goes back to the release before when the check fails. The app serves visitors itself, with its own HTTPS, or behind a Cloudflare Tunnel, where several apps can share one server. The server needs no Docker, no Node and no deploy program of its own.
+`go tool tifa deploy` puts the app on a Linux server with systemd over ssh: it builds on your machine for the server, uploads the program, restarts the app without refusing a request, checks it on the server and goes back to the release before when the check fails. The app serves visitors itself, with its own HTTPS, or behind a Cloudflare Tunnel or an nginx that Tifa installs, where several apps can share one server. The server needs no Docker, no Node and no deploy program of its own.
 
 `tifa.yaml` says what you want. `go tool tifa deploy setup` makes the server, Cloudflare and GitHub match it. `tifa.yaml` is committed, so neither a secret nor the place of the server goes in it.
 
@@ -44,7 +45,7 @@ A Tifa app is one executable. The server needs that file, the settings in its en
 site:
   url: https://shop.example.com   # the domain is the host of this URL
 deploy:
-  front: none      # what visitors come through before the server: none (the app serves them itself on ports 80 and 443) | cloudflare
+  front: none      # what visitors come through before the server: none (the app serves them itself on ports 80 and 443) | cloudflare | nginx
   connect: direct  # how deploys reach the server over ssh: direct | cloudflare | tailscale
   auto:            # deploy by itself from GitHub Actions. No block: you deploy by hand only
     branch: main   # the branch that deploys. Left out: the default branch of the repository on GitHub
@@ -63,7 +64,7 @@ deploy:
   ```
 
   The value is what `ssh` takes as a destination, without a user: a Host of `~/.ssh/config` (an alias such as `vps`, so `~/.ssh/config` supplies the address, the port, the keys and a `ProxyJump`), a host name, or an `ssh://host[:port]` URL. Tifa picks the user itself, root for the first setup and `tifa` after, so a user, a path, a query or another scheme is refused. With none of the four set, every `tifa deploy` command stops and says so.
-- `front` is what visitors come through before they reach the server. With `cloudflare`, that is a Cloudflare Tunnel at the host of `site.url`, with its DNS record and rules, and `deploy` and `rollback` clear the CDN cache of that host name. `site.url` must be set and have no port. With `none`, the app serves visitors itself on port 80, and with a domain in `site.url` also on 443 with its own HTTPS, and no cache is cleared (see [The app serves visitors itself](#the-app-serves-visitors-itself)).
+- `front` is what visitors come through before they reach the server. With `cloudflare`, that is a Cloudflare Tunnel at the host of `site.url`, with its DNS record and rules, and `deploy` and `rollback` clear the CDN cache of that host name. `site.url` must be set and have no port. With `none`, the app serves visitors itself on port 80, and with a domain in `site.url` also on 443 with its own HTTPS, and no cache is cleared (see [The app serves visitors itself](#the-app-serves-visitors-itself)). With `nginx`, an nginx that setup installs sends visitors to the app by the host of `site.url`, and gets the certificate for it with certbot, so several apps can share the server without Cloudflare (see [Behind nginx](#behind-nginx)).
 - `connect` is the one path ssh takes to the server, from your machine and from the GitHub Actions runner. With `direct`, ssh uses the address you gave. With `cloudflare`, both go through the Cloudflare Tunnel, so the server needs no open ssh port (see [`connect: cloudflare`](#connect-cloudflare)). It needs `front: cloudflare`, because the ssh host name is made from the domain, and works with or without `auto`. With `tailscale`, the runner joins your tailnet, and it needs the block `auto` (see [`connect: tailscale`](#connect-tailscale)). Your own machine reaches the server however it already does, with the address in `TIFA_DEPLOY_HOST`, and the tailnet and the server are yours to set up.
 - `auto` turns the deploys from GitHub Actions on, by being there. Without the block you deploy by hand only. `auto: {}` takes the defaults, and `auto:` with nothing after it is an error. It has two keys, and no others:
   - `branch` is the branch that deploys: a push to it, once the workflow in `needs` passed. Left out, it is the default branch of the repository on GitHub.
@@ -81,7 +82,7 @@ deploy:
 
 A `TIFA_DEPLOY_` name in `.env` that tifa deploy does not read stops the command too, and the error names the closest one.
 
-What you need: a Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<TIFA_DEPLOY_HOST>` once (tested on Ubuntu 24.04). On your machine, what `tifa build` needs (Go, and Node for an app with pages) and `ssh`. For `front: cloudflare` and `connect: cloudflare`, [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), installed (`pnpm add --global cf`) and logged in (`cf auth login`). Setup and remove tell the two apart: without cf on the PATH they say to install it, with cf installed they ask for the login. For `connect: cloudflare`, also [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on your machine: setup installs it with `brew install cloudflared` on macOS or `winget install --id Cloudflare.cloudflared -e` on Windows, and on Linux, or without brew or winget, it tells you where to get it. For `auto`, [gh](https://cli.github.com/) logged in (`gh auth login`), or without gh a fine-grained token in `TIFA_DEPLOY_GITHUB_TOKEN` (see [Deploy from GitHub Actions](#deploy-from-github-actions)). For `connect: tailscale`, a server that is on your tailnet (Tailscale installed and logged in there), and a Tailscale credential that you make in the Tailscale console (see [`connect: tailscale`](#connect-tailscale)). Your machine needs nothing of Tailscale. On a terminal, setup installs and logs in cf and gh for you (see below).
+What you need: a Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<TIFA_DEPLOY_HOST>` once (tested on Ubuntu 24.04). On your machine, what `tifa build` needs (Go, and Node for an app with pages) and `ssh`. For `front: cloudflare` and `connect: cloudflare`, [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), installed (`pnpm add --global cf`) and logged in (`cf auth login`). Setup and remove tell the two apart: without cf on the PATH they say to install it, with cf installed they ask for the login. For `connect: cloudflare`, also [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on your machine: setup installs it with `brew install cloudflared` on macOS or `winget install --id Cloudflare.cloudflared -e` on Windows, and on Linux, or without brew or winget, it tells you where to get it. For `front: nginx`, a server with apt (Debian or Ubuntu), which setup installs nginx and certbot with as root. For `auto`, [gh](https://cli.github.com/) logged in (`gh auth login`), or without gh a fine-grained token in `TIFA_DEPLOY_GITHUB_TOKEN` (see [Deploy from GitHub Actions](#deploy-from-github-actions)). For `connect: tailscale`, a server that is on your tailnet (Tailscale installed and logged in there), and a Tailscale credential that you make in the Tailscale console (see [`connect: tailscale`](#connect-tailscale)). Your machine needs nothing of Tailscale. On a terminal, setup installs and logs in cf and gh for you (see below).
 
 ### Set up with a plan
 
@@ -139,7 +140,7 @@ Your typed y is the consent: setup asks nothing more about it. It installs cf wi
 
 Setup exits with an error when an item is left for you or a step that may fail failed (a cache purge token that Cloudflare refused three times), after it did all the rest. An item marked `(optional)`, such as the cache purge token, does not make it fail. A script can rely on the exit code: run setup again once you did what the list says. Run it again whenever `tifa.yaml` changes: it only does what differs.
 
-Setup removes only what Tifa made and marked (it cannot delete the Cloudflare token you made: the plan says to delete it in the dashboard): the lines in `authorized_keys` with the comment `tifa-github <owner>/<repo>`, Cloudflare objects whose names start with `tifa` (and the Access application `tifa deploy ssh <host>`), the block that starts with `# tifa <app>:` in your `~/.ssh/config`, the route and DNS record of a domain it added, the repository variables `TIFA_DEPLOY_FINGERPRINT`, `TIFA_DEPLOY_TAILSCALE_ID` and `TIFA_DEPLOY_TAILSCALE_AUDIENCE` and the secrets set with it (`TIFA_DEPLOY_HOST`, `TIFA_DEPLOY_KNOWN_HOSTS` and the others), and the workflow file that starts with Tifa's line. Set `front: none`, or take the block `auto` out, and the plan lists those removals before anything goes.
+Setup removes only what Tifa made and marked (it cannot delete the Cloudflare token you made: the plan says to delete it in the dashboard): the lines in `authorized_keys` with the comment `tifa-github <owner>/<repo>`, the nginx site `/etc/nginx/conf.d/tifa-<app>.conf` and the certificate `tifa-<app>` of certbot, the ufw rules with the comment `tifa <app>` or `tifa nginx front`, Cloudflare objects whose names start with `tifa` (and the Access application `tifa deploy ssh <host>`), the block that starts with `# tifa <app>:` in your `~/.ssh/config`, the route and DNS record of a domain it added, the repository variables `TIFA_DEPLOY_FINGERPRINT`, `TIFA_DEPLOY_TAILSCALE_ID` and `TIFA_DEPLOY_TAILSCALE_AUDIENCE` and the secrets set with it (`TIFA_DEPLOY_HOST`, `TIFA_DEPLOY_KNOWN_HOSTS` and the others), and the workflow file that starts with Tifa's line. Set `front: none`, or take the block `auto` out, and the plan lists those removals before anything goes.
 
 The layers of the plan:
 
@@ -147,7 +148,8 @@ The layers of the plan:
 | --- | --- | --- |
 | server | The user `tifa`, which owns and runs every app of the server and may log in with the keys of root (home `/srv/tifa`), and linger, so its systemd runs at boot | `ssh root@<TIFA_DEPLOY_HOST>`, the first time only |
 | app | `/srv/tifa/<app>`, its empty `shared/.env`, the data folder `shared`, its port in `port` (80, or 443 with HTTPS, for `front: none`, else the first free one from 9527 on the loopback), and the user units `tifa-<app>.socket` and `.service`, with HTTPS also `tifa-<app>-http.socket`. For `front: none`, once per server as root, the setting that lets the systemd of `tifa` open ports 80 and 443 | ssh as `tifa`, and root once |
-| front | The Cloudflare Tunnel, cloudflared on the server, the route, the proxied DNS record and the cache rules of the host of `site.url`, and on the server the token that clears its cache | cf |
+| front: cloudflare | The Cloudflare Tunnel, cloudflared on the server, the route, the proxied DNS record and the cache rules of the host of `site.url`, and on the server the token that clears its cache | cf |
+| front: nginx | As root: nginx, and for an app with a domain certbot with its nginx plugin, installed with apt, `/etc/tifa/nginx` to mark that nginx as Tifa's, the site of the app in `/etc/nginx/conf.d/tifa-<app>.conf`, its certificate, and ports 80 and 443 in ufw (see [Behind nginx](#behind-nginx)) | `ssh root@<TIFA_DEPLOY_HOST>` |
 | auto | A key for the repository, the secrets (where CI logs in, the host keys), and the workflow | gh or `TIFA_DEPLOY_GITHUB_TOKEN` |
 | connect: cloudflare | An ssh host name on the tunnel, an Access application that admits your email (and, with CI, a service token), and on your machine cloudflared and a block in `~/.ssh/config` | cf |
 | connect: tailscale | The variables of the Tailscale identity the runner joins your tailnet with | the client ID of the identity, gh |
@@ -175,7 +177,7 @@ With `front: none` the program meets visitors directly, with no nginx, Caddy or 
 
 systemd holds the ports, so the app runs as `tifa` with no root and no capability, and restarts without refusing a connection. A user's systemd may only open ports from 1024 on Linux, so setup, once per server and as root, writes `net.ipv4.ip_unprivileged_port_start = 80` to `/etc/sysctl.d/60-tifa-ports.conf`. Ports from 80 to 1023 are then open to every user of the server, not only root. `tifa deploy remove` of the app deletes the file and puts back the value from before.
 
-**One app per server.** Only one program can listen on a port, so only one app on a server can serve visitors itself. Before it changes anything, setup looks at what listens on the ports the app needs (80, and 443 with a domain): `ss -ltnp`, and the sockets the systemd of `tifa` holds. When another app of Tifa holds them, or a program such as nginx, Caddy or Apache, setup stops, names it and the port, and changes nothing. Stop that program and keep it from starting at boot, remove the other app, or put this app behind Cloudflare with `front: cloudflare`, where several apps share a server.
+**One app per server.** Only one program can listen on a port, so only one app on a server can serve visitors itself. Before it changes anything, setup looks at what listens on the ports the app needs (80, and 443 with a domain): `ss -ltnp`, and the sockets the systemd of `tifa` holds. When another app of Tifa holds them, or a program such as nginx, Caddy or Apache, setup stops, names it and the port, and changes nothing. Stop that program and keep it from starting at boot, remove the other app, or use `front: cloudflare` or `front: nginx` for this app and the other, where several apps share a server (see [Behind nginx](#behind-nginx)).
 
 **ufw.** When ufw is on and does not let visitors reach the ports the app needs, 80 and 443, or 80 without a domain, the plan of setup allows them:
 
@@ -191,6 +193,70 @@ A server set up with an earlier version has the app on the loopback. The next `t
 
 Set up the CDN, if any, as [CDN settings](#cdn-settings) says, and clear its cache on each deploy as [After a deploy](#after-a-deploy) says.
 
+#### Behind nginx
+
+With `front: nginx`, an nginx that Tifa installs serves the visitors of every app of the server that has this front, so they share ports 80 and 443 without Cloudflare. Each app listens on a loopback port, as it does behind the Cloudflare Tunnel, and nginx sends a request to the app whose host it names, the host of its `site.url`.
+
+- **The nginx is Tifa's.** Setup installs it with apt, as a line of the plan you agree to, and writes `/etc/tifa/nginx` to mark it. The file lists the packages apt added that were not there before, so remove deletes those and nothing else: a package that apt only upgraded, or a certbot that was already on the server, stays. From then on Tifa writes all the configuration of this nginx, one file for each app (`/etc/nginx/conf.d/tifa-<app>.conf`), and nothing else uses it. Do not edit those files, setup writes them again when they differ. Keep `/etc/tifa/nginx`: without it, setup takes the nginx for one of yours and stops. It does the same for an nginx package the file never recorded, such as one you installed after a setup that stopped halfway.
+- **An nginx of yours is never touched.** When the server has an nginx that Tifa did not install, setup stops, names it and the port it listens on, and changes nothing. It stops the same way when another program, or an app of Tifa that serves visitors itself, holds port 80 or 443. Remove that nginx, stop that program, or use `front: cloudflare`.
+- **With a domain**, the host of `site.url` such as `https://shop.example.com`, setup also installs certbot and its nginx plugin with apt, and gets a certificate from Let's Encrypt, named `tifa-shop`. Port 80 answers the checks of Let's Encrypt and sends everything else to HTTPS with a 308. The timer of certbot renews the certificate, and a hook reloads nginx. DNS must point the domain at the server before setup: until then certbot is refused, setup says so, and the site stays on plain HTTP. Run setup again when DNS is right.
+- **Without a domain**: no `site.url`, or its host is an IP address or `localhost`. The app answers plain HTTP on port 80, and gets every request that names no other app. Only one app of a server can have that: when another has it already, setup stops and says so. Give one of the two a domain.
+- **HSTS** is as with `front: none`: off, unless you set `server.hsts: true`. The program sends the header and nginx passes it on.
+- **Each change is checked first.** Setup writes a site, runs `nginx -t`, and only then reloads nginx. A reload keeps the connections of the other apps. When `nginx -t` or the reload fails, the file from before is put back, and the error says what nginx said. A setup run again also starts nginx when it is not running. Changes of the site files and of the packages take one lock on the server, `/etc/tifa/nginx.lock`, so two setups or removes of different apps never write at the same time.
+
+The site of an app with a domain, once it has its certificate:
+
+```nginx
+upstream tifa-shop {
+	server 127.0.0.1:9527;
+	keepalive 16;
+	keepalive_timeout 50s;
+}
+server {
+	listen 80;
+	listen [::]:80;
+	server_name shop.example.com;
+	location / {
+		return 308 https://shop.example.com$request_uri;
+	}
+}
+server {
+	listen 443 ssl http2;
+	listen [::]:443 ssl http2;
+	server_name shop.example.com;
+	ssl_certificate /etc/letsencrypt/live/tifa-shop/fullchain.pem;
+	ssl_certificate_key /etc/letsencrypt/live/tifa-shop/privkey.pem;
+	ssl_protocols TLSv1.2 TLSv1.3;
+	location / {
+		proxy_pass http://tifa-shop;
+		proxy_http_version 1.1;
+		proxy_set_header Connection "";
+		proxy_set_header Host $http_host;
+		proxy_set_header X-Forwarded-For $remote_addr;
+		proxy_read_timeout 1d;
+		proxy_send_timeout 1d;
+		proxy_request_buffering off;
+		client_max_body_size 0;
+		gzip off;
+	}
+}
+```
+
+Without a domain there is one server, with `listen 80 default_server;`. A server without IPv6 gets no `[::]` lines. What the site does, as [Behind a CDN or proxy](#behind-a-cdn-or-proxy) asks:
+
+- `Host` and `Origin` reach the app as the browser sent them, so the check of [cross-site writes](config.md#cross-site-writes) works. `X-Forwarded-For` is the address of the visitor. nginx sets it and never appends to what the visitor sent, so it cannot be made up.
+- nginx waits up to a day for the app, so it never ends a request the app allows to run: the timeouts of the program decide ([Long requests](config.md#long-requests)).
+- A request body goes to the app as it arrives, and nginx limits nothing and writes nothing to its disk: `server.body_limit`, or the limit a route sets, answers with 413.
+- An answer with `X-Accel-Buffering: no`, such as server-sent events, is passed on at once, as nginx does when it is not told to ignore that header.
+- nginx does not compress (`gzip off`), so what the program decides about compression holds, `No-Gzip-Compression` included. Leave `server.compress` on.
+- The connections to the app are kept open for 50 seconds when idle, shorter than the 60 seconds after which the program closes an idle connection.
+
+**ufw.** When ufw is on and does not let visitors reach ports 80 and 443, the plan allows both, in rules with the comment `tifa nginx front`, before nginx asks for a certificate. A server set up with an earlier Tifa has them with the comment `tifa nginx`, and setup takes them over without closing the ports. Remove deletes them with the last app of the nginx. Everything under **ufw** and **The firewall of your provider is yours** above holds here too.
+
+**Moves.** Setup plans a move between `none`, `cloudflare` and `nginx` like any other change. An app that moves to nginx first moves to a loopback port, which frees port 80 for nginx, so visitors wait for a moment. An app that moves away takes its site and certificate out of nginx, and nginx and certbot with it when no other app has a site. An app cannot move to `front: none` while other apps are behind nginx: nginx holds the ports, and setup stops and says so.
+
+`tifa deploy remove` takes the site and the certificate of the app out of nginx, and with the last app uninstalls nginx, and certbot when setup installed it, with their configuration, and deletes `/etc/tifa/nginx`. When setup only added the nginx plugin to a certbot that was there, remove takes the plugin and leaves certbot, its timer and your certificates alone. A site that nginx will not let go stays, and so do its certificate and nginx: the error says what nginx said, and the next remove goes on. The other apps keep answering. To take nginx off Tifa by hand, run `apt-get purge` on the packages named in `/etc/tifa/nginx`, delete `/etc/nginx`, `/etc/letsencrypt` and that file, and delete the ufw rules with the comment `tifa nginx front`.
+
 ### Deploy
 
 ```sh
@@ -203,7 +269,7 @@ go tool tifa deploy
 4. Checks the new program on the server: `GET /healthz` once a second, for up to 30 seconds, until it answers with a status below 500. It asks on the loopback, and an app with its own HTTPS over HTTPS for its domain, as a visitor would. An app without a `/healthz` route passes with its 404 as soon as it answers. Write [a health check](#health-check) that looks at the database to make the check mean more.
 5. When the check passes, writes the deploy down and keeps the last 5 releases. When it fails, it prints the last lines of the log of the app, starts the release that ran before again, and exits with 1. If there is no release that ever passed, it stops the app.
 6. With `front: cloudflare`, clears the CDN cache of that host name (see below).
-7. Says where visitors reach the app: `visitors: https://shop.example.com`, or `http://<address of the server>` without a domain. With `front: none` it then asks the app on its ports from your machine, and when one does not answer it says that the firewall or a security group of your provider may block it, which Tifa does not change.
+7. Says where visitors reach the app: `visitors: https://shop.example.com`, or `http://<address of the server>` without a domain. With `front: none` or `front: nginx` it then asks the app on its ports from your machine, and when one does not answer it says that the firewall or a security group of your provider may block it, which Tifa does not change.
 
 Every deploy and rollback is a line of `/srv/tifa/<app>/deploys.log`: the time, the release, the git commit (with `-dirty` when the app had changes not committed), `deploy` or `rollback`, and `ok` or `failed`. The upload never includes `.env`. One deploy of an app runs at a time.
 
@@ -425,6 +491,7 @@ It asks for `/healthz` only while the service runs, because a request to the soc
 
 `remove` takes the app off the server and takes back what Tifa made for it, and nothing else:
 
+- With `front: nginx`: as root, the site of the app in nginx, with `nginx -t` before the reload, its certificate in certbot, and, with the last app of the nginx, nginx, certbot (when setup installed it), their configuration, `/etc/tifa/nginx` and the ufw rules with the comment `tifa nginx front` (see [Behind nginx](#behind-nginx)). The certificate and nginx stay while the site cannot be taken out. The other apps keep answering.
 - On the server, as `tifa`: it stops and disables `tifa-<app>.socket`, `tifa-<app>-http.socket` and `.service`, and deletes their unit files and `/srv/tifa/<app>` with its releases, `shared/.env`, the data in `shared/`, the certificates in `certs/` and `deploys.log`. Copy the data first if you want to keep it. For an app that served visitors itself, as root, `/etc/sysctl.d/60-tifa-ports.conf`, and the first port users may open goes back to what it was, and with ufw the rules with the comment `tifa <app>` that setup added, which the plan lists. Other apps, the user `tifa`, the other rules of the firewall and sshd stay as they are.
 - With `front: cloudflare`: the route, the DNS record and the rules of the domain, and with `connect: cloudflare`, with or without CI, the Access application of the ssh host name with its people policy, its route and its DNS record, and the service token and policy of the repository. Everything that needs ssh runs first (the app, the cache tokens), then the stop of the tunnel, and only then the ssh host name goes: the route and record before the application and its policies, so a partial failure never leaves a route without Access, and only when the steps before it worked. A run again finds the ssh host name from the route of the tunnel when the application is already gone. When your ssh goes through the tunnel, the last app of a server stops the tunnel a few seconds after ssh left, so the command does not cut its own connection. The tunnel and cloudflared serve every app of the server, so they go only with the last app of Tifa there: then remove stops cloudflared as root, deletes `/etc/tifa`, uninstalls cloudflared when setup installed it, and deletes the tunnel.
 - The cache tokens on the server, `/srv/tifa/.config/tifa`, serve every app of the server too, and go with the last app of Tifa there. Remove looks for apps again under the lock of the file when it deletes, so an app set up while remove waited for your answer keeps them. Delete the token `tifa cache purge <zone>` in the Cloudflare dashboard yourself: Tifa cannot.
@@ -438,7 +505,7 @@ Like setup, remove prints a plan first. On a terminal it then asks you to type t
 - The log of an app: `go tool tifa deploy logs`, or `journalctl --user -u tifa-<app>` as `tifa` (`sudo -iu tifa`).
 - Start, stop or look at it: `systemctl --user status tifa-<app>.service` as `tifa`. Restart the service, never the socket.
 - The apps start at boot, before the first visitor.
-- Several apps: each has its own folder, port and units. Run `tifa deploy` in each, after one `tifa deploy setup`. Only one of them can serve visitors itself on ports 80 and 443: the others go behind the Cloudflare Tunnel.
+- Several apps: each has its own folder, port and units. Run `tifa deploy` in each, after one `tifa deploy setup`. Only one of them can serve visitors itself on ports 80 and 443: the others go behind the Cloudflare Tunnel or nginx.
 
 The rest of this page is the way to do it by hand, and what `tifa deploy` does underneath.
 
@@ -550,8 +617,9 @@ In `shop.service`, `Requires=` and `After=` name both units, and `[Service]` add
 
 ## Behind a CDN or proxy
 
+- **With `front: nginx`**, Tifa writes these settings for you (see [Behind nginx](#behind-nginx)). The rest of this section is for a proxy or CDN of your own.
 - **Host and Origin.** Pass `Host` and `Origin` through as the browser sent them. The program refuses a write that a browser sends from another site by comparing them, and a proxy that rewrites `Host` makes your own forms look foreign (403 with `cross-origin request detected`). See [Cross-site writes](config.md#cross-site-writes).
-- **The client address.** Tifa does not read `Forwarded` or `X-Forwarded-For`. `c.Request().RemoteAddr` is the address of the proxy. If `OnRequest` needs the visitor's address, read the header your own proxy sets, and only when the request really comes from that proxy.
+- **The client address.** Tifa does not read `Forwarded` or `X-Forwarded-For`. `c.Request().RemoteAddr` is the address of the proxy. If `OnRequest` needs the visitor's address, read the header your own proxy sets, and only when the request really comes from that proxy. The nginx of `front: nginx` sets `X-Forwarded-For` to the address of the visitor.
 - **Compression.** The program compresses text answers itself. When the CDN or proxy compresses (brotli, for example), set `server.compress` to `false`. CloudFront, Cloudflare and Google Cloud CDN all leave an answer that already has a `Content-Encoding` alone. See [Compression](build.md#compression).
 - **Caching.** Pages, navigation data and handler answers are `private, no-cache` by default, so a CDN does not store them. Keep it that way. Let the CDN cache these:
   - `/assets/`: content-hashed, `public, max-age=31536000, immutable`.

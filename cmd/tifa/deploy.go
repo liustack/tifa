@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -61,8 +62,9 @@ type deployTarget struct {
 	dest deployHost
 	// domain is the host of site.url when deploy.front is cloudflare, else empty.
 	domain string
-	// front is deploy.front. own is the domain the app serves HTTPS for itself with front none:
-	// the host of site.url when that is a domain, else empty, and the app serves plain HTTP.
+	// front is deploy.front. own is the domain of the app with front none, which it serves HTTPS
+	// for itself, and with front nginx, which nginx routes by: the host of site.url when that is a
+	// domain, else empty, and visitors get plain HTTP on port 80.
 	front, own string
 	// connectMode is how ssh reaches the server: direct, cloudflare or tailscale. github says
 	// the block deploy.auto is there: the GitHub Actions of the repository deploy the app, as auto says.
@@ -97,11 +99,12 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 	return domain, nil
 }
 
-// ownDomain is the domain an app with deploy.front none serves HTTPS for itself: the host of site.url,
-// unless that is missing, an IP address or localhost, and then the app serves plain HTTP. The app
-// serves ports 80 and 443, so a site.url with another port cannot be its address.
+// ownDomain is the domain an app with deploy.front none serves HTTPS for itself, and the host
+// nginx routes to an app with deploy.front nginx: the host of site.url, unless that is missing, an IP
+// address or localhost, and then visitors get plain HTTP. Visitors reach ports 80 and 443, so a
+// site.url with another port cannot be its address.
 func ownDomain(d config.Deploy, siteURL string) (string, error) {
-	if d.Front != "none" || siteURL == "" {
+	if (d.Front != "none" && d.Front != "nginx") || siteURL == "" {
 		return "", nil
 	}
 	u, err := url.Parse(siteURL)
@@ -113,6 +116,9 @@ func ownDomain(d config.Deploy, siteURL string) (string, error) {
 		return "", nil
 	}
 	if p := u.Port(); p != "" && p != "443" && p != "80" {
+		if d.Front == "nginx" {
+			return "", fmt.Errorf("site.url has the port %s, and with deploy.front nginx visitors reach ports 80 and 443: write https://%s, or set deploy.front to cloudflare", p, host)
+		}
 		return "", fmt.Errorf("site.url has the port %s, and with deploy.front none the app serves visitors on ports 80 and 443 itself: write https://%s, or set deploy.front to cloudflare", p, host)
 	}
 	return host, nil
@@ -247,12 +253,12 @@ func (t deployTarget) checkMachine(got string) error {
 }
 
 // visitorPort is the port the app on s listens on: with front none 80, or 443 with a domain, and
-// else its loopback port behind the tunnel, which it keeps, or the first one free.
+// else its loopback port behind the tunnel or nginx, which it keeps, or the first one free.
 func (t deployTarget) visitorPort(s serverState) (int, error) {
 	switch {
-	case t.front != "cloudflare" && t.own != "":
+	case t.front == "none" && t.own != "":
 		return httpsPort, nil
-	case t.front != "cloudflare":
+	case t.front == "none":
 		return httpPort, nil
 	case s.Port >= firstPort && s.Port <= lastPort:
 		return s.Port, nil
@@ -263,7 +269,9 @@ func (t deployTarget) visitorPort(s serverState) (int, error) {
 // portsFree checks that nothing but the app listens on the ports an app that serves visitors
 // itself needs, and that the deploy user may open them. It names what is in the way and says what to
 // do. programs names the programs of a port when s could not, as only root can: nil when it cannot.
-func (t deployTarget) portsFree(s serverState, port int, programs func() []listener) error {
+// The nginx of Tifa is in the way too, unless gone says setup removes it before the app moves, which
+// it does when this app is the only one the nginx has.
+func (t deployTarget) portsFree(s serverState, port int, programs func() []listener, gone bool) error {
 	if !servesVisitors(port) {
 		return nil
 	}
@@ -287,6 +295,13 @@ func (t deployTarget) portsFree(s serverState, port int, programs func() []liste
 				}
 			}
 		}
+		if s.NginxTifa && (len(names) == 0 || slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "nginx ") })) {
+			if apps := slices.DeleteFunc(slices.Clone(s.NginxSites), func(a string) bool { return a == t.app }); len(apps) > 0 || !gone {
+				return fmt.Errorf("port %d of %s is held by the nginx of Tifa, which serves %s. Only one program can listen on a port, so %s cannot serve visitors itself while it runs: set deploy.front: nginx (or cloudflare) in tifa.yaml, or remove its apps from the server first (go tool tifa deploy remove in their folders). Nothing was changed",
+					p, t.host, pick(len(s.NginxSites) == 0, "no app", strings.Join(s.NginxSites, ", ")), t.app)
+			}
+			continue
+		}
 		if len(names) == 0 {
 			return fmt.Errorf("port %d of %s is taken by a program that is not a Tifa app, and Tifa cannot see which without root: run sudo ss -ltnp on the server. Only one program can listen on a port: stop that one and keep it from starting at boot, %s. Nothing was changed", p, t.host, instead)
 		}
@@ -306,7 +321,7 @@ func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stde
 	if err != nil {
 		return s, err
 	}
-	if err := t.portsFree(s, port, nil); err != nil {
+	if err := t.portsFree(s, port, nil, false); err != nil {
 		return s, err
 	}
 	if servesVisitors(port) && s.LowPort > httpPort {
@@ -371,7 +386,10 @@ When all is right it prints one line and asks nothing. It can run again at any t
             security groups of your provider
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
             the host of site.url (needs cf), and on the server a token that can only clear
-            its cache, which every deploy reads
+            its cache, which every deploy reads. With deploy.front nginx: an nginx that setup
+            installs with apt and owns, a site for the app, and with a domain certbot and its
+            certificate. Setup stops when the server has an nginx it did not install, or
+            another program on ports 80 and 443
   auto      with deploy.auto: a key for the repository, secrets, and the workflow (needs
             gh logged in, or a fine-grained token in TIFA_DEPLOY_GITHUB_TOKEN, and with
             deploy.connect cloudflare also cf)
@@ -517,28 +535,42 @@ func (t deployTarget) serverAddress(ctx context.Context) string {
 }
 
 // printVisitors says, after the health check passed on the server, where visitors reach the app of
-// s. An app that serves them itself is also asked for from this machine, on each of its ports:
-// one that does not answer is closed somewhere between, which may be the provider.
+// s. An app that serves them itself, or that nginx serves, is also asked for from this machine, on
+// each of its ports: one that does not answer is closed somewhere between, which may be the provider.
 func (t deployTarget) printVisitors(ctx context.Context, w io.Writer, s serverState) {
+	var site string
+	var ports []int
 	switch {
 	case t.front == "cloudflare" && t.domain != "":
 		fmt.Fprintf(w, "visitors: https://%s, through the Cloudflare Tunnel\n", t.domain)
 		return
+	case t.front == "nginx" && !slices.Contains(s.NginxSites, t.app):
+		fmt.Fprintf(w, "visitors: none yet. %s listens on 127.0.0.1:%d, which only the server reaches: run go tool tifa deploy setup, and nginx serves it\n", t.app, s.Port)
+		return
+	case t.front == "nginx":
+		ports = []int{httpPort}
+		if t.own != "" {
+			ports = nginxPorts
+		}
 	case !servesVisitors(s.Port):
 		fmt.Fprintf(w, "visitors: none yet. %s listens on 127.0.0.1:%d, which only the server reaches: run go tool tifa deploy setup, and it serves visitors on port 80 itself\n", t.app, s.Port)
 		return
+	default:
+		ports = []int{httpPort}
+		if s.Port == httpsPort {
+			ports = nginxPorts
+		}
 	}
 	host := t.serverAddress(ctx)
-	site := "http://" + host
+	site = "http://" + host
 	if strings.Contains(host, ":") {
 		site = "http://[" + host + "]"
 	}
 	if s.HTTPS != "" {
 		site, host = "https://"+s.HTTPS, s.HTTPS
 	}
-	ports := []int{httpPort}
-	if s.Port == httpsPort {
-		ports = append(ports, httpsPort)
+	if t.front == "nginx" && t.own != "" {
+		site, host = "https://"+t.own, t.own
 	}
 	var closed []int
 	for _, p := range ports {
@@ -548,12 +580,12 @@ func (t deployTarget) printVisitors(ctx context.Context, w io.Writer, s serverSt
 	}
 	many := len(ports) > 1
 	if len(closed) == 0 {
-		fmt.Fprintf(w, "visitors: %s (%s %s from this machine)\n", site, portsText(s.Port), pick(many, "answer", "answers"))
+		fmt.Fprintf(w, "visitors: %s (%s %s from this machine)\n", site, portList(ports), pick(many, "answer", "answers"))
 		return
 	}
 	shut := portList(closed)
 	line := fmt.Sprintf("visitors: %s, once %s %s open to them. %s did not answer from this machine within 3 seconds: the firewall or a security group of your provider may block %s. Open %s (tcp) there, which Tifa does not change",
-		site, portsText(s.Port), pick(many, "are", "is"), strings.ToUpper(shut[:1])+shut[1:], pick(len(closed) > 1, "them", "it"), shut)
+		site, portList(ports), pick(many, "are", "is"), strings.ToUpper(shut[:1])+shut[1:], pick(len(closed) > 1, "them", "it"), shut)
 	if s.UFW == "on" {
 		// ufw may block them too, when it was turned on after setup or its plan was not applied.
 		line += ". ufw is on too: go tool tifa deploy setup lets visitors through it"

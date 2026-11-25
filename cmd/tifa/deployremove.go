@@ -53,10 +53,10 @@ rm -rf "$d"
 `
 
 // untunnelBody runs as root once no app of tifa is left on the server. It stops cloudflared and
-// deletes its units and /etc/tifa, which holds the ID and the token of the tunnel. When setup
-// installed cloudflared, which it marks with its apt setting, it uninstalls it and deletes the
-// package repository it added. /etc/tifa goes last: a run that stopped halfway finds the tunnel
-// again.
+// deletes its units and the ID and the token of the tunnel in /etc/tifa, and that folder when
+// nothing else is in it: the marker of the nginx of Tifa is there too. When setup installed
+// cloudflared, which it marks with its apt setting, it uninstalls it and deletes the package
+// repository it added. The tunnel files go last: a run that stopped halfway finds the tunnel again.
 const untunnelBody = `set -eu
 s=/etc/systemd/system
 for u in tifa-tunnel.service tifa-tunnel-upgrade.path; do
@@ -71,7 +71,8 @@ if [ -f /etc/apt/apt.conf.d/52tifa-cloudflared ]; then
 	rm -f /etc/apt/sources.list.d/cloudflared.list /usr/share/keyrings/cloudflare-main.gpg /etc/apt/apt.conf.d/52tifa-cloudflared
 	did="$did, uninstalled cloudflared"
 fi
-rm -rf /etc/tifa
+rm -f /etc/tifa/tunnel /etc/tifa/tunnel-token
+rmdir /etc/tifa 2>/dev/null || true
 echo "$did"
 `
 
@@ -88,6 +89,12 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 	}
 	st := r.st
 	p.machine = st.Machine
+	// The site and certificate of an app behind the nginx of Tifa, and nginx with the last of them.
+	if st.NginxTifa {
+		if err := r.nginxRemovalSteps(ctx, &p, ""); err != nil {
+			return p, err
+		}
+	}
 	cf := false
 	tunnelName := "tifa-" + st.Machine
 	tunnelFound := false
@@ -203,9 +210,9 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 	}
 	if cf && len(st.Others) == 0 {
 		if st.TunnelID != "" || st.TunnelActive || st.CloudflaredByTifa {
-			text := "server: stop cloudflared, the service tifa-tunnel, and delete its units and /etc/tifa, as root"
+			text := "server: stop cloudflared, the service tifa-tunnel, and delete its units and the tunnel files in /etc/tifa, as root"
 			if st.CloudflaredByTifa {
-				text = "server: stop cloudflared, the service tifa-tunnel, delete its units and /etc/tifa, and uninstall cloudflared, which setup installed, as root"
+				text = "server: stop cloudflared, the service tifa-tunnel, delete its units and the tunnel files in /etc/tifa, and uninstall cloudflared, which setup installed, as root"
 			}
 			p.add(opRemove, text, afterAll(func(ctx context.Context) (string, error) {
 				var out strings.Builder
@@ -402,7 +409,8 @@ func newDeployRemoveCmd(dir, host *string) *cobra.Command {
 		Long: `remove stops the app and deletes its units and its folder on the server, with its releases,
 its .env and its data. With deploy.front cloudflare it deletes the route, the DNS record and the
 rules of its domain and the Access of the repository, and the tunnel, cloudflared and the cache
-tokens on the server once no other app of the server uses them. With deploy.auto it deletes the key of the repository on the
+tokens on the server once no other app of the server uses them. With deploy.front nginx it deletes
+its nginx site and certificate, and nginx and certbot once no other app has a site. With deploy.auto it deletes the key of the repository on the
 server and the secrets and the variable of the repository. It removes only what Tifa made and
 marked, and keeps the workflow file, which is a file of your repository.
 

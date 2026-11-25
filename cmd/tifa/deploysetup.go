@@ -384,8 +384,20 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 	if err := r.serverSteps(ctx, &p); err != nil {
 		return p, r, err
 	}
+	// What an earlier nginx front left goes first: nginx may hold the ports the app needs now.
+	if t.front != "nginx" {
+		if err := r.nginxGoneSteps(ctx, &p); err != nil {
+			return p, r, err
+		}
+	}
 	if err := r.appSteps(ctx, &p); err != nil {
 		return p, r, err
+	}
+	if t.front == "nginx" {
+		r.progress("nginx")
+		if err := r.nginxSteps(ctx, &p); err != nil {
+			return p, r, err
+		}
 	}
 	if t.domain != "" {
 		r.progress("Cloudflare")
@@ -464,7 +476,7 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 		}
 		// What the app needs to know of a server without the user: who listens on the ports of
 		// the visitors, and whether its user may open them.
-		r.st.LowPort, r.st.Listen, r.st.UFW = s.LowPort, s.Listen, s.UFW
+		r.st.LowPort, r.st.Listen, r.st.Used, r.st.UFW = s.LowPort, s.Listen, s.Used, s.UFW
 		p.add(opAdd, fmt.Sprintf("server: the user %s does not exist yet (ssh cannot log in as it), so setup creates it (home %s) with the keys of root, and starts its systemd at boot", deployUser, deployHome), r.serverApply)
 		return nil
 	default:
@@ -503,7 +515,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		return err
 	}
 	r.port = port
-	if err := t.portsFree(r.st, port, func() []listener { return r.rootListeners(ctx) }); err != nil {
+	if err := t.portsFree(r.st, port, func() []listener { return r.rootListeners(ctx) }, true); err != nil {
 		return err
 	}
 	app, domain := t.app, t.ownFor(port)
@@ -594,6 +606,10 @@ func (r *setupRun) rootListeners(ctx context.Context) []listener {
 // printVisitors ends a setup of an app that serves visitors itself: which ports they need, and
 // that Tifa does not open them at the provider. Once a release runs, this machine asks each port.
 func (r *setupRun) printVisitors(ctx context.Context, w io.Writer) {
+	if r.t.front == "nginx" {
+		r.printNginxVisitors(ctx, w)
+		return
+	}
 	if !r.haveServer || !servesVisitors(r.port) {
 		return
 	}

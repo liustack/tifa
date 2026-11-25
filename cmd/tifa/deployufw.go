@@ -148,12 +148,41 @@ func (u ufwState) rule(port int) (ufwRule, bool) {
 // ufwComment marks the rules setup adds for app.
 func ufwComment(app string) string { return "tifa " + app }
 
+// ufwOwner is whom the ufw rules of setup are for: an app, or the nginx of Tifa that every app with
+// front nginx shares. name is what a message calls it, comment marks its rules, and legacy is a
+// comment an earlier setup used for the same rules, which this one takes over.
+type ufwOwner struct{ name, comment, legacy string }
+
+// appOwner is the owner of the rules of the app that serves visitors itself.
+func appOwner(app string) ufwOwner { return ufwOwner{name: app, comment: ufwComment(app)} }
+
+// ufwNginxComment marks the rules of the nginx of Tifa. The name of an app has no space, so
+// "tifa <app>" never has more than one word after tifa, and this comment cannot be the one of an app,
+// also of an app called nginx.
+const ufwNginxComment = "tifa nginx front"
+
+// ufwNginxLegacy was the comment of those rules before, which an app called nginx has too.
+const ufwNginxLegacy = "tifa nginx"
+
+// nginxOwner is the owner of the rules of the nginx of Tifa. An app called nginx on the server owns
+// the old comment, so then there is nothing to take over.
+func (r *setupRun) nginxOwner() ufwOwner {
+	o := ufwOwner{name: "nginx", comment: ufwNginxComment, legacy: ufwNginxLegacy}
+	if r.t.app == "nginx" || slices.Contains(r.st.Others, "nginx") {
+		o.legacy = ""
+	}
+	return o
+}
+
 // tifaPorts are the ports of the rules setup added for app: allow <port>/tcp with its comment.
-func (u ufwState) tifaPorts(app string) []int {
+func (u ufwState) tifaPorts(app string) []int { return u.portsOf(ufwComment(app)) }
+
+// portsOf are the ports of the rules allow <port>/tcp with the comment.
+func (u ufwState) portsOf(comment string) []int {
 	var ports []int
 	for _, r := range u.rules {
 		p, err := strconv.Atoi(r.ports)
-		if err == nil && r.action == "allow" && r.proto == "tcp" && r.comment == ufwComment(app) && !slices.Contains(ports, p) {
+		if err == nil && r.action == "allow" && r.proto == "tcp" && r.comment == comment && !slices.Contains(ports, p) {
 			ports = append(ports, p)
 		}
 	}
@@ -163,9 +192,9 @@ func (u ufwState) tifaPorts(app string) []int {
 // ufwScript is a root script that runs ufw with verb (allow, or delete allow) for each port, in the
 // rule with the comment of app. ufw deletes a rule with a comment only when the comment is the
 // same, so delete leaves a rule of the developer for the same port.
-func ufwScript(marker, verb, app string, ports []int) string {
+func ufwScript(marker, verb, comment string, ports []int) string {
 	return "set -eu\n# tifa: " + marker + "\nexport LC_ALL=C PATH=\"/usr/sbin:/usr/bin:/sbin:/bin:$PATH\"\n" +
-		strings.Join(ufwCommands(verb, app, ports), "\n") + "\n"
+		strings.Join(ufwCommandsFor(verb, comment, ports), "\n") + "\n"
 }
 
 // visitorPorts are the ports visitors reach an app on port: 80, 80 and 443, or none.
@@ -219,7 +248,6 @@ func (r *setupRun) ufwRun(body string) func(context.Context) (string, error) {
 // until Let's Encrypt reaches it, and its health check fails until then. The rules of the ports
 // the app gives up go after the move, in the step that the returned function adds, nil when none.
 func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (after func()) {
-	app := r.t.app
 	need := visitorPorts(port)
 	var gone []int
 	for _, q := range visitorPorts(r.st.Port) {
@@ -227,6 +255,16 @@ func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (a
 			gone = append(gone, q)
 		}
 	}
+	return r.firewallFor(ctx, p, appOwner(r.t.app), need, gone)
+}
+
+// nginxPorts are the ports the nginx of Tifa needs open: 80, and 443 for the apps with a domain.
+var nginxPorts = []int{httpPort, httpsPort}
+
+// firewallFor is firewallSteps for who, the app or "nginx", whose rules carry the comment tifa <who>:
+// need are the ports it needs open, and gone the ports it served on that it gives up.
+func (r *setupRun) firewallFor(ctx context.Context, p *setupPlan, o ufwOwner, need, gone []int) (after func()) {
+	app := o.name
 	if !(len(need) > 0 && r.st.UFW == "on") && !(len(gone) > 0 && r.st.UFW != "") {
 		return
 	}
@@ -236,10 +274,10 @@ func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (a
 			p.notes = append(p.notes, planNote{
 				what: fmt.Sprintf("firewall: check that ufw lets visitors reach %s on %s", app, portList(need)),
 				why: fmt.Sprintf("ufw is on, and only root can read its rules, but setup cannot log in to %s as root: %v. If ufw blocks them, run sudo %s on the server",
-					r.t.host, err, strings.Join(ufwCommands("allow", app, need), " and sudo ")),
+					r.t.host, err, strings.Join(ufwCommandsFor("allow", o.comment, need), " and sudo ")),
 			})
 		} else {
-			p.cannot(fmt.Sprintf("firewall: the rules of ufw with the comment '%s'", ufwComment(app)),
+			p.cannot(fmt.Sprintf("firewall: the rules of ufw with the comment '%s'", o.comment),
 				fmt.Sprintf("%s no longer serves visitors itself, so the rules setup added for it in ufw go, and only root can read and delete them, but setup cannot log in to %s as root: %v. Run sudo ufw status numbered on the server and delete the rules with that comment", app, r.t.host, err))
 		}
 		return
@@ -250,6 +288,13 @@ func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (a
 	var denying []string
 	for _, q := range need {
 		rule, found := u.rule(q)
+		// A rule of another owner of Tifa, such as an app that gave up the port, goes when its
+		// owner no longer needs it: it is no rule for visitors of this one.
+		// That includes the comment of an earlier setup for the same owner: a new rule for the port
+		// takes its place, as ufw updates the comment of a rule that is there.
+		if found && strings.HasPrefix(rule.comment, "tifa ") && rule.comment != o.comment {
+			found = false
+		}
 		switch {
 		case !u.active:
 		case found && (rule.action == "allow" || rule.action == "limit"):
@@ -266,8 +311,8 @@ func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (a
 		}
 	}
 	if len(add) > 0 {
-		p.add(opChange, fmt.Sprintf("firewall: allow %s (tcp) in ufw, so visitors reach %s, in rules with the comment '%s', as root", portList(add), app, ufwComment(app)),
-			r.ufwRun(ufwScript("allow in ufw", "allow", app, add)))
+		p.add(opChange, fmt.Sprintf("firewall: allow %s (tcp) in ufw, so visitors reach %s, in rules with the comment '%s', as root", portList(add), app, o.comment),
+			r.ufwRun(ufwScript("allow in ufw", "allow", o.comment, add)))
 	}
 	if len(need) > 0 && len(open) == len(need) {
 		p.ok(fmt.Sprintf("firewall: ufw lets visitors reach %s on %s", app, portList(need)))
@@ -281,26 +326,47 @@ func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (a
 			fmt.Sprintf("ufw denies %s by the %s ufw %s, which Tifa did not add and leaves as it is. If visitors should reach %s, delete %s on the server with %s, then run setup again",
 				portList(blocked), pick(len(denying) > 1, "rules", "rule"), strings.Join(denying, " and ufw "), app, pick(len(denying) > 1, "them", "it"), strings.Join(deletes, " and ")))
 	}
-	var drop []int
-	for _, q := range u.tifaPorts(app) {
-		if !slices.Contains(need, q) {
-			drop = append(drop, q)
+	// The rules to delete, for each comment of the owner: a legacy one is deleted with its own comment.
+	type ufwDrop struct {
+		comment string
+		ports   []int
+	}
+	var drops []ufwDrop
+	for _, c := range []string{o.comment, o.legacy} {
+		if c == "" {
+			continue
+		}
+		var drop []int
+		for _, q := range u.portsOf(c) {
+			if !slices.Contains(need, q) {
+				drop = append(drop, q)
+			}
+		}
+		if len(drop) > 0 {
+			drops = append(drops, ufwDrop{c, drop})
 		}
 	}
-	if len(drop) == 0 {
+	if len(drops) == 0 {
 		return nil
 	}
 	return func() {
-		p.add(opRemove, fmt.Sprintf("firewall: the rules of ufw for %s (tcp) with the comment '%s', which %s no longer needs, as root", portList(drop), ufwComment(app), app),
-			r.ufwRun(ufwScript("delete from ufw", "delete allow", app, drop)))
+		for _, d := range drops {
+			p.add(opRemove, fmt.Sprintf("firewall: the rules of ufw for %s (tcp) with the comment '%s', which %s no longer needs, as root", portList(d.ports), d.comment, app),
+				r.ufwRun(ufwScript("delete from ufw", "delete allow", d.comment, d.ports)))
+		}
 	}
 }
 
 // ufwCommands are the commands of ufw that verb the ports of app, as setup runs them.
 func ufwCommands(verb, app string, ports []int) []string {
+	return ufwCommandsFor(verb, ufwComment(app), ports)
+}
+
+// ufwCommandsFor are the commands of ufw that verb the ports in rules with the comment.
+func ufwCommandsFor(verb, comment string, ports []int) []string {
 	cmds := make([]string, len(ports))
 	for i, q := range ports {
-		cmds[i] = fmt.Sprintf("ufw %s %d/tcp comment %s", verb, q, shellQuote(ufwComment(app)))
+		cmds[i] = fmt.Sprintf("ufw %s %d/tcp comment %s", verb, q, shellQuote(comment))
 	}
 	return cmds
 }
@@ -320,6 +386,6 @@ func (r *setupRun) removeFirewall(ctx context.Context, p *setupPlan) {
 	}
 	if ports := u.tifaPorts(app); len(ports) > 0 {
 		p.add(opRemove, fmt.Sprintf("firewall: the rules of ufw for %s (tcp) with the comment '%s', which setup added, as root", portList(ports), ufwComment(app)),
-			r.ufwRun(ufwScript("delete from ufw", "delete allow", app, ports)))
+			r.ufwRun(ufwScript("delete from ufw", "delete allow", ufwComment(app), ports)))
 	}
 }

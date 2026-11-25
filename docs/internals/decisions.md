@@ -789,9 +789,24 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 - Downloading `gh` or `cf` by itself. Setup installs them only with a package manager the machine already has, only when `tifa.yaml` needs them, and as a line of the plan the user agrees to.
 - wrangler, which `cf` replaces.
-- A reverse proxy in Tifa for several apps on one server. A Cloudflare Tunnel is the way, and the docs show Caddy as the other.
+- A reverse proxy of Tifa's own for several apps on one server. Tifa ships none. A Cloudflare Tunnel or `front: nginx` shares a server: [An nginx of Tifa for several apps on one server](#an-nginx-of-tifa-for-several-apps-on-one-server).
 - A local `tifa deploy` that hands over to GitHub Actions by itself, which would change what a command does without a word.
 - A GitHub App in place of the `gh` sign-in. Put off as too early.
+
+### An nginx of Tifa for several apps on one server
+
+**Settled (2026-11-26).** `deploy.front: nginx` is a third front, next to `none` and `cloudflare`. Several apps on one server share ports 80 and 443 without Cloudflare.
+
+- The nginx is Tifa's. Setup installs it with apt, as a line of the plan the user agrees to, and marks it with `/etc/tifa/nginx`. From then on Tifa writes all of its configuration, one site for each app, and nothing else uses it.
+- An nginx that Tifa did not install is never touched. Setup stops, names it and its port, and changes nothing, as it does for any other program on port 80 or 443.
+- Certificates come from certbot with its nginx plugin, installed with apt as a line of the plan and renewed by its own timer. An app without a domain is served over plain HTTP on port 80, and only one app of a server can be that.
+- Remove takes the site and certificate of an app, and nginx and certbot with the last app, as it does for the tunnel.
+
+**Why.** Tifa cannot manage a configuration it does not own. A file it writes into an nginx of the user can clash with what is already there, and it cannot know what else changes that nginx later. In an nginx of its own it knows every line, can check each change with `nginx -t` before the reload, and can put the last good file back.
+
+**Turned down.** Plugging into an nginx the user already has (2026-11-26): writing sites into it and reloading it. The same reason, and an app of Tifa would then depend on a server that other people also edit.
+
+**Reopen when** many users ask to run Tifa apps behind an nginx they cannot give up, and a way is found that leaves its configuration to the user.
 
 ### A secret that passes through the agent
 

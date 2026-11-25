@@ -152,7 +152,7 @@ func TestDeployRemoveEverything(t *testing.T) {
 		"remove  server: the key of acme/shop in authorized_keys of tifa",
 		"remove  github: the secrets",
 		"remove  server: stop and disable tifa-shop.socket and tifa-shop.service",
-		"remove  server: stop cloudflared, the service tifa-tunnel, delete its units and /etc/tifa, and uninstall cloudflared, which setup installed, as root",
+		"remove  server: stop cloudflared, the service tifa-tunnel, delete its units and the tunnel files in /etc/tifa, and uninstall cloudflared, which setup installed, as root",
 		"remove  cloudflare: the tunnel of the server, tifa-vps-1234, which no other app uses",
 		"remove  server: delete /srv/tifa/.config/tifa/cloudflare-purge, the tokens that clear the CDN cache, which no other app uses",
 		"Kept .github/workflows/tifa-deploy.yml, a file of your repository: the next push fails to deploy until you delete it.",

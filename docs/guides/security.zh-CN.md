@@ -2,7 +2,7 @@
 summary: 'Tifa 默认替你防住了什么（跨站写入、会话 cookie、上限、响应头），以及你必须自己做的事'
 audience: app
 order: 12
-translatedFrom: dde2e873be6a
+translatedFrom: 9899144d4514
 read_when:
   - '准备上线，想知道 Tifa 已经防了什么、还有什么留给你'
   - '检查一个应用，或者 coding agent 写的代码，看有没有安全漏洞'
@@ -72,7 +72,7 @@ Tifa 存会话。它不认识你的用户、角色和所有者。访问检查写
 
 ### 打开 HTTPS 和 HSTS {#turn-on-https-and-hsts}
 
-程序自己就能提供 HTTPS，证书来自 Let's Encrypt：设置 `server.tls_domains`。`tifa deploy` 在 `front: none` 时替你做好这件事，`front: cloudflare` 则在前面放一条 Cloudflare Tunnel。HTTPS 能用之后，设置 `server.hsts: true`（默认关闭），让浏览器一年内都只走 HTTPS。详见 [HTTPS](../build-and-deploy/config.zh-CN.md#https)、[80 端口和 HSTS](../build-and-deploy/config.zh-CN.md#port-80-and-hsts)和[应用自己接待访客](../build-and-deploy/deploy.zh-CN.md#the-app-serves-visitors-itself)。
+程序自己就能提供 HTTPS，证书来自 Let's Encrypt：设置 `server.tls_domains`。`tifa deploy` 在 `front: none` 时替你做好这件事，`front: cloudflare` 则在前面放一条 Cloudflare Tunnel，`front: nginx` 则放一个由 Tifa 安装的 nginx，证书来自 certbot。HTTPS 能用之后，设置 `server.hsts: true`（默认关闭），让浏览器一年内都只走 HTTPS。详见 [HTTPS](../build-and-deploy/config.zh-CN.md#https)、[80 端口和 HSTS](../build-and-deploy/config.zh-CN.md#port-80-and-hsts)和[应用自己接待访客](../build-and-deploy/deploy.zh-CN.md#the-app-serves-visitors-itself)。
 
 ### 打开 Content-Security-Policy {#turn-on-a-content-security-policy}
 
