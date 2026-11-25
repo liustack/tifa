@@ -876,7 +876,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	if err != nil {
 		return err
 	}
-	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: renderURL(c.Request().URL, s.query[key]), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
+	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: renderURL(c.Request().URL, s.query[key], s.nonText[key]), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 	failed := &renderError{f: f, in: in, key: key, loads: since, query: s.query[key]}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
@@ -1553,19 +1553,21 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 // order of the request. Every other parameter, a tracking one or ?x=random, cannot change what
 // the Loads return, so the render and its memo key leave it out. The values are spelled as
 // url.QueryEscape writes them, and what url.ParseQuery drops, and so c.Query never sees, is left out
-// too. The path stays as it came, so the router still redirects another spelling of it.
-func renderURL(u *url.URL, keep []string) string {
-	return u.EscapedPath() + renderQuery(u, keep)
+// too. An empty value of a parameter in nonText, one that is a number or a bool, or a list of them,
+// is left out as well: it is a parameter that was not passed, and the router, which writes the
+// address it reads without it, would find the address spelled differently and redirect. The path stays as it came, so the router still redirects another spelling of it.
+func renderURL(u *url.URL, keep, nonText []string) string {
+	return u.EscapedPath() + renderQuery(u, keep, nonText)
 }
 
 // renderQuery is the query of renderURL, with its ?, or "" when it keeps no parameter.
-func renderQuery(u *url.URL, keep []string) string {
+func renderQuery(u *url.URL, keep, nonText []string) string {
 	if len(keep) == 0 || u.RawQuery == "" {
 		return ""
 	}
 	values := map[string][]string{}
 	for part := range strings.SplitSeq(u.RawQuery, "&") {
-		if k, v, ok := keptPart(part, keep); ok {
+		if k, v, ok := keptPart(part, keep); ok && (v != "" || !slices.Contains(nonText, k)) {
 			values[k] = append(values[k], v)
 		}
 	}

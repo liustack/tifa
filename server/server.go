@@ -50,6 +50,8 @@ type server struct {
 	// query holds, by the key of a page (its path, or the ID of the Layout a 404 shows in), the query
 	// parameters the Loads of its chain read: the only ones the server render sees.
 	query map[string][]string
+	// nonText holds, by the same keys, those of them that are a number or a bool, or a list of them.
+	nonText map[string][]string
 	// shared holds the s-maxage of the pages that have Cache, by path. Their requests are anonymous.
 	shared map[string]time.Duration
 	// sharedDefault is the time of a page that writes const Cache = true (cache.s_maxage).
@@ -96,7 +98,7 @@ type server struct {
 func newServer(cfg config.Config, hooks Hooks) *server {
 	s := &server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
-		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, query: map[string][]string{}, shared: map[string]time.Duration{},
+		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, query: map[string][]string{}, nonText: map[string][]string{}, shared: map[string]time.Duration{},
 		modules: map[string][]string{}, layouts: map[string]layoutChain{}, memo: newRenderMemo(cfg.SSR.MemoSize),
 		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}

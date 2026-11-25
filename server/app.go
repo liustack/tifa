@@ -69,6 +69,9 @@ type Layout struct {
 	Languages []string
 	// Query lists the query parameters the Layout function reads (AllQuery), sorted.
 	Query []string
+	// NonText lists those of Query that are a number or a bool, or a list of them, sorted. An empty
+	// value of one is a parameter that was not passed (see renderQuery).
+	NonText []string
 }
 
 // Route is one directory holding page.tsx, or a route.go that declares a method handler, or both.
@@ -104,6 +107,8 @@ type Route struct {
 	Languages []string
 	// Query lists the query parameters the Load reads (AllQuery), sorted.
 	Query []string
+	// NonText lists those of Query that are a number or a bool, or a list of them, sorted.
+	NonText []string
 }
 
 // register adds the Layouts and routes of an application. Like http.ServeMux it panics on an
@@ -132,7 +137,7 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			s.langs[r.Path] = r.Languages
 		}
 		var chain []load
-		var query []string
+		var query, nonText []string
 		for i, id := range r.Layouts {
 			l, ok := byID[id]
 			if !ok {
@@ -142,18 +147,22 @@ func (s *server) register(layouts []Layout, routes []Route) {
 				chain = append(chain, load{id: l.ID, run: l.Load, html: l.HTML})
 			}
 			query = append(query, l.Query...)
+			nonText = append(nonText, l.NonText...)
 			if _, ok := s.layouts[id]; !ok {
 				s.layouts[id] = layoutChain{chain: slices.Clone(chain)}
 				s.modules[id] = slices.Clone(r.Layouts[:i+1])
 				s.query[id] = sortedSet(query)
+				s.nonText[id] = sortedSet(nonText)
 			}
 		}
 		if r.Load != nil {
 			chain = append(chain, load{id: r.ID, run: r.Load, html: r.HTML})
 		}
 		query = append(query, r.Query...)
+		nonText = append(nonText, r.NonText...)
 		if r.Page {
 			s.query[r.Path] = sortedSet(query)
+			s.nonText[r.Path] = sortedSet(nonText)
 		}
 		s.path(r.Path)
 		switch {

@@ -103,6 +103,9 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 			}
 			if len(l.Load.AllQuery) > 0 {
 				fmt.Fprintf(&app, "Query: %s,\n", stringSlice(l.Load.AllQuery))
+				if names := nonTextQuery(l.Load); len(names) > 0 {
+					fmt.Fprintf(&app, "NonText: %s,\n", stringSlice(names))
+				}
 			}
 		}
 		if len(l.Languages) > 0 {
@@ -135,6 +138,9 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 		}
 		if r.Load != nil && len(r.Load.AllQuery) > 0 {
 			fmt.Fprintf(&app, "Query: %s,\n", stringSlice(r.Load.AllQuery))
+			if names := nonTextQuery(r.Load); len(names) > 0 {
+				fmt.Fprintf(&app, "NonText: %s,\n", stringSlice(names))
+			}
 		}
 		if len(r.Languages) > 0 {
 			fmt.Fprintf(&app, "Languages: %s,\n", stringSlice(r.Languages))
@@ -279,4 +285,17 @@ func gofmt(name, src string) ([]byte, error) {
 		return nil, fmt.Errorf("codegen: %s does not parse: %w\n%s", name, err, src)
 	}
 	return out, nil
+}
+
+// nonTextQuery lists the query parameters of a Load that are a number or a bool, or a list of them,
+// sorted. An empty value of one is a parameter that was not passed (renderQuery in server/page.go).
+// A Layout that tifa.Use passes reads no parameters, so these are all of AllQuery that are not text.
+func nonTextQuery(l *analyze.Load) []string {
+	var names []string
+	for _, f := range l.Fields {
+		if f.Kind != "string" {
+			names = append(names, f.Name)
+		}
+	}
+	return names
 }

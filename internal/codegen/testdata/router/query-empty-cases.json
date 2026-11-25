@@ -1,0 +1,19 @@
+{
+  "path": "/typed",
+  "keep": ["ids", "min", "on", "page", "q", "small", "sort", "tags"],
+  "nonText": ["ids", "min", "on", "page", "small"],
+  "cases": [
+    { "query": "", "render": "/typed" },
+    { "query": "page=2", "render": "/typed?page=2" },
+    { "query": "page=", "render": "/typed" },
+    { "query": "page&on=&min=", "render": "/typed" },
+    { "query": "page=&q=&tags=", "render": "/typed?q=&tags=" },
+    { "query": "q=a&page=&utm=x", "render": "/typed?q=a" },
+    { "query": "ids=1&ids=&ids=3", "render": "/typed?ids=1&ids=3" },
+    { "query": "ids=&ids=", "render": "/typed" },
+    { "query": "tags=a&tags=&tags=b", "render": "/typed?tags=a&tags=&tags=b" },
+    { "query": "on=true&page=%20", "render": "/typed?on=true&page=+" },
+    { "query": "page=&page=2", "render": "/typed?page=2" },
+    { "query": "sort=&on=true", "render": "/typed?on=true&sort=" }
+  ]
+}

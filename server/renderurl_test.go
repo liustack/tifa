@@ -47,7 +47,7 @@ func TestRenderURLKeepsTheParametersTheLoadsRead(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := renderURL(u, tc.keep); got != tc.want {
+		if got := renderURL(u, tc.keep, nil); got != tc.want {
 			t.Errorf("renderURL(%q, %q) = %q, want %q", tc.target, tc.keep, got, tc.want)
 		}
 	}
@@ -173,8 +173,37 @@ func TestQueryCasesAreWhatGoReads(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if render := renderURL(u, table.Keep); render != tc.Render {
+		if render := renderURL(u, table.Keep, nil); render != tc.Render {
 			t.Errorf("%q: renders %q, the table says %q", tc.Query, render, tc.Render)
+		}
+	}
+}
+
+// An empty value of a parameter that is a number or a bool, or of a list of them, is a parameter
+// that was not passed: the render URL leaves it out, so the router does not find the address
+// spelled differently and redirect. The router test of internal/codegen reads the same table, so the
+// canonical link the browser writes is the one of the render.
+func TestRenderURLLeavesOutEmptyValuesOfNumbersAndBools(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "internal", "codegen", "testdata", "router", "query-empty-cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		Path    string
+		Keep    []string
+		NonText []string
+		Cases   []struct{ Query, Render string }
+	}
+	if err := json.Unmarshal(data, &table); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range table.Cases {
+		u, err := url.ParseRequestURI(table.Path + "?" + tc.Query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if render := renderURL(u, table.Keep, table.NonText); render != tc.Render {
+			t.Errorf("?%s renders %q, the table says %q", tc.Query, render, tc.Render)
 		}
 	}
 }
