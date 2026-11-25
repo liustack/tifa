@@ -843,6 +843,21 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 	if _, _, err := Project([]byte("i18n:\n  prefix: off\n")); err != nil {
 		t.Errorf("off: %v", err)
 	}
+	// The host is a plain DNS name, an IP address or localhost, with or without a port: tifa deploy
+	// writes it into the configuration of nginx and asks Let's Encrypt for it, so it holds no
+	// character that means something there.
+	for _, url := range []string{"https://shop.example.com", "https://Shop.Example.COM", "https://my-shop.example.com:8443", "http://localhost:3000",
+		"http://203.0.113.7", "http://[2001:db8::1]:8080", "https://xn--80ak6aa92e.com", "https://a.b-c.example.com.", "http://shop", "https://1.example.com"} {
+		if _, _, err := Project([]byte("site:\n  url: " + url + "\n")); err != nil {
+			t.Errorf("%s: %v", url, err)
+		}
+	}
+	for _, url := range []string{"https://a;b.com", "https://*.example.com", "https://a_b.example.com", "https://-a.example.com", "https://a-.example.com",
+		"https://a..example.com", "https://.example.com", "https://a{b}.com", "https://a$b.com", "https://a%20b.com", "https://a'b.com", "https://a,b.com"} {
+		if _, _, err := Project([]byte("site:\n  url: \"" + url + "\"\n")); err == nil || !strings.Contains(err.Error(), "site.url") {
+			t.Errorf("%s: got %v", url, err)
+		}
+	}
 	// Empty is not set, as the example file of tifa new shows them.
 	if c, _, err := Project([]byte("i18n:\n  default: \"\"\nsite:\n  url: \"\"\n")); err != nil || c.I18n.Default != "" || c.Site.URL != "" {
 		t.Errorf("empty: %+v %+v, %v", c.I18n, c.Site, err)

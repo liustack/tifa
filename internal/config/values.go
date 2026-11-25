@@ -568,10 +568,36 @@ func (v siteURLValue) Set(s string) error {
 		return fmt.Errorf("invalid URL %q: write the scheme and the host, such as https://shop.example.com", s)
 	case u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "":
 		return fmt.Errorf("invalid URL %q: it is the scheme and the host only, such as https://shop.example.com", s)
+	case !plainHost(u.Hostname()):
+		return fmt.Errorf("invalid URL %q: the host is a name of letters, digits, hyphens and dots, such as shop.example.com, or an IP address", s)
 	}
 	*v.p = u.Scheme + "://" + u.Host
 	return nil
 }
+// plainHost says host is an IP address, or a DNS name of labels of letters, digits and hyphens, with
+// no hyphen at either end of a label, and one dot at the end at most. Punycode (xn--) is such a name.
+// The name goes into the configuration of nginx, so no character with a meaning there passes.
+func plainHost(host string) bool {
+	if _, err := netip.ParseAddr(host); err == nil {
+		return true
+	}
+	name := strings.TrimSuffix(host, ".")
+	if name == "" {
+		return false
+	}
+	for _, label := range strings.Split(name, ".") {
+		if label == "" || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (v siteURLValue) String() string { return *v.p }
 func (v siteURLValue) kind() string   { return "string" }
 
