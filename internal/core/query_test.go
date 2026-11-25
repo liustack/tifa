@@ -169,6 +169,10 @@ func TestQueryDecodingRefusesWhatIsNotTheWrittenForm(t *testing.T) {
 		{"stock=TRUE", "stock"}, {"stock=1", "stock"}, {"stock=yes", "stock"},
 		{"ids=1&ids=x", "ids"}, {"ids=01", "ids"},
 		{"page=1&page=2", "page"}, {"page=&page=2", "page"}, {"status=a&status=b", "status"}, {"status=&status=", "status"},
+		// A number too small to hold reads as 0, which is not what was written.
+		{"min=0." + strings.Repeat("0", 400) + "1", "min"},
+		// Text that is not UTF-8 would come back from the page as another text.
+		{"status=%FF", "status"},
 	} {
 		var in queryInput
 		var e Error
@@ -197,7 +201,11 @@ func TestQueryDecodingOfOtherWidths(t *testing.T) {
 	if err := decodeRaw("a=-128&b=65535&c=0.5", &in); err != nil || in.A != -128 || in.B != 65535 || in.C != 0.5 {
 		t.Fatalf("%v %+v", err, in)
 	}
-	for _, raw := range []string{"a=128", "b=65536", "b=-1"} {
+	if err := decodeRaw("c=0.1", &in); err != nil || in.C != 0.1 {
+		t.Fatalf("a float32 written as 0.1: %v %v", err, in.C)
+	}
+	// 16777217 is 16777216 as a float32, so it does not come back as written.
+	for _, raw := range []string{"a=128", "b=65536", "b=-1", "c=16777217"} {
 		var e Error
 		if err := decodeRaw(raw, &in); !errors.As(err, &e) || e.Status != 400 {
 			t.Errorf("?%s: got %v", raw, err)

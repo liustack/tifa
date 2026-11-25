@@ -518,6 +518,7 @@ func TestViolations(t *testing.T) {
 		}},
 		{"reservedquery", [][]string{
 			{"app/list/route.go:12:", `"_tifa"`, "reserved", "Load query"},
+			{"app/dup/route.go:12:", `"q"`, "Page and Sort", "one field"},
 		}},
 		{"ctxflow", [][]string{
 			{"app/page/route.go:26:", "element of map[int]*tifa.Ctx"},

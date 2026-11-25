@@ -988,6 +988,7 @@ func queryKind(b *types.Basic) string {
 // removes before any code sees the request.
 func (a *analyzer) checkQueryStruct(label string, in types.Type, st *types.Struct, files map[*types.Var]bool, pos token.Pos, why string) bool {
 	ok := a.checkFlatInput(label, in, st, files, pos, why)
+	named := map[string]*types.Var{}
 	for i := range st.NumFields() {
 		f := st.Field(i)
 		if f.Embedded() || !f.Exported() || jsonName(st.Tag(i)) == "-" {
@@ -996,6 +997,12 @@ func (a *analyzer) checkQueryStruct(label string, in types.Type, st *types.Struc
 		name := jsonName(st.Tag(i))
 		if name == "" {
 			name = f.Name()
+		}
+		if first := named[name]; first != nil {
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: the fields %s and %s are both the query parameter %q, and one value cannot fill two: give the parameter one field, or the other field its own json tag", label, first.Name(), f.Name(), name), f))
+			ok = false
+		} else {
+			named[name] = f
 		}
 		if name == reservedQuery {
 			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: the query parameter %q is reserved for tifa: the browser asks for the data of a navigation with it, and the server removes it before any code sees the request. Rename the field, or its json tag", label, name), f))

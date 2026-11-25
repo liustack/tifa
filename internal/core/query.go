@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // maxExact is the largest whole number a browser holds exactly, 2^53-1. The query string of a page
@@ -113,6 +114,10 @@ func setQueryField(f reflect.Value, values []string) error {
 func setQueryValue(f reflect.Value, s string) error {
 	switch f.Kind() {
 	case reflect.String:
+		// Text that is not UTF-8 leaves the page as U+FFFD, so it would not come back as written.
+		if !utf8.ValidString(s) {
+			return errQueryValue
+		}
 		f.SetString(s)
 	case reflect.Bool:
 		switch s {
@@ -147,6 +152,11 @@ func setQueryValue(f reflect.Value, s string) error {
 		}
 		n, err := strconv.ParseFloat(s, 64)
 		if a := math.Abs(n); err != nil || a != 0 && (a < 1e-6 || a >= 1e21) {
+			return errQueryValue
+		}
+		// What the field holds must write back as s: a float32 keeps fewer digits than plainFloat
+		// lets through, and digits too small for a float64 read as 0.
+		if strconv.FormatFloat(n, 'f', -1, f.Type().Bits()) != s {
 			return errQueryValue
 		}
 		f.SetFloat(n)
