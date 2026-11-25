@@ -3,7 +3,6 @@ package login
 import (
 	"errors"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -45,10 +44,8 @@ var nexts = map[string]string{
 
 func TestLoadKeepsNextOnThisSite(t *testing.T) {
 	for next, want := range nexts {
-		r := httptest.NewRequest("GET", "/login", nil)
-		r.URL.RawQuery = "next=" + url.QueryEscape(next)
-		c, _ := tifatest.NewCtx(t, r)
-		v, err := tifa.Use(c, Load)
+		c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", "/login", nil))
+		v, err := Load(c, Query{Next: next})
 		if err != nil || v.Next != want {
 			t.Errorf("Load next %q: %q %v, want %q", next, v.Next, err, want)
 		}

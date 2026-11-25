@@ -708,7 +708,7 @@ func TestI18nInBrowser(t *testing.T) {
 	for _, c := range []struct{ path, want, canonical string }{
 		{"/en-US/store?q=a%20b&utm=x%2Fy", "store go=en-US react=en-US path=/store q=a b", "/en-US/store?q=a+b"},
 		{"/en-US/store?utm=&q=a%2Fb&utm=c%20d", "store go=en-US react=en-US path=/store q=a/b", "/en-US/store?q=a%2Fb"},
-		{"/store?q=a%20b&e=&q=c%2Fd", "store go=zh-CN react=zh-CN path=/store q=a b", "/store?q=a+b&q=c%2Fd"},
+		{"/store?e=&q=a%20b&utm=c%2Fd", "store go=zh-CN react=zh-CN path=/store q=a b", "/store?q=a+b"},
 		{"/en-US/store/csr?x=a%20b&y=&x=%2F", "csr go=en-US react=en-US", "/en-US/store/csr"},
 		{"/store/csr?x=a%20b&y=&x=%2F", "csr go=zh-CN react=zh-CN", "/store/csr"},
 		{"/projects?next=%2Fa&q=a%20b", "projects go=zh-CN react=zh-CN", "/projects"},

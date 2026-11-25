@@ -182,7 +182,7 @@ func (d *StoreDeps) pageKeys(page string) (keys []string, ok bool) {
 //   - The products of a page of the list (products.Search in products/product.go), for any URL of the
 //     list: the products that pass the filters no write changes (the search term, the category, the
 //     colours, the materials, the badges, the rating), filtered by the price range (min, max, in whole
-//     units of the currency of the language) and the stock (stock=1), sorted by price when the list
+//     units of the currency of the language) and the stock (stock=true), sorted by price when the list
 //     sorts so (the order of the catalogue among equals), and cut into pages of 24. The list model does
 //     it (listFilter.narrowed and listFilter.cut in store_list.go). A search for a word no product has
 //     gives no product, so such a page depends on the best rated below it and on what every list

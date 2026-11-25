@@ -372,11 +372,11 @@ func TestAListOfWhatIsInStockHasWhatTheRestockGaveAStock(t *testing.T) {
 	if !slices.Contains(whole, out.Slug) {
 		t.Fatalf("%s is not in the list of its category: %v", out.Slug, whole)
 	}
-	if got := on(m, all+"&stock=1"); slices.Contains(got, out.Slug) || len(got) >= len(whole) {
+	if got := on(m, all+"&stock=true"); slices.Contains(got, out.Slug) || len(got) >= len(whole) {
 		t.Errorf("%s is sold out and the list of what is in stock is %v", out.Slug, got)
 	}
 	m = newVersionModel(handDeps(), map[string]int{out.Slug: 10})
-	got := on(m, all+"&stock=1")
+	got := on(m, all+"&stock=true")
 	var want []string
 	for _, slug := range whole {
 		if m.inStock[slug] {
@@ -398,7 +398,7 @@ func TestAnyListHasItsVersionFromTheModel(t *testing.T) {
 	found := "/store/products?q=cup&sort=newest"
 	none := "/zh-CN/store/products?q=" + uniqueTerm(1, 7)
 	filtered := "/store/products?category=textiles&color=oat&material=fabric&rating=44&page=2"
-	lists := []string{found, none, filtered, "/store/products?min=30&max=59&stock=1", "/zh-CN/store/products?badge=sale&sort=price-asc"}
+	lists := []string{found, none, filtered, "/store/products?min=30&max=59&stock=true", "/zh-CN/store/products?badge=sale&sort=price-asc"}
 	at := func(page string) int {
 		t.Helper()
 		v, err := m.stampOf(page)

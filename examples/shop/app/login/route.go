@@ -14,8 +14,13 @@ type View struct {
 	Next string `json:"next"`
 }
 
-func Load(c *tifa.Ctx) (View, error) {
-	return View{Next: safeNext(c.Query("next"))}, nil
+// Query is the query string of the page.
+type Query struct {
+	Next string `json:"next"`
+}
+
+func Load(c *tifa.Ctx, q Query) (View, error) {
+	return View{Next: safeNext(q.Next)}, nil
 }
 
 // Credentials is the form.

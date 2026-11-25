@@ -3,7 +3,6 @@
 package product
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/liustack/tifa"
@@ -26,7 +25,12 @@ type Detail struct {
 	Delivery cart.Delivery `json:"delivery"`
 }
 
-func Load(c *tifa.Ctx) (Detail, error) {
+// Query is the query string of the page: the page of reviews to show, from 1.
+type Query struct {
+	Reviews int `json:"reviews"`
+}
+
+func Load(c *tifa.Ctx, q Query) (Detail, error) {
 	l, err := storekit.FindLocale(c.Language())
 	if err != nil {
 		return Detail{}, err
@@ -35,9 +39,8 @@ func Load(c *tifa.Ctx) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
-	page, _ := strconv.Atoi(c.Query("reviews"))
 	d := Detail{
-		Product: p, Reviews: products.ReviewPage(p.Slug, page, l), Bundle: products.Bundle(p.Slug, 2, l), Related: products.Related(p.Slug, 12, l),
+		Product: p, Reviews: products.ReviewPage(p.Slug, q.Reviews, l), Bundle: products.Bundle(p.Slug, 2, l), Related: products.Related(p.Slug, 12, l),
 		Questions: products.Questions(p.Slug, l), Best: products.BestInCategory(p.Slug, 5, l),
 	}
 	d.Delivery = cart.Deliveries(cart.Cart{FreeShippingCents: 1}, time.Now(), l)[0]

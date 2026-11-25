@@ -83,8 +83,12 @@ import (
 	"github.com/liustack/tifa"
 )
 
-func Layout(c *tifa.Ctx) (string, error) {
-	if c.Query("deny") != "" {
+type Deny struct {
+	Deny string ` + "`json:\"deny\"`" + `
+}
+
+func Layout(c *tifa.Ctx, q Deny) (string, error) {
+	if q.Deny != "" {
 		return "", errors.New("permission denied")
 	}
 	return "allowed", nil

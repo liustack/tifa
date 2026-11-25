@@ -20,7 +20,7 @@ func TestTheProductListIsCountedBySearchFilterAndTheRest(t *testing.T) {
 		"/store/products?q=" + SearchPlaceholder:                "list, search",
 		"/store/products?color=moss&sort=newest":                "list, filter",
 		"/zh-CN/store/products?min=100&max=300":                 "list, filter",
-		"/store/products?category=drinkware&stock=1":            "list, filter",
+		"/store/products?category=drinkware&stock=true":            "list, filter",
 		"/store/products":                                       "list, other",
 		"/store/products?category=drinkware&sort=newest&page=2": "list, other",
 		"/store/products?page=2&gclid=abc":                      "list, other",
