@@ -1,4 +1,4 @@
-const pages = ['/daisyui', '/base-ui', '/mantine', '/chakra', '/styled', '/react-aria']
+const pages = ['/daisyui', '/base-ui', '/mantine', '/chakra', '/antd', '/styled', '/react-aria']
 
 export const head = () => ({ meta: [{ title: 'UI libraries' }] })
 

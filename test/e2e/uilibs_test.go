@@ -103,6 +103,19 @@ func TestUILibsApp(t *testing.T) {
 	})
 
 	t.Run("antd", func(t *testing.T) {
-		t.Skip("any import of antd makes tifa build run for ever: the small-function pass of the SSR bundle (runsAfter in js/vite/plugin.js) is exponential on its code. The page waits in test/apps/uilibs/parked/antd. With the pass patched to visit each function once, antd builds, renders from the VM and hydrates, but its styles (cssinjs, or antd/dist/antd.css with zeroRuntime) are missing from the first paint")
+		// antd's cssinjs styles reach no head Tifa writes, so the page uses antd/dist/antd.css with
+		// zeroRuntime. The color variables of that file hang on a class made from a useId value,
+		// and the page gives ConfigProvider the same class as cssVar.key. The class the button
+		// carries must have a rule in the stylesheet that defines the variables.
+		body := renderedPage(t, base+"/antd")
+		expectInBody(t, "/antd", body, `class="ant-btn `, `role="tablist"`, "Open modal")
+		m := regexp.MustCompile(`class="ant-btn [^"]*?(css-var-[^\s"]+)`).FindStringSubmatch(body)
+		if m == nil {
+			t.Fatal("the antd button has no css-var- class")
+		}
+		css := stylesheetOf(t, base, body)
+		if !regexp.MustCompile(`\.` + regexp.QuoteMeta(m[1]) + `\{[^}]*--ant-color-primary:`).MatchString(css) {
+			t.Errorf("the stylesheet has no rule for .%s that defines --ant-color-primary: the key in app/antd/page.tsx no longer matches antd.css", m[1])
+		}
 	})
 }

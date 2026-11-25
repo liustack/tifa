@@ -1,4 +1,11 @@
-import { Button, ChakraProvider, Dialog, Input, NativeSelect, Portal, Tabs, defaultSystem } from '@chakra-ui/react'
+import { Button, ChakraProvider, Dialog, Input, NativeSelect, Portal, Select, Tabs, createListCollection, defaultSystem } from '@chakra-ui/react'
+
+const fruits = createListCollection({
+  items: [
+    { value: 'a', label: 'Apple' },
+    { value: 'b', label: 'Banana' },
+  ],
+})
 
 export const head = () => ({ meta: [{ title: 'Chakra UI' }] })
 
@@ -16,6 +23,29 @@ export default function ChakraPage() {
           </NativeSelect.Field>
           <NativeSelect.Indicator />
         </NativeSelect.Root>
+        <Select.Root collection={fruits} defaultValue={['b']} width="200px">
+          <Select.HiddenSelect />
+          <Select.Control>
+            <Select.Trigger>
+              <Select.ValueText placeholder="Pick a fruit" />
+            </Select.Trigger>
+            <Select.IndicatorGroup>
+              <Select.Indicator />
+            </Select.IndicatorGroup>
+          </Select.Control>
+          <Portal>
+            <Select.Positioner>
+              <Select.Content>
+                {fruits.items.map((f) => (
+                  <Select.Item item={f} key={f.value}>
+                    {f.label}
+                    <Select.ItemIndicator />
+                  </Select.Item>
+                ))}
+              </Select.Content>
+            </Select.Positioner>
+          </Portal>
+        </Select.Root>
         <Tabs.Root defaultValue="one">
           <Tabs.List>
             <Tabs.Trigger value="one">One</Tabs.Trigger>
