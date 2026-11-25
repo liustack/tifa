@@ -468,6 +468,29 @@ func TestNginxRemove(t *testing.T) {
 	}
 }
 
+// A certbot that was there before setup is not Tifa's: when setup added only its nginx plugin, the last
+// app takes away the plugin, and leaves the timer, the certificates and the account of certbot alone.
+func TestNginxUninstallKeepsACertbotOfTheUser(t *testing.T) {
+	b := newNginxBox(t)
+	b.have("certbot")
+	writeFile(t, filepath.Join(b.etc, "dpkg-installed"), "certbot\n")
+	b.mustRun(nginxInstallScript([]string{"nginx"}, []string{"python3-certbot-nginx"}))
+	writeFile(t, filepath.Join(b.etc, "letsencrypt", "live", "mine.example.com", "privkey.pem"), "secret\n")
+	out := b.mustRun(nginxUninstallScript())
+	if !strings.Contains(out, "python3-certbot-nginx") || strings.Contains(out, " certbot") {
+		t.Errorf("out %q", out)
+	}
+	if !exists(filepath.Join(b.etc, "letsencrypt", "live", "mine.example.com", "privkey.pem")) {
+		t.Error("deleted the certificates of the user")
+	}
+	if strings.Contains(b.calls(), "disable --now certbot.timer") {
+		t.Errorf("stopped the timer of the user:\n%s", b.calls())
+	}
+	if !strings.Contains(b.read("dpkg-installed"), "certbot") {
+		t.Errorf("purged the certbot of the user:\n%s", b.calls())
+	}
+}
+
 func testTarget() deployTarget { return deployTarget{app: "shop", host: "vps", front: "nginx"} }
 
 // Setup stops, and changes nothing, for an nginx it did not install, for any other program on port

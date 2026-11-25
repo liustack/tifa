@@ -339,7 +339,8 @@ apt-get install -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--fo
 rm -f "$policy_made" "$etc/nginx/sites-enabled/default"
 if [ -n "$nginx_pkgs" ]; then systemctl enable --quiet nginx; fi
 # certbot renews with its own timer, which the block above kept from starting with the package.
-if [ -n "$certbot_pkgs" ]; then systemctl enable --quiet --now certbot.timer; fi
+# A certbot that was there before is not ours to start.
+case " $certbot_pkgs " in *" certbot "*) systemctl enable --quiet --now certbot.timer ;; esac
 echo "installed $(echo $nginx_pkgs $certbot_pkgs)"
 `
 
@@ -441,15 +442,18 @@ marker="$etc/tifa/nginx"
 if [ ! -f "$marker" ]; then exit 0; fi
 nginx_pkgs=$(awk '$1 == "installed" && $2 == "nginx" { print $3 }' "$marker")
 certbot_pkgs=$(awk '$1 == "installed" && $2 == "certbot" { print $3 }' "$marker")
+# Only a certbot that setup installed is ours: its timer, its folder and its account go. When setup
+# added only the nginx plugin to the certbot of someone else, the plugin is all that goes.
+certbot_own=$(awk '$1 == "installed" && $2 == "certbot" && $3 == "certbot" { print $3 }' "$marker")
 if [ -n "$nginx_pkgs" ]; then systemctl disable --now nginx 2>/dev/null || true; fi
-if [ -n "$certbot_pkgs" ]; then systemctl disable --now certbot.timer 2>/dev/null || true; fi
+if [ -n "$certbot_own" ]; then systemctl disable --now certbot.timer 2>/dev/null || true; fi
 if [ -n "$nginx_pkgs$certbot_pkgs" ]; then
 	log=$(mktemp)
 	apt-get purge -y -q $nginx_pkgs $certbot_pkgs </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; rm -f "$log"; exit 1; }
 	rm -f "$log"
 fi
 if [ -n "$nginx_pkgs" ]; then rm -rf "$etc/nginx"; fi
-if [ -n "$certbot_pkgs" ]; then rm -rf "$etc/letsencrypt" /var/lib/letsencrypt /var/log/letsencrypt; fi
+if [ -n "$certbot_own" ]; then rm -rf "$etc/letsencrypt" /var/lib/letsencrypt /var/log/letsencrypt; fi
 rm -f "$marker"
 rmdir "$etc/tifa" 2>/dev/null || true
 echo "uninstalled $(echo $nginx_pkgs $certbot_pkgs)"

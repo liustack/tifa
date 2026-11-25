@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -159,8 +160,10 @@ func (r *setupRun) nginxRemovalSteps(ctx context.Context, p *setupPlan, why stri
 		return nil
 	}
 	what := "nginx"
-	if len(ns.TifaCerts) > 0 {
+	if slices.Contains(ns.TifaCerts, "certbot") {
 		what = "nginx and certbot"
+	} else if len(ns.TifaCerts) > 0 {
+		what = "nginx and the nginx plugin of certbot"
 	}
 	p.add(opRemove, fmt.Sprintf("server: uninstall %s, which setup installed, with their configuration, and delete /etc/tifa/nginx, as root, since no other app uses nginx", what),
 		r.rootScript(nginxUninstallScript()))
