@@ -1,8 +1,10 @@
-# Cases for the value of one query parameter. The Go decoder (internal/core) reads this file, and so
-# will the decoder of the browser, which must give the same answer for every line.
+# Cases for the value of one query parameter. The Go decoder (internal/core) reads this file, and
+# so does the codec of the browser (js/runtime/searchcodec.ts), run in Node and in beastjs. All must give
+# the same answer for every line.
 #
 # Columns, separated by one tab:
-#   type    string, bool, int, int8, int32, uint, uint8, uint32, or float (the type of the field)
+#   type    string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, uintptr or float
+#           (the type of the field, float is a float64: a float32 field is a build error)
 #   input   the value as a JSON string
 #   result  ok when the value is a valid way to write one, x when it is not
 #   bits    for ok: the 64 bits of the decoded number as 16 hex digits, 1 or 0 for a bool, - for a string
@@ -209,3 +211,28 @@ float	"-0-5"	x	-
 float	"-"	x	-
 int	"--5"	x	-
 int	"1-"	x	-
+int16	"32767"	ok	40dfffc000000000
+int16	"-32768"	ok	c0e0000000000000
+int16	"32768"	x	-
+int16	"-32769"	x	-
+int64	"9007199254740991"	ok	433fffffffffffff
+int64	"-9007199254740991"	ok	c33fffffffffffff
+int64	"9007199254740992"	x	-
+int64	"9223372036854775807"	x	-
+uint16	"65535"	ok	40efffe000000000
+uint16	"65536"	x	-
+uint16	"-1"	x	-
+uint64	"9007199254740991"	ok	433fffffffffffff
+uint64	"9007199254740992"	x	-
+uint64	"18446744073709551615"	x	-
+uintptr	"0"	ok	0000000000000000
+uintptr	"9007199254740991"	ok	433fffffffffffff
+uintptr	"9007199254740992"	x	-
+int8	"+1"	x	-
+int8	"-0"	x	-
+int8	"007"	x	-
+int8	"1.0"	x	-
+int8	"200"	x	-
+uint8	"200"	ok	4069000000000000
+uint8	"+1"	x	-
+uint8	"01"	x	-

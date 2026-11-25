@@ -504,6 +504,9 @@ func TestViolations(t *testing.T) {
 			{"app/badtype/route.go:16:", "Layout query", "Filter.Ptr", "*int"},
 			{"app/file/route.go:13:", "Load query", "Filter.Photo", "is a file", "request body"},
 			{"app/validated/route.go:11:", "Load query", "Validate", "method handler", "tifa.Error", "tifa.ErrNotFound"},
+			{"app/float32/route.go:14:", "Load query", "Filter.Price", "float32", "declare it float64"},
+			{"app/float32/route.go:14:", "Load query", "Filter.Prices", "[]float32", "declare it float64"},
+			{"app/float32/route.go:14:", "Load query", "Filter.Weight", "a float32", "declare it float64"},
 		}},
 		// A name that a Layout and a page below it share has one type, and the two places are named.
 		{"querytypes", [][]string{
@@ -1285,14 +1288,13 @@ func TestQueryStructFields(t *testing.T) {
 		{Name: "on", Type: "bool", Kind: "bool"},
 		{Name: "page", Type: "int", Kind: "int"},
 		{Name: "rate", Type: "float64", Kind: "float64"},
-		{Name: "small", Type: "float32", Kind: "float32"},
 		{Name: "sort", Type: "example.com/queryfields/app/list.Sort", Kind: "string"},
 		{Name: "wide", Type: "[]int64", Kind: "int64", List: true},
 	}
 	if !reflect.DeepEqual(load.Fields, want) {
 		t.Errorf("Fields = %+v\nwant %+v", load.Fields, want)
 	}
-	if wantNames := []string{"Tags", "levels", "mask", "on", "page", "rate", "small", "sort", "wide"}; !reflect.DeepEqual(load.Query, wantNames) {
+	if wantNames := []string{"Tags", "levels", "mask", "on", "page", "rate", "sort", "wide"}; !reflect.DeepEqual(load.Query, wantNames) {
 		t.Errorf("Query = %v, want %v", load.Query, wantNames)
 	}
 	if load.Input != "example.com/queryfields/app/list.Filter" {

@@ -60,6 +60,9 @@ func decodeQuery(query url.Values, v any) error {
 		if problem := formTypeProblem(field.Type); problem != "" {
 			return fmt.Errorf("tifa: a query string or form cannot fill the field %s of %s: its type %s %s", field.Name, target.Type(), field.Type, problem)
 		}
+		if t := field.Type; t.Kind() == reflect.Float32 || t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Float32 {
+			return fmt.Errorf("tifa: a query string cannot fill the field %s of %s: its type %s is a float32, which a browser cannot write the way Go does, so declare it float64", field.Name, target.Type(), t)
+		}
 	}
 	for i := range target.NumField() {
 		field := target.Type().Field(i)
@@ -109,7 +112,7 @@ func setQueryField(f reflect.Value, values []string) error {
 }
 
 // setQueryValue sets f from one value, which must be valid for its kind. f is a string, bool,
-// integer or float field, which formTypeProblem has checked.
+// integer or float64 field, which formTypeProblem and decodeQuery have checked.
 func setQueryValue(f reflect.Value, s string) error {
 	switch f.Kind() {
 	case reflect.String:
@@ -143,7 +146,7 @@ func setQueryValue(f reflect.Value, s string) error {
 			return errQueryValue
 		}
 		f.SetUint(n)
-	case reflect.Float32, reflect.Float64:
+	case reflect.Float64:
 		if !plainFloat(s) {
 			return errQueryValue
 		}
@@ -151,9 +154,8 @@ func setQueryValue(f reflect.Value, s string) error {
 		if a := math.Abs(n); err != nil || a != 0 && (a < 1e-6 || a >= 1e21) {
 			return errQueryValue
 		}
-		// What the field holds must write back as s: a float32 keeps fewer digits than plainFloat
-		// lets through, and digits too small for a float64 read as 0.
-		if strconv.FormatFloat(n, 'f', -1, f.Type().Bits()) != s {
+		// What the field holds must write back as s: digits too small for a float64 read as 0.
+		if strconv.FormatFloat(n, 'f', -1, 64) != s {
 			return errQueryValue
 		}
 		f.SetFloat(n)

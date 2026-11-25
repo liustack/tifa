@@ -21,8 +21,9 @@ func fieldOf(t *testing.T, kind string) reflect.Value {
 	t.Helper()
 	types := map[string]reflect.Type{
 		"string": reflect.TypeFor[string](), "bool": reflect.TypeFor[bool](), "int": reflect.TypeFor[int](),
-		"int8": reflect.TypeFor[int8](), "int32": reflect.TypeFor[int32](), "uint": reflect.TypeFor[uint](),
-		"uint8": reflect.TypeFor[uint8](), "uint32": reflect.TypeFor[uint32](), "float": reflect.TypeFor[float64](),
+		"int8": reflect.TypeFor[int8](), "int16": reflect.TypeFor[int16](), "int32": reflect.TypeFor[int32](), "int64": reflect.TypeFor[int64](),
+		"uint": reflect.TypeFor[uint](), "uint8": reflect.TypeFor[uint8](), "uint16": reflect.TypeFor[uint16](), "uint32": reflect.TypeFor[uint32](),
+		"uint64": reflect.TypeFor[uint64](), "uintptr": reflect.TypeFor[uintptr](), "float": reflect.TypeFor[float64](),
 	}
 	typ, ok := types[kind]
 	if !ok {
@@ -40,9 +41,9 @@ func bitsOf(f reflect.Value) uint64 {
 			return 1
 		}
 		return 0
-	case reflect.Int, reflect.Int8, reflect.Int32:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return math.Float64bits(float64(f.Int()))
-	case reflect.Uint, reflect.Uint8, reflect.Uint32:
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		return math.Float64bits(float64(f.Uint()))
 	case reflect.Float64:
 		return math.Float64bits(f.Float())
@@ -201,21 +202,27 @@ func TestQueryStringFieldTakesBytesThatAreNotUTF8(t *testing.T) {
 
 func TestQueryDecodingOfOtherWidths(t *testing.T) {
 	var in struct {
-		A int8    `json:"a"`
-		B uint16  `json:"b"`
-		C float32 `json:"c"`
+		A int8   `json:"a"`
+		B uint16 `json:"b"`
 	}
-	if err := decodeRaw("a=-128&b=65535&c=0.5", &in); err != nil || in.A != -128 || in.B != 65535 || in.C != 0.5 {
+	if err := decodeRaw("a=-128&b=65535", &in); err != nil || in.A != -128 || in.B != 65535 {
 		t.Fatalf("%v %+v", err, in)
 	}
-	if err := decodeRaw("c=0.1", &in); err != nil || in.C != 0.1 {
-		t.Fatalf("a float32 written as 0.1: %v %v", err, in.C)
-	}
-	// 16777217 is 16777216 as a float32, so it does not come back as written.
-	for _, raw := range []string{"a=128", "b=65536", "b=-1", "c=16777217"} {
+	for _, raw := range []string{"a=128", "a=200", "b=65536", "b=-1"} {
 		var e Error
 		if err := decodeRaw(raw, &in); !errors.As(err, &e) || e.Status != 400 {
 			t.Errorf("?%s: got %v", raw, err)
+		}
+	}
+}
+
+// A float32 cannot be a query field: the browser cannot write the shortest text of one, so it and Go
+// could not read a value alike. The build refuses it, and the decoder does if one gets this far.
+func TestQueryDecodingRefusesFloat32(t *testing.T) {
+	for _, v := range []any{&struct{ C float32 }{}, &struct{ C []float32 }{}} {
+		err := decodeRaw("", v)
+		if err == nil || !strings.Contains(err.Error(), "float32") {
+			t.Errorf("%T: got %v", v, err)
 		}
 	}
 }
