@@ -139,7 +139,7 @@ true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF
 *"tifa: nginx certificate"*) echo "nginxcert $user" >> "$d/calls"; echo "certificate" ;;
 *"tifa: nginx remove site"*) echo "nginxremovesite $user" >> "$d/calls"; [ -f "$d/removesitefail" ] && { echo "tifa: nginx did not accept the configuration without the site of shop, so the site is back. nginx said:" >&2; echo "nginx: [emerg] boom" >&2; exit 1; }; echo "deleted the site" ;;
 *"tifa: nginx remove certificate"*) echo "nginxremovecert $user" >> "$d/calls"; echo "deleted the certificate" ;;
-*"tifa: nginx uninstall"*) echo "nginxuninstall $user" >> "$d/calls"; echo "uninstalled nginx" ;;
+*"tifa: nginx uninstall"*) echo "nginxuninstall $user" >> "$d/calls"; [ -f "$d/uninstallkept" ] && { echo "kept nginx: /etc/nginx/conf.d/tifa-blog.conf is there"; exit 0; }; echo "uninstalled nginx" ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
 *"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\nmachine vps-1234\n'; cat "$d/rootfacts" 2>/dev/null; true ;;
 *"tifa: who listens"*) echo "listeners $user" >> "$d/calls"; [ "$user" = root ] && [ -f "$d/rootdenied" ] && { echo "root@vps: Permission denied (publickey)." >&2; exit 255; }; cat "$d/rootfacts" 2>/dev/null; true ;;

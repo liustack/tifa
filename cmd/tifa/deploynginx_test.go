@@ -84,6 +84,8 @@ delete)
 	rm -rf `+etc+`/letsencrypt/live/tifa-$app `+etc+`/letsencrypt/renewal/tifa-$app.conf ;;
 esac`)
 	tool("openssl", `cat "$6" | head -n 1`)
+	// flock only says it was asked: a test that needs the lock to hold is in the script test below.
+	tool("flock", `echo "flock $*" >> `+log)
 	tool("ss", `cat `+etc+`/ss 2>/dev/null; true`)
 	if _, err := exec.LookPath("sha256sum"); err != nil {
 		tool("sha256sum", `shasum -a 256 "$@"`)
@@ -504,6 +506,37 @@ func TestNginxUninstallKeepsACertbotOfTheUser(t *testing.T) {
 	}
 	if !strings.Contains(b.read("dpkg-installed"), "certbot") {
 		t.Errorf("purged the certbot of the user:\n%s", b.calls())
+	}
+}
+
+// What changes the nginx of Tifa takes one lock on the server first, so two setups and removes of
+// different apps never write, delete or uninstall at the same time. The uninstall looks at the
+// sites again under the lock: a site that came meanwhile keeps nginx where it is.
+func TestNginxChangesTakeTheLock(t *testing.T) {
+	b := newNginxBox(t)
+	b.mustRun(nginxInstallScript([]string{"nginx"}, nil))
+	b.mustRun(nginxSiteScript("shop", nginxSiteFile("shop", "", 9527, false, true)))
+	b.mustRun(nginxRemoveSiteScript("shop"))
+	b.mustRun(nginxUninstallScript())
+	if n := strings.Count(b.calls(), "flock -w 120 9"); n != 4 {
+		t.Errorf("%d locks for 4 changes:\n%s", n, b.calls())
+	}
+	if exists(filepath.Join(b.etc, "tifa")) {
+		t.Error("the lock file stays")
+	}
+
+	b = newNginxBox(t)
+	b.mustRun(nginxInstallScript([]string{"nginx"}, nil))
+	b.mustRun(nginxSiteScript("shop", nginxSiteFile("shop", "", 9527, false, true)))
+	b.mustRun(nginxRemoveSiteScript("shop"))
+	// An app set up while the last one was removed.
+	b.mustRun(nginxSiteScript("blog", nginxSiteFile("blog", "blog.example.com", 9528, false, true)))
+	out := b.mustRun(nginxUninstallScript())
+	if !strings.Contains(out, "kept nginx") || !strings.Contains(out, "tifa-blog.conf") {
+		t.Errorf("out %q", out)
+	}
+	if !exists(filepath.Join(b.etc, "tifa", "nginx")) || strings.Contains(b.calls(), "apt-get purge") {
+		t.Errorf("uninstalled with a site there:\n%s", b.calls())
 	}
 }
 

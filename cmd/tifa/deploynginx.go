@@ -305,6 +305,14 @@ var inet6File = "/proc/net/if_inet6"
 
 func nginxProbeScript() string { return script(nginxProbeBody, "etc", etcDir, "inet6_file", inet6File) }
 
+// nginxLock takes the lock of the nginx of Tifa, which every script that changes its files or its
+// packages holds until it ends. $etc is /etc. Tests run the scripts in a folder, with a flock that
+// only says it was asked.
+const nginxLock = `install -d -m 755 "$etc/tifa"
+exec 9>"$etc/tifa/nginx.lock"
+if ! flock -w 120 9; then echo "tifa: another change of nginx runs on this server: try again in a minute" >&2; exit 1; fi
+`
+
 // nginxInstallBody runs as root. It writes the marker first, so a run that stops halfway still
 // knows this nginx is Tifa's, then records the packages apt would add for $nginx_pkgs and
 // $certbot_pkgs (each a list, maybe empty), installs them, and takes down the welcome site of nginx.
@@ -313,6 +321,7 @@ const nginxInstallBody = `set -eu
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1
 umask 022
 marker="$etc/tifa/nginx"
+` + nginxLock + `
 # apt-get runs quietly, and what it said comes back when it fails.
 log=$(mktemp)
 policy_made=""
@@ -369,7 +378,7 @@ const nginxReload = `if systemctl is-active --quiet nginx; then systemctl reload
 // apps, and a bad file never reaches them.
 const nginxSiteBody = `set -eu
 # tifa: nginx site
-f="$etc/nginx/conf.d/tifa-$app.conf"
+` + nginxLock + `f="$etc/nginx/conf.d/tifa-$app.conf"
 install -d -m 755 "$etc/nginx/conf.d"
 had=""
 if [ -f "$f" ]; then cp -p "$f" "$f.last"; had=1; fi
@@ -415,7 +424,7 @@ func nginxCertScript(app, host string, deleteOld bool) string {
 // puts one in: nginx -t first, then the reload, and the file back when nginx says no.
 const nginxRemoveSiteBody = `set -eu
 # tifa: nginx remove site
-f="$etc/nginx/conf.d/tifa-$app.conf"
+` + nginxLock + `f="$etc/nginx/conf.d/tifa-$app.conf"
 if [ ! -f "$f" ]; then exit 0; fi
 mv "$f" "$f.removed"
 if out=$(nginx -t 2>&1); then
@@ -451,6 +460,10 @@ const nginxUninstallBody = `set -eu
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1
 marker="$etc/tifa/nginx"
 if [ ! -f "$marker" ]; then exit 0; fi
+` + nginxLock + `# A site written while the last one was removed keeps nginx where it is.
+for f in "$etc"/nginx/conf.d/tifa-*.conf; do
+	if [ -f "$f" ]; then echo "kept nginx: $f is there"; exit 0; fi
+done
 nginx_pkgs=$(awk '$1 == "installed" && $2 == "nginx" { print $3 }' "$marker")
 certbot_pkgs=$(awk '$1 == "installed" && $2 == "certbot" { print $3 }' "$marker")
 # Only a certbot that setup installed is ours: its timer, its folder and its account go. When setup
@@ -465,7 +478,7 @@ if [ -n "$nginx_pkgs$certbot_pkgs" ]; then
 fi
 if [ -n "$nginx_pkgs" ]; then rm -rf "$etc/nginx"; fi
 if [ -n "$certbot_own" ]; then rm -rf "$etc/letsencrypt" /var/lib/letsencrypt /var/log/letsencrypt; fi
-rm -f "$marker"
+rm -f "$marker" "$etc/tifa/nginx.lock"
 rmdir "$etc/tifa" 2>/dev/null || true
 echo "uninstalled $(echo $nginx_pkgs $certbot_pkgs)"
 `

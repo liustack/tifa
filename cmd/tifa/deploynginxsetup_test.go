@@ -446,6 +446,19 @@ func TestDeployRemoveNginxKeepsWhatTheSiteNeeds(t *testing.T) {
 	}
 }
 
+// An app that appeared while the last one was removed keeps nginx, and the ports of nginx in ufw.
+func TestDeployRemoveNginxKeepsPortsForANewSite(t *testing.T) {
+	root := setupApp(t, "deploy:\n  front: nginx\n", nil)
+	srv := newSetupServer(t, "", nginxUserFacts(9527, "shop")+"ufw on\n")
+	srv.nginx(t, nginxFacts(false, nil, siteOf("shop", "", 9527, false)))
+	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx'\nufw allow 443/tcp comment 'tifa nginx'\n"))
+	writeFile(t, filepath.Join(srv.dir, "uninstallkept"), "")
+	out, _, err := runRemove(t, root, false, "", "--yes")
+	if strings.Contains(srv.calls(), "ufwdelete") || !strings.Contains(out, "nginx has a site again") {
+		t.Errorf("%v\n%s\n%s", err, out, srv.calls())
+	}
+}
+
 // The ufw rules of nginx go with nginx and no other rule does.
 func TestDeployRemoveNginxDeletesItsUFWRules(t *testing.T) {
 	root := setupApp(t, "deploy:\n  front: nginx\n", nil)

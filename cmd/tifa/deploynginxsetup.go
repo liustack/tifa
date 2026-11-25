@@ -151,11 +151,11 @@ func (r *setupRun) nginxRemovalSteps(ctx context.Context, p *setupPlan, why stri
 	// What comes after the site depends on it: the configuration on disk still names the certificate
 	// while the site is in nginx, and the packages and the ports are what the sites of nginx use. A
 	// site that nginx did not let go stays, and then so does all of that.
-	siteStays := false
+	siteStays, stayWhy := false, fmt.Sprintf("the site of %s is still in nginx: run the command again once nginx takes the configuration without it", app)
 	guard := func(do func(context.Context) (string, error)) func(context.Context) (string, error) {
 		return func(ctx context.Context) (string, error) {
 			if siteStays {
-				return "", fmt.Errorf("kept, since the site of %s is still in nginx: run the command again once nginx takes the configuration without it", app)
+				return "", errors.New("kept, since " + stayWhy)
 			}
 			return do(ctx)
 		}
@@ -183,7 +183,14 @@ func (r *setupRun) nginxRemovalSteps(ctx context.Context, p *setupPlan, why stri
 		what = "nginx and the nginx plugin of certbot"
 	}
 	p.add(opRemove, fmt.Sprintf("server: uninstall %s, which setup installed, with their configuration, and delete /etc/tifa/nginx, as root, since no other app uses nginx", what),
-		guard(r.rootScript(nginxUninstallScript())))
+		guard(func(ctx context.Context) (string, error) {
+			res, err := r.rootScript(nginxUninstallScript())(ctx)
+			// A site came while this ran: nginx stays, and so do its ports in ufw.
+			if err == nil && strings.HasPrefix(res, "kept nginx") {
+				siteStays, stayWhy = true, "nginx has a site again: "+res
+			}
+			return res, err
+		}))
 	if after := r.firewallFor(ctx, p, "nginx", nil, nginxPorts); after != nil {
 		n := len(p.steps)
 		after()
