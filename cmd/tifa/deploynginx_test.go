@@ -54,6 +54,7 @@ esac`)
 	// apt-get: -s prints an Inst line for each package and its dependency, and install makes the
 	// packages exist for dpkg-query.
 	tool("apt-get", `echo "apt-get $*" >> `+log+`
+if [ "$1" = update ] && [ -f `+etc+`/apt-update-fail ]; then echo "E: Failed to fetch" >&2; exit 100; fi
 case " $* " in
 *" -s "*)
 	for p in "$@"; do case "$p" in -*|install) ;; *) echo "Inst $p (1.0 Ubuntu:24.04/noble [amd64])"; [ "$p" = nginx ] && echo "Inst nginx-common (1.0 Ubuntu:24.04/noble [all])" && echo "Inst libssl3 [3.0.1] (3.0.2 Ubuntu:24.04/noble [amd64])"; [ "$p" = certbot ] && echo "Inst python3-certbot (1.0 Ubuntu:24.04/noble [all])" ;; esac; done ;;
@@ -315,6 +316,17 @@ func TestNginxInstallMarksWhatItInstalls(t *testing.T) {
 // An install that fails says what apt said, leaves no block on the services of the server, and the
 // marker stays so that a run again goes on.
 func TestNginxInstallFailure(t *testing.T) {
+	// apt-get update fails before anything: no marker, so an nginx the administrator installs next is theirs.
+	b0 := newNginxBox(t)
+	writeFile(t, filepath.Join(b0.etc, "apt-update-fail"), "")
+	if _, _, err := b0.run(nginxInstallScript([]string{"nginx"}, nil)); err == nil || exists(filepath.Join(b0.etc, "tifa", "nginx")) {
+		t.Errorf("update failed: %v, marker %v", err, exists(filepath.Join(b0.etc, "tifa", "nginx")))
+	}
+	writeFile(t, filepath.Join(b0.etc, "dpkg-installed"), "nginx\n")
+	if ns := b0.state(); !ns.foreign() {
+		t.Errorf("nginx of the administrator after a failed update: %+v", ns)
+	}
+
 	b := newNginxBox(t)
 	writeFile(t, filepath.Join(b.etc, "apt-fail"), "")
 	writeFile(t, filepath.Join(b.etc, "policy-rc.d"), "mine\n")
@@ -511,19 +523,22 @@ func TestNginxGuard(t *testing.T) {
 		socks  []userSocket
 		want   string // empty: no error
 	}{
-		"nothing there":    {testTarget(), nginxState{}, nil, ""},
-		"foreign package":  {testTarget(), nginxState{Pkgs: []string{"nginx", "nginx-common"}}, nil, "vps has an nginx that Tifa did not install (nginx, nginx-common). Tifa never changes the nginx of someone else"},
-		"foreign program":  {testTarget(), nginxState{Bin: "/usr/local/sbin/nginx"}, nil, "an nginx that Tifa did not install (/usr/local/sbin/nginx)"},
-		"Tifa's nginx":     {testTarget(), nginxState{Pkgs: []string{"nginx"}, Tifa: true, Listen: listen(nginxOf)}, nil, ""},
-		"another program":  {testTarget(), nginxState{Listen: listen("LISTEN 0 4096 *:443 *:* users:((\"caddy\",pid=9,fd=7))")}, nil, "port 443 of vps is taken by caddy (pid 9). nginx needs ports 80 and 443"},
-		"another app":      {testTarget(), nginxState{}, []userSocket{{Port: 80, Service: "tifa-notes.service"}}, "port 80 of vps is taken by notes, an app Tifa set up there that serves visitors itself"},
-		"the app itself":   {testTarget(), nginxState{Listen: listen("LISTEN 0 4096 *:80 *:*")}, []userSocket{{Port: 80, Service: "tifa-shop.service"}}, ""},
-		"a second default": {testTarget(), nginxState{Pkgs: []string{"nginx"}, Tifa: true, Sites: []nginxSiteInfo{{App: "blog", Host: "-"}}}, nil, "shop has no domain in site.url, and blog on vps already answers the visitors that name none"},
+		"nothing there": {testTarget(), nginxState{}, nil, ""},
+		// The marker is there, but it never recorded this package: the administrator installed
+		// nginx after a setup that stopped before apt did, so it is not Tifa's.
+		"marker without the package": {testTarget(), nginxState{Pkgs: []string{"nginx", "nginx-common"}, Tifa: true}, nil, "has an nginx that Tifa did not install (nginx, nginx-common)"},
+		"foreign package":            {testTarget(), nginxState{Pkgs: []string{"nginx", "nginx-common"}}, nil, "vps has an nginx that Tifa did not install (nginx, nginx-common). Tifa never changes the nginx of someone else"},
+		"foreign program":            {testTarget(), nginxState{Bin: "/usr/local/sbin/nginx"}, nil, "an nginx that Tifa did not install (/usr/local/sbin/nginx)"},
+		"Tifa's nginx":               {testTarget(), nginxState{Pkgs: []string{"nginx"}, Tifa: true, TifaPkgs: []string{"nginx"}, Listen: listen(nginxOf)}, nil, ""},
+		"another program":            {testTarget(), nginxState{Listen: listen("LISTEN 0 4096 *:443 *:* users:((\"caddy\",pid=9,fd=7))")}, nil, "port 443 of vps is taken by caddy (pid 9). nginx needs ports 80 and 443"},
+		"another app":                {testTarget(), nginxState{}, []userSocket{{Port: 80, Service: "tifa-notes.service"}}, "port 80 of vps is taken by notes, an app Tifa set up there that serves visitors itself"},
+		"the app itself":             {testTarget(), nginxState{Listen: listen("LISTEN 0 4096 *:80 *:*")}, []userSocket{{Port: 80, Service: "tifa-shop.service"}}, ""},
+		"a second default":           {testTarget(), nginxState{Pkgs: []string{"nginx"}, Tifa: true, TifaPkgs: []string{"nginx"}, Sites: []nginxSiteInfo{{App: "blog", Host: "-"}}}, nil, "shop has no domain in site.url, and blog on vps already answers the visitors that name none"},
 		"a domain and one without": {deployTarget{app: "shop", host: "vps", front: "nginx", own: "shop.example.com"},
-			nginxState{Pkgs: []string{"nginx"}, Tifa: true, Sites: []nginxSiteInfo{{App: "blog", Host: "-"}}}, nil, ""},
+			nginxState{Pkgs: []string{"nginx"}, Tifa: true, TifaPkgs: []string{"nginx"}, Sites: []nginxSiteInfo{{App: "blog", Host: "-"}}}, nil, ""},
 		"the same host": {deployTarget{app: "shop", host: "vps", front: "nginx", own: "shop.example.com"},
-			nginxState{Pkgs: []string{"nginx"}, Tifa: true, Sites: []nginxSiteInfo{{App: "old", Host: "shop.example.com"}}}, nil, "old on vps already answers shop.example.com through nginx"},
-		"its own site": {testTarget(), nginxState{Pkgs: []string{"nginx"}, Tifa: true, Sites: []nginxSiteInfo{{App: "shop", Host: "-"}}}, nil, ""},
+			nginxState{Pkgs: []string{"nginx"}, Tifa: true, TifaPkgs: []string{"nginx"}, Sites: []nginxSiteInfo{{App: "old", Host: "shop.example.com"}}}, nil, "old on vps already answers shop.example.com through nginx"},
+		"its own site": {testTarget(), nginxState{Pkgs: []string{"nginx"}, Tifa: true, TifaPkgs: []string{"nginx"}, Sites: []nginxSiteInfo{{App: "shop", Host: "-"}}}, nil, ""},
 	} {
 		err := nginxGuard(tc.target, tc.ns, tc.socks)
 		switch {

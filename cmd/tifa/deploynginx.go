@@ -141,8 +141,15 @@ type nginxCert struct{ App, Host string }
 // installed says nginx is on the server, whoever put it there.
 func (s nginxState) installed() bool { return len(s.Pkgs) > 0 || s.Bin != "" }
 
-// foreign says the server has an nginx that Tifa did not install.
-func (s nginxState) foreign() bool { return s.installed() && !s.Tifa }
+// foreign says the server has an nginx that Tifa did not install: there is no marker, or the marker
+// never recorded the nginx package that is there. The marker is written before apt runs, so a setup
+// that stopped halfway leaves one, and an nginx that the administrator installs after it is theirs.
+func (s nginxState) foreign() bool {
+	if !s.installed() {
+		return false
+	}
+	return !s.Tifa || slices.Contains(s.Pkgs, "nginx") && !slices.Contains(s.TifaPkgs, "nginx")
+}
 
 func (s nginxState) site(app string) (nginxSiteInfo, bool) {
 	for _, x := range s.Sites {
@@ -306,17 +313,19 @@ const nginxInstallBody = `set -eu
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1
 umask 022
 marker="$etc/tifa/nginx"
+# apt-get runs quietly, and what it said comes back when it fails.
+log=$(mktemp)
+policy_made=""
+trap 'rm -f "$log" "$policy_made"' EXIT
+# The marker comes after apt-get update, which can fail: an nginx that someone installs after that
+# is not ours. It comes before the install, so one that stops halfway is found again.
+apt-get update -q </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; exit 1; }
 install -d -m 755 "$etc/tifa"
 if [ ! -f "$marker" ]; then
 	printf '%s\n' "# Written by tifa deploy setup, which installed nginx here for the Tifa apps." \
 		"# The sites in $etc/nginx/conf.d/tifa-*.conf are its only configuration. Without this file" \
 		"# setup takes nginx for one of yours and stops. tifa deploy remove of the last app deletes it." > "$marker"
 fi
-# apt-get runs quietly, and what it said comes back when it fails.
-log=$(mktemp)
-policy_made=""
-trap 'rm -f "$log" "$policy_made"' EXIT
-apt-get update -q </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; exit 1; }
 # mark records what apt would add, so remove purges those packages and nothing else. An Inst line
 # of a package that is already there reads "Inst name [old version] (new version ...)": an
 # upgrade, which is not ours, so only the lines with no old version count.
