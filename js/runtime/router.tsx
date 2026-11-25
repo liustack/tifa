@@ -176,9 +176,11 @@ function loadsAt(router: AnyRouter, pathname: string): string[] {
 interface LoadData {
   load: string
   query?: readonly string[]
-  // The query parameters that are a number or a bool, or a list of them, sorted: an empty value of
-  // one is a parameter that was not passed.
-  nonText?: readonly string[]
+  // The query parameters that are whole numbers, floats and bools, or lists of them, each sorted: an
+  // empty value of one is a parameter that was not passed, and a number is written the shortest way.
+  whole?: readonly string[]
+  floats?: readonly string[]
+  bools?: readonly string[]
 }
 
 // load is the loader of every route with a Go Load: it asks the source for the route's result

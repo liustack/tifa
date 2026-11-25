@@ -134,10 +134,10 @@ test('the browser keeps the query of the render URL as Go does, for the canonica
 
 // query-empty-cases.json is read by server/renderurl_test.go too: the URL of a render leaves out the
 // empty value of a number or a bool, and the canonical link of the browser is the same.
-test('the canonical link leaves out an empty number or bool as the server render does', async () => {
-  const table = JSON.parse(readFileSync('query-empty-cases.json', 'utf8')) as { path: string; keep: string[]; nonText: string[]; cases: Array<{ query: string; render: string }> }
+test('the canonical link writes numbers the shortest way and leaves out an empty number or bool, as the server render does', async () => {
+  const table = JSON.parse(readFileSync('query-empty-cases.json', 'utf8')) as { path: string; keep: string[]; whole: string[]; floats: string[]; bools: string[]; cases: Array<{ query: string; render: string }> }
   for (const c of table.cases) {
-    const got = table.path + renderQuery(table.path + (c.query === '' ? '' : '?' + c.query), table.keep, table.nonText)
+    const got = table.path + renderQuery(table.path + (c.query === '' ? '' : '?' + c.query), table.keep, table)
     assert(got === c.render, `?${c.query} keeps ${got}, Go ${c.render}`)
   }
 })
@@ -237,8 +237,23 @@ test('an empty number or bool is a parameter that was not passed, and the addres
   assert(router.state.matches.every((m: any) => m.status === 'success'), `${JSON.stringify(router.state.matches.map((m: any) => m.status))}`)
 })
 
+test('a number written another way is the same number, and the address is rewritten after hydration', async () => {
+  // Go renders the URL with the numbers written the shortest way (renderURL), the browser opens the
+  // address the visitor typed, and writes it that way before it takes the page over.
+  const address = '/typed?page=007&min=010.50&on=true&ids=%2B1.0&q=007'
+  const rendered = '/typed?ids=1&min=10.5&on=true&page=7&q=007'
+  const result = await renderResult(rendered, typedData)
+  assert(result.html !== undefined && result.redirect === undefined, `render: ${JSON.stringify(result)}`)
+  const { router, calls } = await hydrateFrom(result.html, address, undefined, ok, true)
+  assert(calls.length === 0, `asked for ${JSON.stringify(calls)}`)
+  assert(router.state.location.href === '/typed?page=7&min=10.5&on=true&ids=1&q=007', `href ${router.state.location.href}`)
+  const search = shown(router).search
+  assert(search.page === 7 && search.min === 10.5 && search.on === true && JSON.stringify(search.ids) === '[1]' && search.q === '007', `search ${JSON.stringify(search)}`)
+  assert(router.state.matches.every((m: any) => m.status === 'success'), `${JSON.stringify(router.state.matches.map((m: any) => m.status))}`)
+})
+
 test('a value that is not valid fails the route with the TifaError that Go answers with', async () => {
-  for (const [query, name] of [['page=02', 'page'], ['small=200', 'small'], ['on=TRUE', 'on'], ['min=1.0', 'min'], ['page=1&page=2', 'page'], ['ids=1&ids=x', 'ids'], ['q=a&q=b', 'q']]) {
+  for (const [query, name] of [['page=2.5', 'page'], ['small=200', 'small'], ['on=TRUE', 'on'], ['min=0x10', 'min'], ['page=1&page=2', 'page'], ['ids=1&ids=x', 'ids'], ['q=a&q=b', 'q']]) {
     const { router, calls } = await client('/typed?' + query)
     const failed = router.state.matches.find((m: any) => m.status === 'error')
     assert(failed, `?${query}: no route failed, ${JSON.stringify(router.state.matches.map((m: any) => m.status))}`)
@@ -282,12 +297,12 @@ test('a Link with typed values is active at the address that has them', async ()
 test('a full page with a query that is not valid shows the TifaError of the route', async () => {
   const message = 'invalid query parameter "page"'
   const bad = { status: 400, error: message } as const
-  const result = await renderResult('/typed?page=02', { ...appData, 'app/typed/layout': bad, 'app/typed/route': bad })
+  const result = await renderResult('/typed?page=two', { ...appData, 'app/typed/layout': bad, 'app/typed/route': bad })
   assert(result.html !== undefined, `render: ${JSON.stringify(result)}`)
   contains(result.html, message.replace(/"/g, '&quot;'))
   lacks(result.html, 'SearchParamError')
   // The address goes to the browser as it is, which finds the same error.
-  const { router } = await hydrateFrom(result.html, '/typed?page=02')
+  const { router } = await hydrateFrom(result.html, '/typed?page=two')
   const failed = router.state.matches.find((m: any) => m.status === 'error')
   assert(failed?.error instanceof TifaError && failed.error.status === 400 && failed.error.message === message, `hydrated: ${failed?.error}`)
 })

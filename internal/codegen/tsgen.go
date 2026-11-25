@@ -896,8 +896,14 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 			// The query parameters the Load reads, which the canonical link of the page keeps.
 			if len(n.load.AllQuery) > 0 {
 				static = append(static, "query: "+jsStrings(n.load.AllQuery))
-				if names := nonTextQuery(n.load); len(names) > 0 {
-					static = append(static, "nonText: "+jsStrings(names))
+				whole, floats, bools := queryKinds(n.load)
+				for _, kind := range []struct {
+					key   string
+					names []string
+				}{{"whole", whole}, {"floats", floats}, {"bools", bools}} {
+					if len(kind.names) > 0 {
+						static = append(static, kind.key+": "+jsStrings(kind.names))
+					}
 				}
 			}
 		}

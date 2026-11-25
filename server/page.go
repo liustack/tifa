@@ -876,7 +876,7 @@ func (s *server) renderPage(c *tifa.Ctx, items map[string]routeResult, since tim
 	if err != nil {
 		return err
 	}
-	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: renderURL(c.Request().URL, s.query[key], s.nonText[key]), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
+	in := ssr.Input{BuildID: f.build.ID, Language: c.Language(), Alternates: alternates, URL: renderURL(c.Request().URL, s.query[key], s.kinds[key]), Data: data, Texts: texts, PageTexts: pageTexts, Preload: f.preloadOf(key, items),
 		Session: sess.json, SessionKey: sess.key, SessionHead: sess.head, CSP: s.policyHeader() != ""}
 	failed := &renderError{f: f, in: in, key: key, loads: since, query: s.query[key]}
 	// A render clock makes the HTML depend on a time that is no part of the key, so such a request
@@ -1209,7 +1209,7 @@ func (s *server) dataOnly(c *tifa.Ctx, items map[string]routeResult, status int,
 	if err != nil {
 		return err
 	}
-	doc, err := dataOnlyDocument(f, items, key, withoutEmpty(c.Request().URL, s.nonText[key]), c.Language(), alternates, sess)
+	doc, err := dataOnlyDocument(f, items, key, spelledAlike(c.Request().URL, s.kinds[key]), c.Language(), alternates, sess)
 	if err != nil {
 		return err
 	}
@@ -1553,23 +1553,30 @@ func writeFallback(w http.ResponseWriter, e tifa.Error) {
 // order of the request. Every other parameter, a tracking one or ?x=random, cannot change what
 // the Loads return, so the render and its memo key leave it out. The values are spelled as
 // url.QueryEscape writes them, and what url.ParseQuery drops, and so c.Query never sees, is left out
-// too. An empty value of a parameter in nonText, one that is a number or a bool, or a list of them,
-// is left out as well: it is a parameter that was not passed, and the router, which writes the
-// address it reads without it, would find the address spelled differently and redirect. The path stays as it came, so the router still redirects another spelling of it.
-func renderURL(u *url.URL, keep, nonText []string) string {
-	return u.EscapedPath() + renderQuery(u, keep, nonText)
+// too. A number is written the shortest way (?page=007 renders as ?page=7), and an empty value of a
+// number or a bool, or a list of them, is left out: it is a parameter that was not passed. The
+// router writes the address it reads that way, and would find any other address spelled differently
+// and redirect, and so one page is one URL, one memo key and one canonical link. The path stays as it
+// came, so the router still redirects another spelling of it.
+func renderURL(u *url.URL, keep []string, kinds queryKinds) string {
+	return u.EscapedPath() + renderQuery(u, keep, kinds)
 }
 
 // renderQuery is the query of renderURL, with its ?, or "" when it keeps no parameter.
-func renderQuery(u *url.URL, keep, nonText []string) string {
+func renderQuery(u *url.URL, keep []string, kinds queryKinds) string {
 	if len(keep) == 0 || u.RawQuery == "" {
 		return ""
 	}
 	values := map[string][]string{}
 	for part := range strings.SplitSeq(u.RawQuery, "&") {
-		if k, v, ok := keptPart(part, keep); ok && (v != "" || !slices.Contains(nonText, k)) {
-			values[k] = append(values[k], v)
+		k, v, ok := keptPart(part, keep)
+		if !ok {
+			continue
 		}
+		if v == "" && kinds.notText(k) {
+			continue
+		}
+		values[k] = append(values[k], kinds.spell(k, v))
 	}
 	var b strings.Builder
 	for _, k := range keep {
@@ -1585,18 +1592,57 @@ func renderQuery(u *url.URL, keep, nonText []string) string {
 	return b.String()
 }
 
-// withoutEmpty is the request URI of u without the parameters in nonText that have an empty value, and
-// as it came otherwise. The URL a page without SSR carries is this one: the browser writes the
-// address without those parameters before it loads (see renderQuery).
-func withoutEmpty(u *url.URL, nonText []string) string {
-	if len(nonText) == 0 || u.RawQuery == "" {
+// queryKinds says which query parameters of a page are whole numbers, floats and bools, or lists of
+// them. The others are text, which is never changed.
+type queryKinds struct{ whole, floats, bools []string }
+
+func (k *queryKinds) add(whole, floats, bools []string) {
+	k.whole, k.floats, k.bools = append(k.whole, whole...), append(k.floats, floats...), append(k.bools, bools...)
+}
+
+func (k queryKinds) sorted() queryKinds {
+	return queryKinds{sortedSet(k.whole), sortedSet(k.floats), sortedSet(k.bools)}
+}
+
+// notText reports whether name is a number or a bool.
+func (k queryKinds) notText(name string) bool {
+	return slices.Contains(k.whole, name) || slices.Contains(k.floats, name) || slices.Contains(k.bools, name)
+}
+
+// spell is the value of the parameter name written the shortest way when it is a number: the same
+// text for a value that is no number of its kind, which the page then answers with 400.
+func (k queryKinds) spell(name, value string) string {
+	whole := slices.Contains(k.whole, name)
+	if !whole && !slices.Contains(k.floats, name) {
+		return value
+	}
+	if c := core.CanonicalNumber(value, whole); c != "" {
+		return c
+	}
+	return value
+}
+
+// spelledAlike is the request URI of u with an empty number or bool left out and a number written the
+// shortest way, as it came otherwise. The URL a page without SSR carries is this one: the browser
+// writes the address that way before it loads (see renderQuery).
+func spelledAlike(u *url.URL, kinds queryKinds) string {
+	if u.RawQuery == "" || len(kinds.whole)+len(kinds.floats)+len(kinds.bools) == 0 {
 		return u.RequestURI()
 	}
 	var kept []string
 	for part := range strings.SplitSeq(u.RawQuery, "&") {
 		rawName, rawValue, _ := strings.Cut(part, "=")
-		if name, err := url.QueryUnescape(rawName); err == nil && rawValue == "" && part != "" && slices.Contains(nonText, name) {
+		name, err1 := url.QueryUnescape(rawName)
+		value, err2 := url.QueryUnescape(rawValue)
+		if part == "" || err1 != nil || err2 != nil || !kinds.notText(name) {
+			kept = append(kept, part)
 			continue
+		}
+		if value == "" {
+			continue
+		}
+		if spelled := kinds.spell(name, value); spelled != value {
+			part = rawName + "=" + spelled
 		}
 		kept = append(kept, part)
 	}
