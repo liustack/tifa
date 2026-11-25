@@ -9,9 +9,12 @@ import (
 	"github.com/liustack/tifa/tifatest"
 )
 
-func request(t *testing.T, path string, signedIn bool) (redirect string, reached bool) {
+// request runs OnRequest for path, which the route pattern matched.
+func request(t *testing.T, path, pattern string, signedIn bool) (redirect string, reached bool) {
 	t.Helper()
-	c, _ := tifatest.NewCtx(t, httptest.NewRequest("GET", path, nil))
+	req := httptest.NewRequest("GET", path, nil)
+	req.Pattern = pattern
+	c, _ := tifatest.NewCtx(t, req)
 	if signedIn {
 		tifatest.SignIn(t, c, &Session{UserID: "u-1", Name: "顾遥", Initials: "顾"})
 	}
@@ -28,19 +31,22 @@ func request(t *testing.T, path string, signedIn bool) (redirect string, reached
 
 func TestWorkbenchNeedsSignIn(t *testing.T) {
 	for _, tc := range []struct {
-		path, redirect string
-		signedIn       bool
+		path, pattern, redirect string
+		signedIn                bool
 	}{
-		{"/projects/studio", "/login?next=%2Fprojects%2Fstudio", false},
-		{"/projects/studio/orders/SH-1042?tab=items", "/login?next=%2Fprojects%2Fstudio%2Forders%2FSH-1042%3Ftab%3Ditems", false},
-		{"/projects/studio", "", true},
-		{"/zh-CN/store", "", false},
-		{"/login", "", false},
-		{"/projectsx", "", false},
-		{"/metrics", "/login?next=%2Fmetrics", false},
-		{"/metrics", "", true},
+		{"/projects/studio", "/projects/{project}", "/login?next=%2Fprojects%2Fstudio", false},
+		{"/projects/studio/orders/SH-1042?tab=items", "/projects/{project}/orders/{order}", "/login?next=%2Fprojects%2Fstudio%2Forders%2FSH-1042%3Ftab%3Ditems", false},
+		{"/projects/studio", "/projects/{project}", "", true},
+		// Another spelling of the same route is turned away as the plain one is.
+		{"/%70rojects", "/projects", "/login?next=%2F%2570rojects", false},
+		{"/%70rojects/studio", "/projects/{project}", "/login?next=%2F%2570rojects%2Fstudio", false},
+		{"/zh-CN/store", "/store", "", false},
+		{"/login", "/login", "", false},
+		{"/projectsx", "", "", false},
+		{"/metrics", "/metrics", "/login?next=%2Fmetrics", false},
+		{"/metrics", "/metrics", "", true},
 	} {
-		redirect, reached := request(t, tc.path, tc.signedIn)
+		redirect, reached := request(t, tc.path, tc.pattern, tc.signedIn)
 		if redirect != tc.redirect || reached != (tc.redirect == "") {
 			t.Errorf("%s signed in %v: redirect %q, reached %v", tc.path, tc.signedIn, redirect, reached)
 		}
@@ -50,7 +56,7 @@ func TestWorkbenchNeedsSignIn(t *testing.T) {
 func TestOpenWorkbenchSkipsSignIn(t *testing.T) {
 	Open = true
 	t.Cleanup(func() { Open = false })
-	if redirect, reached := request(t, "/projects/studio", false); redirect != "" || !reached {
+	if redirect, reached := request(t, "/projects/studio", "/projects/{project}", false); redirect != "" || !reached {
 		t.Errorf("redirect %q, reached %v", redirect, reached)
 	}
 }
