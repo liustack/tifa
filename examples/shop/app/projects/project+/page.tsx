@@ -39,15 +39,15 @@ function trimSearch(text: string) {
 }
 
 // filterOf reads the filters out of the query string the router holds, as the server reads them: the
-// first value of a key, and what is not there is empty. A change is built on this, so that it keeps
+// first value of a text key, the page as the number it is, and what is not there is empty. A change is built on this, so that it keeps
 // what the URL has.
 function filterOf(search: Record<string, unknown>): Filter {
   const first = (key: string) => [search[key]].flat()[0]
   const text = (key: string) => (typeof first(key) === 'string' ? (first(key) as string) : '')
-  const page = Number(text('page'))
+  const page = search.page
   return {
     status: text('status'), carrier: text('carrier'), period: text('period'), amount: text('amount'), q: text('q'),
-    sort: text('sort') || 'placedAt', dir: text('dir') || 'desc', page: Number.isInteger(page) && page > 0 ? page : 1,
+    sort: text('sort') || 'placedAt', dir: text('dir') || 'desc', page: typeof page === 'number' && page > 0 ? page : 1,
   }
 }
 
@@ -59,7 +59,7 @@ function searchOf(f: Filter) {
     ...(f.amount ? { amount: f.amount } : {}),
     ...(f.q ? { q: f.q } : {}),
     ...(f.sort !== 'placedAt' || f.dir !== 'desc' ? { sort: f.sort, dir: f.dir } : {}),
-    ...(f.page > 1 ? { page: String(f.page) } : {}),
+    ...(f.page > 1 ? { page: f.page } : {}),
   }
 }
 

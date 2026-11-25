@@ -67,12 +67,12 @@ function search(v: FilterValues, page = 1) {
     ...(v.colors.length > 0 ? { color: v.colors } : {}),
     ...(v.materials.length > 0 ? { material: v.materials } : {}),
     ...(v.badges.length > 0 ? { badge: v.badges } : {}),
-    ...(v.rating ? { rating: v.rating } : {}),
-    ...(v.min ? { min: v.min } : {}),
-    ...(v.max ? { max: v.max } : {}),
-    ...(v.inStock ? { stock: 'true' } : {}),
+    ...(v.rating ? { rating: Number(v.rating) } : {}),
+    ...(v.min ? { min: Number(v.min) } : {}),
+    ...(v.max ? { max: Number(v.max) } : {}),
+    ...(v.inStock ? { stock: true } : {}),
     ...(v.sort !== 'featured' ? { sort: v.sort } : {}),
-    ...(page > 1 ? { page: String(page) } : {}),
+    ...(page > 1 ? { page } : {}),
   }
 }
 

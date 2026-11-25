@@ -5,7 +5,7 @@ export const sorts = ['featured', 'newest', 'price-asc', 'price-desc', 'rating']
 const bound = z
   .string()
   .trim()
-  .regex(/^[0-9]*$/, 'price')
+  .regex(/^[0-9]{0,9}$/, 'price')
 
 // The filters of the product list as the form holds them. The page parses the filters Go echoes
 // back with it to fill the form, and the form checks what the visitor types with it. Messages are

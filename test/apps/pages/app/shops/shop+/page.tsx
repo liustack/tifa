@@ -5,7 +5,7 @@ export default function Overview() {
   const overview: PageData = page.useLoaderData()
   const params: Params = page.useParams()
   // The sort the Load reads, as the router reads it from the URL.
-  const sort = [page.useSearch().sort ?? []].flat().join(',')
+  const sort = page.useSearch().sort ?? ''
   return (
     <>
       <ul>

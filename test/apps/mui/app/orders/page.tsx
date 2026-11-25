@@ -40,8 +40,7 @@ const tabs = ['', 'pending', 'paid', 'shipped', 'refunded']
 export default function Orders() {
   const page = ordersPage.useLoaderData()
   const search = ordersPage.useSearch()
-  // A key can come more than once in the URL: Go reads the first, and so does the tab.
-  const status = [search.status].flat()[0] ?? ''
+  const status = search.status ?? ''
   const navigate = useNavigate()
   const [selected, setSelected] = useState<string[]>([])
   const [query, setQuery] = useState('')
@@ -160,7 +159,7 @@ export default function Orders() {
           page={page.page}
           rowsPerPage={page.size}
           rowsPerPageOptions={[page.size]}
-          onPageChange={(_, p) => navigate({ to: '/orders', search: { ...search, page: String(p) } })}
+          onPageChange={(_, p) => navigate({ to: '/orders', search: { ...search, page: p } })}
         />
       </Paper>
     </Stack>
