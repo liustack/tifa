@@ -18,9 +18,10 @@ func OnStart(context.Context) error {
 
 // OnRequest keeps visitors who are not signed in out of the workbench and the metrics and sends
 // them to the sign-in page, which sends them back afterwards. The storefront needs no sign-in.
+// It asks which route matched, not what the URL says, since one route has many spellings.
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-	path := c.Request().URL.Path
-	if !Open && (path == "/projects" || strings.HasPrefix(path, "/projects/") || path == "/metrics") && tifa.Session[Session](c) == nil {
+	route := c.Pattern()
+	if !Open && (route == "/projects" || strings.HasPrefix(route, "/projects/") || route == "/metrics") && tifa.Session[Session](c) == nil {
 		return tifa.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
 	}
 	return next(c)
