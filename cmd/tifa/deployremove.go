@@ -409,7 +409,8 @@ func newDeployRemoveCmd(dir, host *string) *cobra.Command {
 		Long: `remove stops the app and deletes its units and its folder on the server, with its releases,
 its .env and its data. With deploy.front cloudflare it deletes the route, the DNS record and the
 rules of its domain and the Access of the repository, and the tunnel, cloudflared and the cache
-tokens on the server once no other app of the server uses them. With deploy.auto it deletes the key of the repository on the
+tokens on the server once no other app of the server uses them. With deploy.front nginx it deletes
+its nginx site and certificate, and nginx and certbot once no other app has a site. With deploy.auto it deletes the key of the repository on the
 server and the secrets and the variable of the repository. It removes only what Tifa made and
 marked, and keeps the workflow file, which is a file of your repository.
 

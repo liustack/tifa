@@ -386,7 +386,10 @@ When all is right it prints one line and asks nothing. It can run again at any t
             security groups of your provider
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
             the host of site.url (needs cf), and on the server a token that can only clear
-            its cache, which every deploy reads
+            its cache, which every deploy reads. With deploy.front nginx: an nginx that setup
+            installs with apt and owns, a site for the app, and with a domain certbot and its
+            certificate. Setup stops when the server has an nginx it did not install, or
+            another program on ports 80 and 443
   auto      with deploy.auto: a key for the repository, secrets, and the workflow (needs
             gh logged in, or a fine-grained token in TIFA_DEPLOY_GITHUB_TOKEN, and with
             deploy.connect cloudflare also cf)
