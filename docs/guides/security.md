@@ -55,7 +55,7 @@ An error that `Load`, a handler or a `Validate` method returns, other than `tifa
 
 ### Every way in is a folder
 
-Code runs for a request only as the `Load`, `Layout` or method handler of a `route.go`. There is no function the browser calls by name. `tifa routes` prints every route, and `OnRequest` is the one place every request to a route passes: pages, navigation data, API routes and unmatched URLs. It does not run for static files or for a write refused as cross-site. See [Philosophy](../start/philosophy.md#one-address-for-each-write) and [Hooks](../pages-and-data/hooks.md#hooksgo).
+Code runs for a request only as the `Load`, `Layout` or method handler of a `route.go`. There is no function the browser calls by name. `tifa routes` prints every route and every address Tifa answers on its own, such as `/sitemap.xml`, and `OnRequest` is the one place every request to a route passes: pages, navigation data, API routes and unmatched URLs. It does not run for static files or for a write refused as cross-site. See [Philosophy](../start/philosophy.md#one-address-for-each-write) and [Hooks](../pages-and-data/hooks.md#hooksgo).
 
 ### Building needs no secrets
 
