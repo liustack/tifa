@@ -811,6 +811,7 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 - An nginx that Tifa did not install is never touched. Setup stops, names it and its port, and changes nothing, as it does for any other program on port 80 or 443.
 - Certificates come from certbot with its nginx plugin, installed with apt as a line of the plan and renewed by its own timer. An app without a domain is served over plain HTTP on port 80, and only one app of a server can be that.
 - Remove takes the site and certificate of an app, and nginx and certbot with the last app, as it does for the tunnel.
+- The site sets `X-Forwarded-For` to `$remote_addr`, the address of the visitor, and does not append to what the visitor sent, so an app that reads it behind this nginx gets an address nobody can make up. Tifa itself still does not read the header.
 
 **Why.** Tifa cannot manage a configuration it does not own. A file it writes into an nginx of the user can clash with what is already there, and it cannot know what else changes that nginx later. In an nginx of its own it knows every line, can check each change with `nginx -t` before the reload, and can put the last good file back.
 
