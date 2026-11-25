@@ -46,7 +46,7 @@ Never edit `.tifa/`. It is generated.
 
 ## React side
 
-- Import from the generated `./route.gen` of the folder: `page.useLoaderData()`, `layout.useLoaderData()`, the `PageData` and `LayoutData` types, and one function per handler, such as `POST({ params, input })`. A page reads the data of an enclosing Layout from the `route.gen` of that folder, such as `../route.gen`.
+- Import from the generated `./route.gen` of the folder: `page.useLoaderData()`, `layout.useLoaderData()`, the `PageData` and `LayoutData` types, the Go structs they hold by Go name (`Item`), and one function per handler, such as `POST({ params, input })`. A page reads the data of an enclosing Layout from the `route.gen` of that folder, such as `../route.gen`.
 - A handler function throws `TifaError` (`status`, `message`, `fields`) for an error answer. It never reloads page data: after a write, call `router.invalidate()`. See `docs/pages-and-data/pages.md#calling-method-handlers-from-the-browser`.
 - Components that need the browser at import time go in `*.client.tsx` and load with `clientOnly` from `tifa/client`. See `docs/pages-and-data/server-render.md`.
 - `page.tsx` may also export `head` and `ErrorBoundary`. Styles are CSS files imported from TSX, see `docs/pages-and-data/styles.md`.

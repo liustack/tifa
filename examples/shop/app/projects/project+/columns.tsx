@@ -25,10 +25,10 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { photo } from '../../store/images'
 import { orderTime, yuan } from '../../format'
-import { layout as project, type PageData } from './route.gen'
+import { layout as project, type OrderRow } from './route.gen'
 import { OrderStatus } from './order-status'
 
-export type Row = PageData['orders'][number]
+export type Row = OrderRow
 
 // The features, columns and helper live at module scope, so the table gets the same inputs on
 // every render.

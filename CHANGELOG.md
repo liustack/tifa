@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- `route.gen.ts` and `session.gen.ts` now declare each Go struct the data uses once, under its Go name, and export it: `type Order struct` is the TypeScript type `Order`, and a component can write `import { type Order } from './route.gen'` instead of `PageData['orders'][number]`. `PageData`, `LayoutData`, `<METHOD>Input`, `<METHOD>Output` and `SessionData` are aliases of those names, so the old way of writing still type checks. A struct of another package with the same name gets its package name in front (`CartOrder`), and a name that `route.gen` uses itself gets `Go` in front (`GoParams`). Generated files are shorter: the order page of `examples/shop` went from 6,032 to 3,821 bytes. Types that were `GoName` for a recursive struct are now `Name`. See [page.tsx](docs/pages-and-data/pages.md#pagetsx).
+
 ## [0.5.2] - 2026-11-25
 
 ### Changed

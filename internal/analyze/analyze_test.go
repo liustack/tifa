@@ -253,17 +253,21 @@ func TestUploadHandlers(t *testing.T) {
 	for _, h := range routes["app/photos/route"].Handlers {
 		inputs = append(inputs, h.InputType)
 	}
-	shapes, _, _, err := TSShapes(inputs)
+	shapes, decls, _, err := TSShapes(inputs, TSScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"{ title: string; tags: string[]; photo: Blob | null; draft?: boolean }",
-		"{ name: string; photos: Blob[]; cover?: Blob | null }",
-		"{ title: string }",
-	}
+	want := []string{"UploadInput", "AlbumInput", "RenameInput"}
 	if !reflect.DeepEqual(shapes, want) {
 		t.Errorf("input shapes =\n%q\nwant\n%q", shapes, want)
+	}
+	wantDecls := []string{
+		"export type UploadInput = {\n  title: string\n  tags: string[]\n  photo: Blob | null\n  draft?: boolean\n}",
+		"export type AlbumInput = {\n  name: string\n  photos: Blob[]\n  cover?: Blob | null\n}",
+		"export type RenameInput = {\n  title: string\n}",
+	}
+	if !reflect.DeepEqual(decls, wantDecls) {
+		t.Errorf("input decls =\n%q\nwant\n%q", decls, wantDecls)
 	}
 	// A named type whose underlying type is a file, or a slice of files, is a file too: the input
 	// comes as a form, as its TypeScript type says.
@@ -271,9 +275,9 @@ func TestUploadHandlers(t *testing.T) {
 	if got := forms(named); !reflect.DeepEqual(got, map[string]bool{"POST": true}) {
 		t.Errorf("named forms = %v", got)
 	}
-	shapes, _, _, err = TSShapes([]types.Type{named.Handlers[0].InputType})
-	if err != nil || !reflect.DeepEqual(shapes, []string{"{ title: string; files: Blob[]; cover: Blob | null; extras: Blob[] }"}) {
-		t.Errorf("named input shape = %q, %v", shapes, err)
+	shapes, decls, _, err = TSShapes([]types.Type{named.Handlers[0].InputType}, TSScope{})
+	if err != nil || !reflect.DeepEqual(shapes, []string{"Input"}) || !reflect.DeepEqual(decls, []string{"export type Input = {\n  title: string\n  files: Blob[]\n  cover: Blob | null\n  extras: Blob[]\n}"}) {
+		t.Errorf("named input shape = %q, %q, %v", shapes, decls, err)
 	}
 }
 
@@ -818,9 +822,9 @@ func TestHTMLInLoadResults(t *testing.T) {
 	if want := "{ summary: HTML; title: string; body: HTML; parts: (HTML | null)[]; byLang: Record<string, HTML> }"; got != want {
 		t.Errorf("tsType =\n%s\nwant\n%s", got, want)
 	}
-	shapes, _, html, err := TSShapes([]types.Type{loads["app/none/route"].Result})
-	if err != nil || html || shapes[0] != "{ title: string; empty: [] }" {
-		t.Errorf("TSShapes of none = %q, html %v, %v", shapes, html, err)
+	shapes, decls, html, err := TSShapes([]types.Type{loads["app/none/route"].Result}, TSScope{})
+	if err != nil || html || shapes[0] != "Plain" || len(decls) != 1 || decls[0] != "export type Plain = {\n  title: string\n  empty: []\n}" {
+		t.Errorf("TSShapes of none = %q %q, html %v, %v", shapes, decls, html, err)
 	}
 	var api Route
 	for _, r := range m.Routes {
@@ -831,7 +835,7 @@ func TestHTMLInLoadResults(t *testing.T) {
 	if len(api.Handlers) != 1 {
 		t.Fatalf("api handlers: %+v", api.Handlers)
 	}
-	if _, _, html, err := TSShapes([]types.Type{api.Handlers[0].OutputType}); err != nil || !html {
+	if _, _, html, err := TSShapes([]types.Type{api.Handlers[0].OutputType}, TSScope{}); err != nil || !html {
 		t.Errorf("POST result: html %v, %v", html, err)
 	}
 }

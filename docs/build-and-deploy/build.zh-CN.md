@@ -2,7 +2,7 @@
 summary: '怎样用 `tifa` 命令创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、`agents`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: ae4987d6f55f
+translatedFrom: 8210882345e1
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -366,9 +366,9 @@ go tool tifa build
 | `main.go` | 用 `go:embed` 嵌入前端输出 `dist/`，把它设为 `tifaapp.App` 的 `Dist`，并调用 `server.Main`（在 [`tifa dev`](dev.zh-CN.md) 下是 `server.DevMain`） |
 | `tifaapp/app.go` | 包 `tifaapp`，里面只有一个变量 `App`：`tifa build` 找到的那个应用。它只填入 `hooks.go` 里真正存在的 hook，把 `tifa.yaml` 的运行时设置作为 Go 代码保存（`Settings`），当根包的 `options.go` 定义了设置、或它的 `content.go` 声明了集合并且没有 `hooks.go` 时，会导入根包，并注册会话类型。每个 `Load` 和 `Layout` 函数会被包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，布局则是 `pkg.Layout`。带输入或结果的方法处理函数会经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind` 解码输入（GET 和 DELETE 用 `(*tifa.Ctx).BindQuery`），运行它的 `Validate`，并写出结果。`Fingerprint` 是这个文件的哈希，`tifatest.Start` 会拿它和代码核对。应用的测试以 `<module>/.tifa/tifaapp` 导入它（见[测试](../pages-and-data/testing-apps.zh-CN.md#testing)） |
 | `routes.tsx` | TanStack 路由树和 `Register` 类型注册 |
-| `session.gen.ts` | `SessionData`，即会话类型的 `Exposed` 方法返回的 JSON，以及 `SessionEnabled`（应用调用了 `tifa.SetSession` 时为 `true`）。当应用没有会话，或它的类型没有 `Exposed` 时，`SessionData` 是 `never`。页面从 `tifa/client` 导入这个类型（见[会话](../pages-and-data/sessions.zh-CN.md)） |
+| `session.gen.ts` | `SessionData`，即会话类型的 `Exposed` 方法返回的 JSON（它是 `Exposed` 返回的那个 Go 结构体的别名，文件里按 Go 名字声明了这个结构体），以及 `SessionEnabled`（应用调用了 `tifa.SetSession` 时为 `true`）。当应用没有会话，或它的类型没有 `Exposed` 时，`SessionData` 是 `never`。页面从 `tifa/client` 导入这个类型（见[会话](../pages-and-data/sessions.zh-CN.md)） |
 | `i18n.gen.ts` | `i18n`，给浏览器运行时用的应用语言信息，当没有文件夹带 `_locales` 文件夹时是 `undefined`。其中有：默认语言，`i18n.prefix` 是否为 `always`，站点的语言，以及 `routes`，即路由树里属于某个区域的每个路由的语言，按它的 TanStack 路由 ID 索引（布局、页面，以及显示某个布局的 404 的路由）。不属于任何区域的路由不在 `routes` 里：它没有语言，也没有前缀 |
-| `app/<folder>/route.gen.ts` | 每个带页面、布局或方法处理函数的文件夹各有一个模块。它为页面导出 `page`，为布局导出 `layout`（TanStack 的路由对象，只在文件夹里有它们时才有），还导出 `PageData` 和 `LayoutData`（`Load` 和 `Layout` 的结果类型）、`Params`，以及每个方法处理函数一个函数，连同它的 `<METHOD>Input` 和 `<METHOD>Output` 类型。这些函数调用 `runtime/call.ts` |
+| `app/<folder>/route.gen.ts` | 每个带页面、布局或方法处理函数的文件夹各有一个模块。它为页面导出 `page`，为布局导出 `layout`（TanStack 的路由对象，只在文件夹里有它们时才有），还导出 `PageData` 和 `LayoutData`（`Load` 和 `Layout` 的结果类型）、`Params`，以及每个方法处理函数一个函数，连同它的 `<METHOD>Input` 和 `<METHOD>Output` 类型。这些类型里的每个 Go 结构体，模块也按它的 Go 名字各声明一次（见 [page.tsx](../pages-and-data/pages.zh-CN.md#pagetsx)），上面那些类型是它们的别名。这些函数调用 `runtime/call.ts` |
 | `tifa/` | 应用的 `tifa/*` 路径的公开入口：`client.ts`，以及带 i18next 适配器的应用还有 `i18n.ts`。每个都重新导出 `runtime/` 里的一个模块。这个文件夹里没有别的东西 |
 | `server.ts`, `client.ts` | SSR 入口和浏览器入口。在 `tifa dev` 下，浏览器入口还会导入 `runtime/dev-client.js` |
 | `tsconfig.json` | 见下文 |

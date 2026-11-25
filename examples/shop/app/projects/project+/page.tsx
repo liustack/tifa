@@ -18,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useEffect, useRef, useState } from 'react'
 import { AnimatedNumber } from '../../animated-number'
 import { orderDate, orderTime, percent, yuan } from '../../format'
-import { layout as project, page, type PageData } from './route.gen'
+import { layout as project, page, type ListQuery as Filter } from './route.gen'
 import { columnNames, columns, features, type Row } from './columns'
 import { SummaryCard, SummaryRow } from './summary-card'
 
@@ -31,7 +31,6 @@ const amounts = { all: 'Any amount', low: 'Under ¥200', mid: '¥200 to ¥500', 
 // The filters, the sort and the page live in the query string: status, carrier, period, amount, q (the
 // search), sort (the column) with dir, and page, which counts from 1. What is not set, the default sort
 // (the newest first) and the first page are left out of the URL.
-type Filter = PageData['filter']
 
 // trimSearch trims the spaces, tabs and line breaks of ASCII from the ends of a search, which is the rule
 // of the server too (other characters that some languages call white space stay in the search).

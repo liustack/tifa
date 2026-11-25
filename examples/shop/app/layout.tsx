@@ -49,7 +49,7 @@ import {
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TifaError, useSession } from 'tifa/client'
 import { Account } from './account'
-import { layout, type LayoutData } from './route.gen'
+import { layout, type LayoutData, type Project } from './route.gen'
 import './styles.css'
 
 export const documentHead = {
@@ -61,7 +61,6 @@ export const documentHead = {
   links: [{ rel: 'icon', href: 'data:,' }],
 }
 
-type Project = LayoutData['projects'][number]
 
 // where reads the shop, the page and the order or product a workbench URL is at.
 function where(pathname: string) {
