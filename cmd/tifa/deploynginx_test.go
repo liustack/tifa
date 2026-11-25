@@ -382,7 +382,7 @@ func TestNginxCertificate(t *testing.T) {
 	b.have("certbot")
 	b.mustRun(nginxCertScript("shop", "shop.example.com", false))
 	calls := b.calls()
-	for _, want := range []string{"certbot certonly --nginx --non-interactive --agree-tos --register-unsafely-without-email --cert-name tifa-shop -d shop.example.com --deploy-hook systemctl reload nginx"} {
+	for _, want := range []string{"certbot certonly --authenticator nginx --non-interactive --agree-tos --register-unsafely-without-email --cert-name tifa-shop -d shop.example.com --deploy-hook systemctl reload nginx"} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("calls lack %q:\n%s", want, calls)
 		}

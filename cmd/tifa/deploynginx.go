@@ -337,7 +337,7 @@ fi
 apt-get install -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold $nginx_pkgs $certbot_pkgs </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; exit 1; }
 rm -f "$policy_made" "$etc/nginx/sites-enabled/default"
 if [ -n "$nginx_pkgs" ]; then systemctl enable --quiet nginx; fi
-echo "installed $nginx_pkgs $certbot_pkgs"
+echo "installed $(echo $nginx_pkgs $certbot_pkgs)"
 `
 
 func nginxInstallScript(nginxPkgs, certbotPkgs []string) string {
@@ -379,11 +379,12 @@ func nginxSiteScript(app, conf string) string {
 
 // nginxCertBody runs as root. It gets the certificate of $host with certbot and its nginx plugin,
 // as the name tifa-$app, which certbot renews with its own timer and which reloads nginx on each
-// renewal. $delete_old deletes a certificate of that name for another host first.
+// renewal. The plugin only answers the challenge: it is not the installer, so certbot never
+// rewrites the site, which is Tifa's file. $delete_old deletes a certificate of that name for another host first.
 const nginxCertBody = `set -eu
 # tifa: nginx certificate
 if [ -n "$delete_old" ]; then certbot delete --non-interactive --cert-name "tifa-$app" >/dev/null 2>&1 || true; fi
-if ! out=$(certbot certonly --nginx --non-interactive --agree-tos --register-unsafely-without-email --cert-name "tifa-$app" -d "$host" --deploy-hook 'systemctl reload nginx' 2>&1); then
+if ! out=$(certbot certonly --authenticator nginx --non-interactive --agree-tos --register-unsafely-without-email --cert-name "tifa-$app" -d "$host" --deploy-hook 'systemctl reload nginx' 2>&1); then
 	echo "tifa: certbot could not get a certificate for $host. DNS must point $host at this server, and port 80 must be open to the internet. certbot said:" >&2
 	printf '%s\n' "$out" | tail -n 15 >&2
 	exit 1
