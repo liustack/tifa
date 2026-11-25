@@ -489,16 +489,40 @@ func TestNotesIndexTheAppDocs(t *testing.T) {
 	}
 }
 
-// Long context files lower the success of coding agents, so the block stays small.
+// Long context files lower the success of coding agents, so the block stays small. Its two parts
+// have a limit each: the notes, which do not grow with the docs, and the index, where a doc has
+// one line with a summary of a bounded length. A limit on the whole block made every new doc
+// shorten the summaries of the others.
 func TestNotesBlockIsSmall(t *testing.T) {
 	block, err := notesBlock(testNotesApp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(block); n > 12*1024 {
-		t.Errorf("the managed block of AGENTS.md is %d bytes, keep it at most 12 KB: move details to the docs and leave the path", n)
+	index, err := appDocsIndex()
+	if err != nil {
+		t.Fatal(err)
 	}
+	if !strings.Contains(block, index) {
+		t.Fatal("the managed block of AGENTS.md does not hold the index of the docs")
+	}
+	if n := len(block) - len(index); n > notesLimit {
+		t.Errorf("the managed block of AGENTS.md is %d bytes without the index of the docs, keep it at most %d: move details to the docs and leave the path", n, notesLimit)
+	}
+	for _, line := range strings.Split(index, "\n") {
+		name, summary, ok := strings.Cut(line, "`: ")
+		if ok && len(summary) > summaryLimit {
+			t.Errorf("the summary of %s` is %d bytes, keep it at most %d: it is a line of the AGENTS.md of every app", name, len(summary), summaryLimit)
+		}
+	}
+	t.Logf("notes %d bytes, index %d bytes", len(block)-len(index), len(index))
 }
+
+// notesLimit is the size the managed block may have without the index of the docs, and
+// summaryLimit the size of the summary of one doc in that index.
+const (
+	notesLimit   = 8500
+	summaryLimit = 125
+)
 
 // The docs that tifa carries for the index are the English docs for apps, every one of them and
 // nothing else.
