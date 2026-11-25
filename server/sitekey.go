@@ -57,7 +57,9 @@ func siteListKey(build, language string, sm tifa.Sitemap) string {
 		k.str(p.Path)
 		k.bool(p.Modified.IsZero())
 		if !p.Modified.IsZero() {
-			k.n(int(p.Modified.UnixNano()))
+			// Seconds and nanoseconds apart: UnixNano overflows for a time far from 1970.
+			k.n(int(p.Modified.Unix()))
+			k.n(p.Modified.Nanosecond())
 		}
 		k.str(p.Title)
 		k.str(p.Description)

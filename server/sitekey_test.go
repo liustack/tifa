@@ -93,3 +93,21 @@ func TestSiteKeyCoversEveryFieldOfTheSitemap(t *testing.T) {
 		t.Error("the key does not tell where a string ends")
 	}
 }
+
+// A time far from 1970 is hashed as it is: UnixNano overflows there, and two such times would
+// have one key.
+func TestSiteKeyTellsApartTimesFarFromTheEpoch(t *testing.T) {
+	at := func(m time.Time) string {
+		return siteKey("b", "f", "", tifa.Sitemap{Pages: []tifa.SitemapPage{{Modified: m}}})
+	}
+	a, b := time.Unix(0, 0), time.Unix(18446744073, 709551616)
+	if at(a) == at(b) {
+		t.Error("two times 584 years apart have one key")
+	}
+	if at(time.Date(2026, 1, 1, 0, 0, 0, 1, time.UTC)) == at(time.Date(2026, 1, 1, 0, 0, 0, 2, time.UTC)) || at(time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)) == at(time.Date(1, 1, 1, 0, 0, 1, 0, time.UTC)) {
+		t.Error("close times have one key")
+	}
+	if at(time.Date(2026, 1, 1, 8, 0, 0, 0, time.FixedZone("", 8*3600))) != at(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Error("one instant in two zones has two keys")
+	}
+}
