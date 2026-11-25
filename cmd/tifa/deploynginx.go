@@ -95,8 +95,9 @@ func nginxSiteFile(app, host string, port int, tls, ipv6 bool) string {
 		fmt.Fprintf(&b, "server {\n%s\tserver_name %s;\n%s}\n", listen("80"), host, location)
 	default:
 		// The redirect sits in a location, so the more exact location certbot adds for its
-		// challenge on renewal wins over it.
-		fmt.Fprintf(&b, "server {\n%s\tserver_name %s;\n\tlocation / {\n\t\treturn 308 https://$host$request_uri;\n\t}\n}\n", listen("80"), host)
+		// challenge on renewal wins over it. It names the host and not $host, so a request that
+		// reaches this server by another name, such as the address, is sent to the real one.
+		fmt.Fprintf(&b, "server {\n%s\tserver_name %s;\n\tlocation / {\n\t\treturn 308 https://%s$request_uri;\n\t}\n}\n", listen("80"), host, host)
 		fmt.Fprintf(&b, "server {\n%s\tserver_name %s;\n"+
 			"\tssl_certificate %s/letsencrypt/live/tifa-%s/fullchain.pem;\n\tssl_certificate_key %s/letsencrypt/live/tifa-%s/privkey.pem;\n"+
 			"\tssl_protocols TLSv1.2 TLSv1.3;\n%s}\n", listen("443 ssl http2"), host, etcDir, app, etcDir, app, location)

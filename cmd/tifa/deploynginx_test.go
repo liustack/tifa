@@ -182,7 +182,7 @@ func TestNginxSiteFile(t *testing.T) {
 
 	etcDir = "/etc"
 	tls := nginxSiteFile("shop", "shop.example.com", 9527, true, true)
-	has("domain with certificate", tls, "location / {\n\t\treturn 308 https://$host$request_uri;", "listen 443 ssl http2;", "listen [::]:443 ssl http2;",
+	has("domain with certificate", tls, "location / {\n\t\treturn 308 https://shop.example.com$request_uri;", "listen 443 ssl http2;", "listen [::]:443 ssl http2;",
 		"ssl_certificate /etc/letsencrypt/live/tifa-shop/fullchain.pem;", "ssl_certificate_key /etc/letsencrypt/live/tifa-shop/privkey.pem;", "ssl_protocols TLSv1.2 TLSv1.3;")
 	if strings.Count(tls, "proxy_pass") != 1 || strings.Contains(tls, "default_server") || strings.Contains(tls, "Strict-Transport") {
 		t.Errorf("domain with certificate:\n%s", tls)
