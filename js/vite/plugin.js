@@ -7558,19 +7558,20 @@ function initialized(ref, scopes) {
 }
 
 // runsAfter reports whether the reference ref in the range [from, to] of the source runs only after
-// the code before from has run. visiting holds the functions being asked about, which only call
-// each other and so add no way in from before.
-function runsAfter(ref, [from, to], scopes, visiting) {
+// the code before from has run. seen holds the functions already asked about in this search. The
+// answer is yes only when every reference the search reaches is in the range, and the first one
+// that is not ends the search, so a function is asked about once: one that is being asked about
+// adds no way in from before, and one that was asked about has none. Asking again for each way to
+// reach a function took a time that doubles with every layer of functions.
+function runsAfter(ref, [from, to], scopes, seen) {
   if (ref.id.start < from || ref.id.end > to) return false
   for (let h = ref.hoisted; h; h = h.up) {
-    if (h.node.start < from || visiting.has(h.node)) continue
+    if (h.node.start < from || seen.has(h.node)) continue
     const binding = scopes.declared.get(h.node)
     if (!binding) return false
-    visiting.add(h.node)
+    seen.add(h.node)
     // A function of the module may also be called from outside after the module has run, which is later than the range.
-    const ok = binding.refs.every((r) => runsAfter(r, [from, to], scopes, visiting))
-    visiting.delete(h.node)
-    if (!ok) return false
+    if (!binding.refs.every((r) => runsAfter(r, [from, to], scopes, seen))) return false
   }
   return true
 }
