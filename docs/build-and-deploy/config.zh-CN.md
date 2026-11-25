@@ -2,7 +2,7 @@
 summary: '每一项设置的含义和设置位置：tifa.yaml、参数、环境变量、.env、server.csp、HTTPS、跨站写入'
 audience: app
 order: 4
-translatedFrom: 4daa8d4eea96
+translatedFrom: c84e6ac6c367
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -118,7 +118,7 @@ Cloud Run、Heroku、Render、Railway 和 Fly 这样的托管平台，通过 `PO
 | `site.url` | 无 | 仅项目文件 | 站点对外提供服务的协议和主机，比如 `https://shop.example.com`，不带路径。有多种语言的站点需要它，没有它 `tifa build` 会失败。它把站点标记为公开：每个页面得到一个 canonical 链接和一个 `og:url` meta，程序提供 `/sitemap.xml`、默认的 `/robots.txt`、`/llms.txt`、`/llms-full.txt` 和内容页面的 Markdown 版本。没有它就没有这些。见[搜索引擎与语言模型](../guides/seo.zh-CN.md) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听的地址。在容器里用 `0.0.0.0:9527`。开启 [HTTPS](#https) 时，它提供的是 HTTPS，必须设置，通常是 `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体的最大大小。更大的会以 413 回答。`OnRequest` 里的 `c.SetBodyLimit` 可以为一个请求设置自己的，见 [handlers.md](../pages-and-data/handlers.zh-CN.md#body-limit-and-read-time-of-a-route) |
-| `server.read_timeout` | `10s` | `--server-read-timeout`、`SERVER_READ_TIMEOUT` | 读完整个请求（包括请求体）的时间，从连接被接受起算。超过之后仍在到来的请求体会读取失败。见[长请求](#long-requests) |
+| `server.read_timeout` | `10s` | `--server-read-timeout`、`SERVER_READ_TIMEOUT` | 读完整个请求（包括请求体）的时间，从连接被接受起算。超过之后仍在到来的请求体会读取失败，带输入的处理函数答 408。请求头必须在 5 秒内到齐，这个时间没有设置可改。见[长请求](#long-requests) |
 | `server.write_timeout` | `10s` | `--server-write-timeout`、`SERVER_WRITE_TIMEOUT` | 从请求头结束到响应结束的时间。超过之后仍在写的响应会被切断。见[长请求](#long-requests) |
 | `server.shutdown_timeout` | `10s` | `--server-shutdown-timeout`、`SERVER_SHUTDOWN_TIMEOUT` | 收到停止信号后，正在处理的请求用来完成的时间，之后是 `OnShutdown` 得到的时间。时间到了仍在运行的请求会被取消，并再得到一个 `shutdown_timeout` 的时间来返回。`OnShutdown` 在它们返回之后运行，没有返回就跳过。不管哪种，程序都以状态 1 退出 |
 | `server.compress` | `true` | `--server-compress`、`SERVER_COMPRESS` | 对接受的客户端用 gzip 或 zstd 发送文本响应（用 gzip，除非客户端把 zstd 排得更高或不接受 gzip），浏览器包则用 `tifa build` 写出的 gzip 文件发送，见[压缩](build.zh-CN.md#compression)。前面有代理做压缩时（比如带 brotli 的 nginx），把它设为 `false` |
