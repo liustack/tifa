@@ -2,7 +2,7 @@
 summary: '入门教程：`tifa new`、`tifa dev`、页面、表单、测试、一个可执行文件'
 audience: app
 order: 1
-translatedFrom: 8bbf95645177
+translatedFrom: 977bbedc2327
 read_when:
   - '第一次用 Tifa，想从头跟着做一个应用'
   - '编写或检查新用户从 `tifa new` 到跑起可执行文件的步骤'
@@ -288,7 +288,7 @@ function RenameForm() {
 
 在 `/todos/1` 上，清空输入框并按 Save：下面会显示 "Write what needs doing."。输入 "Buy oat milk" 再按 Save：标题会变。浏览器的控制台里会显示那个 422，这是响应按设计在工作。
 
-`tifa.Fields` 到达浏览器时是一个 `TifaError`，它的 `fields` 里是各条消息。`Validate` 返回的其他任何错误，都是 400，文字放在 `message` 里。见[带输入和结果的方法处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result)。
+`tifa.Fields` 到达浏览器时是一个 `TifaError`，它的 `fields` 里是各条消息。`Validate` 返回的其他任何错误，和处理函数返回的一样算应用自己出的错：答 500，文字只进日志。见[带输入和结果的方法处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result)。
 
 ## 5. 布局里的数据 {#5-data-in-the-layout}
 

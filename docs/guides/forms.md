@@ -82,7 +82,7 @@ func POST(c *tifa.Ctx, in SignInput) (Message, error) {
 }
 ```
 
-- `Validate` is the one place the rules live. It runs for every caller, not only your page. `tifa.Fields` answers 422 with `{"error": ..., "fields": {"name": "..."}}`, and the keys are the json names of the input. Any other error from `Validate` answers 400 with its text as the message, so use `tifa.Fields` when a message belongs to one input.
+- `Validate` is the one place the rules live. It runs for every caller, not only your page. `tifa.Fields` answers 422 with `{"error": ..., "fields": {"name": "..."}}`, and the keys are the json names of the input. Any other error from `Validate` is an error of the app and answers 500 without its text. So return `tifa.Fields` for a message that belongs to one input, and `tifa.Error` for any other message the visitor should read.
 - Collect all the messages first and end with `fields.Err()`. The visitor then sees every mistake at once. `Err` is nil when you added nothing.
 - Checking in the browser too (a `required` attribute, a schema) only saves a round trip. Do not skip the Go check because of it.
 

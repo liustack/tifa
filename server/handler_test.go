@@ -16,7 +16,7 @@ type shipInput struct {
 func (in *shipInput) Validate() error {
 	switch in.Carrier {
 	case "":
-		return errors.New("carrier is required")
+		return errors.New("dial tcp 10.0.0.5:5432: connection refused")
 	case "drone":
 		return tifa.Fields{"carrier": "no drones"}
 	case "teleport":
@@ -72,7 +72,9 @@ func TestTypedHandlers(t *testing.T) {
 	}{
 		{"GET", "/orders/7?status=open", "", 200, `["7","open"]`},
 		{"POST", "/orders/7", `{"carrier":"SF"}`, 204, ""},
-		{"POST", "/orders/7", `{"carrier":""}`, 400, `{"error":"carrier is required"}`},
+		// A plain error from Validate is an error of the app like one a handler returns: 500, and its
+		// text stays in the log. Only tifa.Fields and tifa.Error reach the caller.
+		{"POST", "/orders/7", `{"carrier":""}`, 500, `{"error":"Internal Server Error"}`},
 		{"POST", "/orders/7", `{"carrier":"drone"}`, 422, `{"error":"Unprocessable Entity","fields":{"carrier":"no drones"}}`},
 		{"POST", "/orders/7", `{"carrier":"teleport"}`, 409, `{"error":"not yet"}`},
 		{"POST", "/orders/7", `{"carrier":"rocket"}`, 422, `{"error":"Unprocessable Entity","fields":{"carrier":"no rockets"}}`},

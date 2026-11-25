@@ -416,7 +416,9 @@ func TestInterfaceApp(t *testing.T) {
 		{"GET", "/notes?limit=many", "", 400, `{"error":"invalid query parameter \"limit\""}`},
 		{"POST", "/notes", `{"text":"a","tag":"t"}`, 200, `{"text":"a","tag":"t"}`},
 		{"POST", "/notes", `{"text":""}`, 422, `{"error":"Unprocessable Entity","fields":{"text":"write something"}}`},
-		{"POST", "/notes", `{"text":"far more than twenty letters"}`, 400, `{"error":"text is too long"}`},
+		// A plain error from Validate goes to OnError like one from the handler, and its text does not
+		// reach the caller: the OnError of this app answers 503.
+		{"POST", "/notes", `{"text":"far more than twenty letters"}`, 503, `{"error":"try again later"}`},
 		{"DELETE", "/notes?tag=x", "", 204, ""},
 	} {
 		status, header, body := request(t, tc.method, base+tc.path, tc.body)
