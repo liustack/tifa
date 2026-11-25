@@ -2,7 +2,7 @@
 summary: 'Tifa 默认替你防住了什么（跨站写入、会话 cookie、上限、响应头），以及你必须自己做的事'
 audience: app
 order: 12
-translatedFrom: 4d47325c942d
+translatedFrom: ce0dd010c820
 read_when:
   - '准备上线，想知道 Tifa 已经防了什么、还有什么留给你'
   - '检查一个应用，或者 coding agent 写的代码，看有没有安全漏洞'
@@ -66,7 +66,7 @@ Tifa 默认打开的，是它不用懂你的业务就能做的检查，其余的
 
 ### 决定谁能做什么 {#decide-who-may-do-what}
 
-Tifa 存会话。它不认识你的用户、角色和所有者。访问检查写在 `OnRequest` 里，或者写在处理函数或 `Load` 的开头，读 `tifa.Session` 来判断。每个处理函数都要在服务端检查：`useSession` 和 `SignedIn` 显示什么，只决定浏览器展示什么。对某个东西所有者的检查（这个订单是他的吗？）要写在读取或修改它的处理函数里。[登录和退出](sign-in.zh-CN.md#the-guard)里有一个守卫的例子。
+Tifa 存会话。它不认识你的用户、角色和所有者。访问检查写在 `OnRequest` 里，或者写在处理函数或 `Load` 的开头，读 `tifa.Session` 来判断。每个处理函数都要在服务端检查：`useSession` 和 `SignedIn` 显示什么，只决定浏览器展示什么。对某个东西所有者的检查（这个订单是他的吗？）要写在读取或修改它的处理函数里。根 Layout 的 `Layout` 函数对每个 URL 都会运行，包括 404 页和登录页，所以不要让它返回只有登录后才该看的数据，或者先在里面读会话。[登录和退出](sign-in.zh-CN.md#the-guard)里有一个守卫的例子。
 
 密码只存慢哈希，比如 argon2id，并且对不存在的邮箱和错误的密码给出同样的回答。同一篇指南里有做法。
 

@@ -65,7 +65,7 @@ Code runs for a request only as the `Load`, `Layout` or method handler of a `rou
 
 ### Decide who may do what
 
-Tifa stores the session. It does not know your users, roles or owners. Check access in `OnRequest`, or at the top of a handler or `Load`, by reading `tifa.Session`. Check it on the server for every handler: what `useSession` and `SignedIn` show decides only what the browser displays. A check on the owner of a thing (is this order theirs?) belongs in the handler that reads or changes it. [Sign in and sign out](sign-in.md#the-guard) shows a guard.
+Tifa stores the session. It does not know your users, roles or owners. Check access in `OnRequest`, or at the top of a handler or `Load`, by reading `tifa.Session`. Check it on the server for every handler: what `useSession` and `SignedIn` show decides only what the browser displays. A check on the owner of a thing (is this order theirs?) belongs in the handler that reads or changes it. The `Layout` function of the root Layout runs for every URL, the 404 page and the sign-in page included, so do not let it return data that only signed-in visitors may see, or read the session in it first. [Sign in and sign out](sign-in.md#the-guard) shows a guard.
 
 Keep passwords as a slow hash, such as argon2id, and say the same thing for an unknown e-mail and a wrong password. The same guide shows how.
 

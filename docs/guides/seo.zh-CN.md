@@ -2,7 +2,7 @@
 summary: '搜索引擎和语言模型怎样找到 Tifa 站点：site.url、sitemap.xml、robots.txt、llms.txt、og 标签'
 audience: app
 order: 8
-translatedFrom: c9182b60d028
+translatedFrom: 4ac7dae270a3
 read_when:
   - '设置页面的标题、描述或分享卡片（`og:title`、`og:image`、`twitter:card`），或者站点链接在聊天或信息流里不显示图片'
   - '让搜索引擎收录 Tifa 站点，或者添加 sitemap 或 robots.txt'
@@ -241,6 +241,8 @@ shop 的 `/sitemap.xml`，一篇文章：
 - 只有被列出、带 `Content` 的页面的 URL 才会响应。其他以 `.md` 结尾的路径照常交给路由，没有 `Content` 的页面没有 Markdown 版本。
 
 `/llms-full.txt` 把每个 Markdown 版本放进一个文件，每个都带它的标题和一行 `Source:`，写着页面的 URL。
+
+Markdown 版本和 `/llms-full.txt` 都不运行页面的 `Load`。写在 `Load` 里的检查管不到它们，所以要把检查写在 `OnRequest` 里，或者别把这个条目放进 `Content`。
 
 ## `robots.txt` {#robotstxt}
 

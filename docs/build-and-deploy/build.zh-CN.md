@@ -2,7 +2,7 @@
 summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: 3ee6268a08a0
+translatedFrom: 47b4533898de
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -395,6 +395,8 @@ go tool tifa build
 | `dist/content/` | 每个条目的正文，以 HTML 形式存放，`<collection>/<language>/<ID>.html`（没有语言的集合则没有语言文件夹）。`entry.Body()` 读取这个文件。服务器不提供它，构建也不为它写 `.gz`。正文引用的文件在 `dist/assets/` 里 |
 | `dist/build.json` | `{buildId, head, preload, public}`。`head` 是加载浏览器包的 HTML，取自 Vite 的清单：样式表，入口导入的每个代码块各一个 `modulepreload` 链接，以及入口脚本。`preload` 列出每个路由模块在 `head` 之外还需要的文件，见[预加载页面的代码块](#preloading-the-chunks-of-a-page)。构建 ID 是 `dist/` 里除 `inputs.json` 之外所有其他文件的哈希（文件名也算在内）。文件名和内容各带一个长度前缀，所以不同的文件树不可能产生相同的字节。相同的输入给出相同的 ID。`public` 是 `dist/public/` 里每个文件的内容哈希，按它在那里的路径索引，取它的 SHA-256 的前 16 个字节，用十六进制表示，没有公开文件时以及在 `tifa dev` 下都没有这一项 |
 | `dist/inputs.json` | 这次构建是由什么做出来的：每个文件的 SHA-256 的前 16 个字节，用十六进制表示，按它相对于应用根目录的路径索引。这些文件包括 SSR 包和浏览器包里在 `node_modules` 之外的模块（页面、布局、组件，也包括只在浏览器里渲染的那些，样式表，以及 `.tifa/` 里生成的模块），Vite 插件说构建所依赖的文件，比如另一个样式表导入的样式表和 Tailwind 扫描类名的文件，以及 Vite 配置导入的本地文件。当构建无法从 Rolldown 读到这份列表时，它仍然会成功，但带一条警告，并且 `inputs.json` 会说明这份列表不完整以及原因（`incomplete`，带 Rolldown 版本），所以 `tifatest.StartPages` 会以这个原因失败，直到 Tifa 升级。在 `tifa dev` 下，浏览器的模块来自 Vite，所以只列出 SSR 包的模块（它导入的样式表算，但那个样式表导入的文件和 Tailwind 扫描的文件不算，因为 SSR 包不含 CSS）、`package.json`、锁文件、Vite 配置、`tsconfig.json`、`tifa.yaml`、公开文件和 `content/` 的文件。它还会列出公开目录和 `content/`，所以构建之后加进其中任何一个的文件都算作有变化，新出现的项目文件也一样。每个 `app/` 里的 `_locales` 文件夹的文件也是这样，即使是构建之后才新建的文件夹，`inputs.json` 会列出构建读过的那些。`tifa build` 和 `tifa dev` 会写它，构建 ID 不包含它，`tifatest.StartPages` 会把它和现在的文件比较，让前端比源码旧的测试失败（见[测试](../pages-and-data/testing-apps.zh-CN.md#testing)） |
+
+Vite 默认不给浏览器包写 source map。应用如果在 `vite.config.ts` 里设置了 `build.sourcemap`，`.map` 文件会进入 `dist/assets/`，和其他资源一样被提供，里面有应用的源码。
 
 构建会打印 Vite 和 Rolldown 对应用自己的代码给出的警告。Tifa 关掉了应用无法处理的两条提示：Rolldown 对最慢的插件回调给出的 PLUGIN_TIMINGS 列表，以及 Vite 对浏览器包在 1000 kB 以下的代码块大小警告，Tifa 有意把浏览器包做成一个文件。超过 1000 kB 的浏览器入口仍然会得到警告。应用可以在自己的 Vite 配置里设置 `build.chunkSizeWarningLimit` 或 `build.rolldownOptions.checks` 来改变其中任何一条。
 

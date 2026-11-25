@@ -2,7 +2,7 @@
 summary: '怎样用 Tifa 会话让用户登录和登出：argon2id、SetSession、保护页面、登出'
 audience: app
 order: 3
-translatedFrom: 6a6aa18e4607
+translatedFrom: 74c6d73a88d4
 read_when:
   - '给应用加登录和登出，或者把一些页面放在登录之后'
   - '选择怎样保存和检查密码'
@@ -302,6 +302,8 @@ func SignInRedirect(next string) error {
 `c.Path()` 是访问者在地址栏里看到的页面路径：里面有语言前缀，没有查询。页面整体加载时和点击链接请求它的数据时，它都一样，对处理函数来说，它是处理函数的路径。这里不该用 `c.Request()`：`Load` 不能调用它，而点击链接时，请求是数据请求，不是页面本身。`RequireUser` 可以在 `OnRequest`、`Load` 和它们调用的函数里工作。
 
 `RequireUser` 生成的 `next` 里不带查询。把状态放在查询参数里的页面，要在自己的 `Load` 里把它们补回去，比如 `signin.SignInRedirect(c.Path()+"?tab="+url.QueryEscape(c.Query("tab")))`。被许多页面共用的守卫没办法为所有页面都这样做，因为 `Load` 只能读取它点名的查询参数（见 [Load 如何使用 Ctx](../pages-and-data/loading-data.zh-CN.md#how-load-may-use-ctx)）。`OnRequest` 不一样：hook 可以读取请求，所以下面的守卫保留了整个查询。服务器会在 `OnRequest` 运行之前，把数据请求的参数 `_tifa` 从 URL 里去掉，所以 `c.Request().URL.RawQuery` 对页面加载和点击链接都是访问者写下的那个查询。
+
+根 Layout 的 `Layout` 函数对每个 URL 都会运行，包括 404 页和登录页，而在 `OnRequest` 里按路径写的守卫管不到它们。别让它返回没登录的访客不该看的数据，或者先在里面读会话。见[决定谁能做什么](security.zh-CN.md#decide-who-may-do-what)。
 
 ## hook {#the-hooks}
 
