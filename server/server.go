@@ -82,6 +82,9 @@ type server struct {
 	// lists holds the newest checked list of the site files for each language, see listedPages.
 	lists  map[string]siteList
 	listMu sync.Mutex
+	// fixedKey is the hash siteFixed makes once.
+	fixedOnce sync.Once
+	fixedKey  string
 	// dev answers the requests of tifa dev under /__tifa/dev/, set only by DevMain for an app with
 	// pages.
 	dev http.Handler

@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"hash"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -21,10 +23,11 @@ import (
 //     TestSiteKeyCoversEveryFieldOfTheSitemap fails for a field the key does not hold.
 //   - the file asked for: its escaped path, which names the page of a .md and the part of a sitemap
 //     index, and the language of the request (the list key is all of it but the path)
-//   - the build ID, which changes the Markdown under tifa dev
+//   - the build ID, which changes the Markdown of a build, and siteFixed (siteBuild). Under tifa dev
+//     the build ID leaves the content out, and the file of a body, which is in the entry, tells.
 //
-// What the build and the process fix is not in it: the routes, site.url and the languages of the
-// site. A page key does not hold them either.
+// What the process fixes comes in through siteBuild: site.url, the routes and the languages, which a
+// deploy can change. A page holds them in its input (Alternates), and the files hold a hash of them.
 func siteKey(build, file, language string, sm tifa.Sitemap) string {
 	return siteFileKey(siteListKey(build, language, sm), file)
 }
@@ -39,13 +42,60 @@ func etagListed(header, etag string) bool {
 	return false
 }
 
-// siteBuild is the ID of the front end that the files depend on. A server without one, as
-// tifatest.Start makes it, has none.
+// siteBuild is what of the build and the process the site files depend on, besides what the
+// function returns: the ID of the front end, when the server has one, and siteFixed.
 func (s *server) siteBuild() string {
+	id := ""
 	if f := s.front.Load(); f != nil {
-		return f.build.ID
+		id = f.build.ID
 	}
-	return ""
+	return id + "\x00" + s.siteFixed()
+}
+
+// siteFixed is the hash of what the process fixes and a deploy can change, and the files depend on:
+// site.url, the languages and the routes. A page holds the same in its input (the site, the default
+// language and the versions of the page in Alternates). It is made once, on the first request.
+func (s *server) siteFixed() string {
+	s.fixedOnce.Do(func() {
+		k := siteHash{sha256.New()}
+		k.str(s.site)
+		k.bool(s.sitemap != nil)
+		k.n(sitemapURLs)
+		k.n(sitemapBytes)
+		if s.i18n == nil {
+			k.str("no languages")
+		} else {
+			k.str(s.i18n.Default)
+			k.bool(s.i18n.Always)
+			k.n(len(s.i18n.Languages))
+			for _, l := range s.i18n.Languages {
+				k.str(l)
+			}
+		}
+		patterns := slices.Sorted(maps.Keys(s.routes))
+		k.n(len(patterns))
+		for _, p := range patterns {
+			k.str(p)
+			k.bool(s.pages[p])
+			methods := slices.Sorted(maps.Keys(s.routes[p]))
+			k.n(len(methods))
+			for _, m := range methods {
+				k.str(m)
+			}
+		}
+		pages := slices.Sorted(maps.Keys(s.pages))
+		k.n(len(pages))
+		for _, p := range pages {
+			k.str(p)
+			k.bool(s.pages[p])
+			k.n(len(s.langs[p]))
+			for _, l := range s.langs[p] {
+				k.str(l)
+			}
+		}
+		s.fixedKey = hex.EncodeToString(k.Sum(nil)[:16])
+	})
+	return s.fixedKey
 }
 
 // siteFileKey is the key of the file at the escaped path file for the list that listKey stands for.

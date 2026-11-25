@@ -481,6 +481,55 @@ func TestListKeyLeavesTheFileOut(t *testing.T) {
 	}
 }
 
+// What the process fixes, and a deploy can change, is in the key: the same list under another
+// site.url, default language, prefix rule, language of a route, route or part size is another answer
+// and has another ETag, so a client that kept the old one does not get a 304 for it.
+func TestSiteKeyFollowsWhatTheProcessFixes(t *testing.T) {
+	list := tifa.Sitemap{Name: "Shop", Exclude: []string{"/projects", "/store/journal/{post}"}}
+	tagOf := func(t *testing.T, app App, file string) string {
+		t.Helper()
+		s := newSiteServer(t, app, siteDist())
+		s.sitemap = func(*tifa.Ctx) (tifa.Sitemap, error) { return list, nil }
+		w := get(s, file)
+		if w.Code != 200 || w.Header().Get("ETag") == "" {
+			t.Fatalf("GET %s: %d %v", file, w.Code, w.Header())
+		}
+		return w.Header().Get("ETag")
+	}
+	variants := map[string]func(app *App){
+		"site.url":         func(app *App) { app.SiteURL = "http://shop.example.com/" },
+		"default language": func(app *App) { app.I18n = &I18n{Default: "en-US", Languages: []string{"en-US", "zh-CN"}} },
+		"i18n.prefix": func(app *App) {
+			app.I18n = &I18n{Default: "zh-CN", Always: true, Languages: []string{"zh-CN", "en-US"}}
+		},
+		"languages":         func(app *App) { app.I18n = &I18n{Default: "zh-CN", Languages: []string{"zh-CN", "en-US", "fr"}} },
+		"language of route": func(app *App) { app.Routes[1].Languages = []string{"zh-CN"} },
+		"a route": func(app *App) {
+			app.Routes = append(app.Routes, Route{ID: "app/extra/route", Path: "/extra", Page: true, SSR: true, Layouts: []string{"app/layout"}})
+		},
+		"a route without its page": func(app *App) { app.Routes[2].Page = false },
+	}
+	for _, file := range []string{"/llms.txt", "/sitemap.xml"} {
+		base := tagOf(t, siteApp(), file)
+		if again := tagOf(t, siteApp(), file); again != base {
+			t.Errorf("%s: the same app has two ETags, %s and %s", file, base, again)
+		}
+		for name, change := range variants {
+			app := siteApp()
+			change(&app)
+			if got := tagOf(t, app, file); got == base {
+				t.Errorf("%s: a change of %s keeps the ETag", file, name)
+			}
+		}
+		defer func(n int) { sitemapURLs = n }(sitemapURLs)
+		sitemapURLs = 3
+		if got := tagOf(t, siteApp(), file); got == base {
+			t.Errorf("%s: a change of the size of a part keeps the ETag", file)
+		}
+		sitemapURLs = 50_000
+	}
+}
+
 // An OnRequest that rewrites the path decides nothing: the file is the one the request asked for.
 func TestRewrittenPathDoesNotChangeTheFile(t *testing.T) {
 	app := siteApp()
