@@ -48,8 +48,9 @@ type Site struct {
 // Deploy is read by the tifa CLI only, from the project tifa.yaml, for tifa deploy. The server
 // is not here: tifa.yaml is committed, so tifa deploy takes it from --host, TIFA_DEPLOY_HOST or .env.
 type Deploy struct {
-	// Front is what visitors come through before the server: none or cloudflare. With cloudflare the domain is the
-	// host of site.url.
+	// Front is what visitors come through before the server: none, cloudflare or nginx. With
+	// cloudflare the domain is the host of site.url. With nginx, an nginx that tifa deploy setup
+	// installs routes by the host of site.url.
 	Front string
 	// Connect is the one path ssh takes to the server, from this machine and from CI: direct,
 	// cloudflare or tailscale.
@@ -283,7 +284,7 @@ func fields(c *Config) []field {
 		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
-		{"deploy.front", "What visitors come through before the server: none or cloudflare, on the host of site.url", frontValue{&c.Deploy.Front}},
+		{"deploy.front", "What visitors come through before the server: none, cloudflare or nginx, on the host of site.url", frontValue{&c.Deploy.Front}},
 		{"deploy.connect", "How deploys reach the server over ssh, from this machine and from CI: direct, cloudflare (through the Cloudflare Tunnel) or tailscale", connectValue{&c.Deploy.Connect}},
 		{"deploy.auto.branch", "With the block deploy.auto, the branch that deploys from GitHub Actions, the default branch of the repository when left out", branchValue{&c.Deploy.Auto.Branch}},
 		{"deploy.auto.needs", "With the block deploy.auto, the workflow file in .github/workflows that must pass before a deploy (ci.yml when left out), or none to wait for nothing", needsValue{&c.Deploy.Auto.Needs}},

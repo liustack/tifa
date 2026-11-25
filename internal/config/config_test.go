@@ -869,7 +869,10 @@ func TestDeployIsAProjectFileSetting(t *testing.T) {
 	if _, err := load(t, nil, []string{"TIFA_DEPLOY_HOST=other"}, "", ""); err != nil {
 		t.Errorf("the program reads TIFA_DEPLOY_HOST: %v", err)
 	}
-	if _, _, err := Project([]byte("deploy:\n  front: akamai\n")); err == nil || !strings.Contains(err.Error(), "deploy.front") {
+	if c, _, err := Project([]byte("deploy:\n  front: NGINX\n")); err != nil || c.Deploy.Front != "nginx" {
+		t.Errorf("nginx: %+v, %v", c.Deploy, err)
+	}
+	if _, _, err := Project([]byte("deploy:\n  front: akamai\n")); err == nil || !strings.Contains(err.Error(), "none, cloudflare or nginx") {
 		t.Errorf("front: got %v", err)
 	}
 	// Empty is not set, as the example file of tifa new shows them.
