@@ -54,7 +54,7 @@ func pageApp() server.App {
 	return server.App{Routes: []server.Route{{
 		ID: "app/route", Path: "/", Page: true, SSR: true, Layouts: []string{},
 		Load: func(c *tifa.Ctx) (any, error) {
-			return tifa.Use(c, func(c *tifa.Ctx) (string, error) { return "hi " + c.Query("name"), nil })
+			return tifa.Use(c, func(c *tifa.Ctx) (string, error) { return "hi " + c.Request().URL.Query().Get("name"), nil })
 		},
 	}}}
 }

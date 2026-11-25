@@ -65,13 +65,17 @@ func TestValidApp(t *testing.T) {
 		}
 	}
 	if got := layouts[project+"/layout"].Load; got == nil || got.Type != "example.com/valid/"+project+".Project" ||
-		!reflect.DeepEqual(got.Params, []string{"projectId"}) || !reflect.DeepEqual(got.Query, []string{"currency"}) ||
-		!reflect.DeepEqual(got.AllQuery, []string{"currency", "lang"}) || !reflect.DeepEqual(got.Uses, []string{"app/layout"}) {
+		!reflect.DeepEqual(got.Params, []string{"projectId"}) || len(got.Query) != 0 || len(got.AllQuery) != 0 || got.Input != "" ||
+		!reflect.DeepEqual(got.Uses, []string{"app/layout"}) {
 		t.Errorf("project layout Load = %+v", got)
 	}
-	if got := layouts["app/layout"].Load; got == nil || !reflect.DeepEqual(got.Query, []string{"lang"}) ||
-		!reflect.DeepEqual(got.AllQuery, []string{"lang"}) || len(got.Uses) != 0 {
+	if got := layouts["app/layout"].Load; got == nil || len(got.Query) != 0 || len(got.Uses) != 0 {
 		t.Errorf("root layout Load = %+v", got)
+	}
+	// A Layout takes its query parameters as its second parameter too.
+	if got := layouts["app/auth/layout"].Load; got == nil || got.Input != "example.com/valid/app/auth.Next" || !reflect.DeepEqual(got.Query, []string{"next"}) ||
+		!reflect.DeepEqual(got.Fields, []QueryField{{Name: "next", Type: "string", Kind: "string"}}) {
+		t.Errorf("auth layout Load = %+v", got)
 	}
 
 	routes := map[string]Route{}
@@ -118,11 +122,12 @@ func TestValidApp(t *testing.T) {
 		!reflect.DeepEqual(r.Load.AllQuery, []string{"ref"}) {
 		t.Errorf("home Load = %+v", r.Load)
 	}
-	// The project page reads page and sort itself, and through tifa.Use(c, Layout) also depends on
-	// currency and, one level further up, lang.
+	// The project page takes page and sort as its second parameter. The Layouts it reaches through
+	// tifa.Use take none, since a Layout with query parameters cannot be passed to tifa.Use.
 	if r := routes[project+"/route"]; r.Load == nil || r.Load.Type != "[]string" ||
 		!reflect.DeepEqual(r.Load.Query, []string{"page", "sort"}) || len(r.Load.Params) != 0 ||
-		!reflect.DeepEqual(r.Load.AllQuery, []string{"currency", "lang", "page", "sort"}) ||
+		!reflect.DeepEqual(r.Load.AllQuery, []string{"page", "sort"}) ||
+		!reflect.DeepEqual(r.Load.Fields, []QueryField{{Name: "page", Type: "int", Kind: "int"}, {Name: "sort", Type: "string", Kind: "string"}}) ||
 		!reflect.DeepEqual(r.Load.Uses, []string{project + "/layout"}) {
 		t.Errorf("project page Load = %+v", r.Load)
 	}
@@ -432,18 +437,16 @@ func TestViolations(t *testing.T) {
 			{"app/declared/route.go:5:", "Path is not declared"},
 		}},
 		{"paramname", [][]string{
-			{"app/items/key+/route.go:13:", `"id"`, `"/items/{key}"`},
-			{"app/items/key+/route.go:13:", "c.Query must", "constant"},
-			{"app/items/key+/route.go:13:", "c.QueryValues must", "constant"},
+			{"app/items/key+/route.go:11:", `"id"`, `"/items/{key}"`},
+			{"app/items/key+/route.go:11:", "c.Param must", "constant"},
 		}},
 		{"indirect", [][]string{
-			{"app/page/route.go:17:", "c.Query", "called directly"},
-			{"app/page/route.go:18:", "(*tifa.Ctx).Query", "method expression"},
+			{"app/page/route.go:17:", "c.Param", "called directly"},
+			{"app/page/route.go:18:", "(*tifa.Ctx).Param", "method expression"},
 			{"app/page/route.go:19:", "tifa.Use", "called directly"},
 			{"app/page/route.go:20:", "tifa.Use", "called directly"},
 			{"app/page/route.go:21:", "use", "function value"},
 			{"app/page/route.go:27:", "c.Param", "called directly"},
-			{"app/page/route.go:29:", "c.QueryValues", "called directly"},
 		}},
 		{"ifacectx", [][]string{
 			{"app/page/route.go:18:", "converted to interface{Query(string) string}", "call its methods directly"},
@@ -455,14 +458,60 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:24:", "converted to interface{Context() context.Context}"},
 		}},
 		{"escape", [][]string{
-			{"app/page/route.go:11:", "c.Request", "c.Query"},
+			{"app/page/route.go:11:", "c.Request", "second parameter"},
 			{"app/page/route.go:12:", "c.Writer", "OnRequest"},
 			{"db/db.go:8:", "c.Request"},
 			{"db/db.go:10:", "c.Writer"},
 		}},
+		// c.Query in Load, Layout and the functions they call is refused, also through a struct that embeds the Ctx.
+		{"embeddedctx", [][]string{{"app/page/route.go:10:", "c.Query", "second parameter", "func Load(c *tifa.Ctx, q Filter)"}}},
+		// The Ctx goes where it may go (a method receiver, an argument, a field of a struct literal, a new
+		// local variable): the walk reaches every call on it, and each one is refused as a read of the query string.
+		{"ctxallowed", [][]string{
+			{"app/page/route.go:16:", "c.Query", "second parameter"},
+			{"app/page/route.go:17:", "c.Query", "second parameter"},
+			{"app/page/route.go:21:", "c.Query", "second parameter"},
+			{"db/db.go:16:", "c.Query", "second parameter"},
+			{"db/db.go:18:", "c.Query", "second parameter"},
+			{"db/db.go:20:", "c.Query", "second parameter"},
+			{"db/db.go:22:", "c.Query", "second parameter"},
+		}},
+		// Helpers that receive the Ctx are followed, across packages, through two levels, through a struct
+		// embedding the Ctx and through recursion, and a read of the query string in any of them is refused.
+		// A Layout gets the same words with its own signature in the example.
+		{"queryinload", [][]string{
+			{"app/route.go:10:", "c.QueryValues", "func Layout(c *tifa.Ctx, q Filter)"},
+			{"app/items/id+/route.go:14:", "method Query taken as a value"},
+			{"db/db.go:8:", "c.Query", "func Load(c *tifa.Ctx, q Filter)"},
+			{"db/db.go:10:", "c.Query"},
+			{"db/db.go:13:", "c.QueryValues"},
+			{"db/db.go:18:", "c.Query"},
+			{"db/db.go:26:", "c.Query"},
+		}},
+		{"badquery", [][]string{
+			{"app/pointer/route.go:7:", "second parameter of Load", "must be a struct", "pointer"},
+			{"app/notstruct/route.go:5:", "second parameter of Load", "must be a struct"},
+			{"app/three/route.go:7:", "Load must have one of the signatures", "func(c *tifa.Ctx) (T, error)", "func(c *tifa.Ctx, q Filter) (T, error)"},
+			{"app/three/route.go:9:", "Layout must have one of the signatures", "func(c *tifa.Ctx, q Filter) (T, error)"},
+			{"app/embedded/route.go:14:", "Load query", "Filter.Paging", "embedded"},
+			{"app/badtype/route.go:16:", "Layout query", "Filter.Since", "MarshalText", "UnmarshalText"},
+			{"app/badtype/route.go:16:", "Layout query", "Filter.Tags", "map[string]string"},
+			{"app/badtype/route.go:16:", "Layout query", "Filter.Raw", "[]byte"},
+			{"app/badtype/route.go:16:", "Layout query", "Filter.Ptr", "*int"},
+			{"app/file/route.go:13:", "Load query", "Filter.Photo", "is a file", "request body"},
+			{"app/validated/route.go:11:", "Load query", "Validate", "method handler", "tifa.Error", "tifa.ErrNotFound"},
+		}},
+		// A name that a Layout and a page below it share has one type, and the two places are named.
+		{"querytypes", [][]string{
+			{"app/list/route.go:10:", `"page"`, "type string here", "int at app/list/route.go:6"},
+			{"app/list/route.go:10:", `"page"`, "type string here", "int at app/route.go:6"},
+		}},
+		// tifa.Use takes a Layout function with no query parameters. The type checker says so in its own
+		// words, and the build adds what to do.
+		{"uselayoutquery", [][]string{{"app/page/route.go:9:", "tifa.Use", "second parameter", "cannot be passed to tifa.Use"}}},
 		{"reservedquery", [][]string{
-			{"app/list/route.go:9:", `"_tifa"`, "reserved"},
-			{"app/list/route.go:9:", `"_tifa"`, "reserved"},
+			{"app/list/route.go:12:", `"_tifa"`, "reserved", "Load query"},
+			{"app/api/route.go:11:", `"_tifa"`, "reserved", "GET input"},
 		}},
 		{"ctxflow", [][]string{
 			{"app/page/route.go:26:", "element of map[int]*tifa.Ctx"},
@@ -492,7 +541,7 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:27:", "fmt.Println", "outside this module"},
 			{"app/page/route.go:28:", "go statement"},
 			{"helpers/helpers.go:16:", "interface method", "sink.Take"},
-			{"helpers/helpers.go:22:", "c.Query", "called directly"},
+			{"helpers/helpers.go:22:", "c.Param", "called directly"},
 			{"helpers/helpers.go:28:", "variable of type helpers.querier"},
 			{"helpers/helpers.go:34:", "app/other does not wrap app/page"},
 		}},
@@ -759,17 +808,6 @@ func muxAccepts(paths ...string) (ok bool) {
 	return true
 }
 
-// A Ctx reached through an embedding struct is still a Ctx: its Query calls count.
-func TestQueryThroughEmbeddedCtx(t *testing.T) {
-	m, err := analyzeApp(t, "embeddedctx")
-	if err != nil {
-		t.Fatalf("Analyze: %v", err)
-	}
-	if got := m.Routes[0].Load.Query; !reflect.DeepEqual(got, []string{"lang"}) {
-		t.Errorf("Query = %v, want [lang]", got)
-	}
-}
-
 // The TypeScript form follows what json v2 writes, field selection and method sets included.
 func TestLoadResultShape(t *testing.T) {
 	m, err := analyzeApp(t, "jsonshape")
@@ -868,49 +906,6 @@ func TestShapeMatcherRejectsMismatches(t *testing.T) {
 	json.Unmarshal([]byte(`{"a":1,"c":[1,null]}`), &ok)
 	if err := shape.match(ok, "$", nil); err != nil {
 		t.Errorf("valid document rejected: %v", err)
-	}
-}
-
-// Helpers that receive the Ctx are followed, across packages, through two levels, through a
-// struct embedding the Ctx and through recursion. Each Load gets what it reaches. A helper that
-// only reads c.Context(), like auth.User, adds nothing and passes.
-func TestFollowHelpers(t *testing.T) {
-	m, err := analyzeApp(t, "follow")
-	if err != nil {
-		t.Fatalf("Analyze: %v", err)
-	}
-	loads := map[string]*Load{}
-	for _, r := range m.Routes {
-		loads[r.ID] = r.Load
-	}
-	list, other := loads["app/items/id+/route"], loads["app/items/other/route"]
-	if !reflect.DeepEqual(list.Params, []string{"id"}) ||
-		!reflect.DeepEqual(list.Query, []string{"depth", "dir", "page", "sort"}) ||
-		!reflect.DeepEqual(list.Uses, []string{"app/layout"}) ||
-		!reflect.DeepEqual(list.AllQuery, []string{"depth", "dir", "page", "site", "sort"}) {
-		t.Errorf("list Load = %+v", list)
-	}
-	// c.QueryValues counts as a query parameter, also through a helper, and through tifa.Use of a
-	// Layout (list above).
-	if len(other.Params) != 0 || !reflect.DeepEqual(other.Query, []string{"dir", "sort", "tag"}) || len(other.Uses) != 0 ||
-		!reflect.DeepEqual(other.AllQuery, []string{"dir", "sort", "tag"}) {
-		t.Errorf("other Load = %+v", other)
-	}
-	if len(m.Layouts) != 1 || !reflect.DeepEqual(m.Layouts[0].Load.Query, []string{"site"}) {
-		t.Errorf("Layouts = %+v", m.Layouts)
-	}
-}
-
-// The places the Ctx may go: a method receiver, an argument of a function in the module or in
-// tifa, a field of a struct literal that carries it, a new local variable of its own type.
-func TestCtxAllowedUses(t *testing.T) {
-	m, err := analyzeApp(t, "ctxallowed")
-	if err != nil {
-		t.Fatalf("Analyze: %v", err)
-	}
-	want := []string{"closure", "inline", "page", "paren", "q", "size", "sort"}
-	if got := m.Routes[0].Load.Query; !reflect.DeepEqual(got, want) {
-		t.Errorf("Query = %v, want %v", got, want)
 	}
 }
 
@@ -1263,5 +1258,57 @@ func TestImportCycleMessages(t *testing.T) {
 				t.Errorf("%s: error lacks %q:\n%v", c.app, w, err)
 			}
 		}
+	}
+}
+
+// The fields of the query struct of a Load are its query parameters, named by their json tags or
+// their Go names, with the kind of what each one reads. The manifest says the type of each.
+func TestQueryStructFields(t *testing.T) {
+	m, err := analyzeApp(t, "queryfields")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	load := m.Routes[0].Load
+	want := []QueryField{
+		{Name: "Tags", Type: "[]string", Kind: "string", List: true},
+		{Name: "levels", Type: "[]example.com/queryfields/app/list.Level", Kind: "uint8", List: true},
+		{Name: "mask", Type: "[]example.com/queryfields/app/list.byte2", Kind: "uint16", List: true},
+		{Name: "on", Type: "bool", Kind: "bool"},
+		{Name: "page", Type: "int", Kind: "int"},
+		{Name: "rate", Type: "float64", Kind: "float64"},
+		{Name: "small", Type: "float32", Kind: "float32"},
+		{Name: "sort", Type: "example.com/queryfields/app/list.Sort", Kind: "string"},
+		{Name: "wide", Type: "[]int64", Kind: "int64", List: true},
+	}
+	if !reflect.DeepEqual(load.Fields, want) {
+		t.Errorf("Fields = %+v\nwant %+v", load.Fields, want)
+	}
+	if wantNames := []string{"Tags", "levels", "mask", "on", "page", "rate", "small", "sort", "wide"}; !reflect.DeepEqual(load.Query, wantNames) {
+		t.Errorf("Query = %v, want %v", load.Query, wantNames)
+	}
+	if load.Input != "example.com/queryfields/app/list.Filter" {
+		t.Errorf("Input = %q", load.Input)
+	}
+}
+
+// Helpers that receive the Ctx are followed, across packages, through two levels, through a struct
+// embedding the Ctx and through recursion. Each Load gets what it reaches. A helper that only reads
+// c.Context(), like auth.User, adds nothing and passes.
+func TestFollowHelpers(t *testing.T) {
+	m, err := analyzeApp(t, "follow")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	loads := map[string]*Load{}
+	for _, r := range m.Routes {
+		loads[r.ID] = r.Load
+	}
+	list, other := loads["app/items/id+/route"], loads["app/items/id+/other/route"]
+	if !reflect.DeepEqual(list.Params, []string{"id"}) || !reflect.DeepEqual(list.Uses, []string{"app/layout"}) || len(list.Query) != 0 {
+		t.Errorf("list Load = %+v", list)
+	}
+	// The Layout is used through a helper of the list Load, and the other Load does not reach it.
+	if !reflect.DeepEqual(other.Params, []string{"id"}) || len(other.Uses) != 0 {
+		t.Errorf("other Load = %+v", other)
 	}
 }

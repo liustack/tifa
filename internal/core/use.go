@@ -17,11 +17,35 @@ type loadCall struct {
 // Use returns the result of load for this request, running it at most once.
 // A caller that arrives while load is running waits for that run.
 func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) {
-	var zero T
 	// Function values are not comparable, so the code pointer identifies the Load. This holds for the
 	// package-level Load functions of routes and Layouts. Closures of one literal, and method values of
 	// one method, share a code pointer and would share a result.
+	return useKeyed(c, reflect.ValueOf(load).Pointer(), load)
+}
+
+// LoadInput wraps a Load or Layout function that takes its query parameters as a second parameter:
+// the returned function decodes the query string into a Q (see BindQuery, a value that is not valid
+// answers 400 and the Load does not run) and runs load once per request, in the same table as the
+// Loads that go through Use. The key is the code pointer of load itself, so two Loads never share
+// one through the wrapper, which is a closure of this one function. The generated app.go makes the
+// wrapper for every such function when the program starts.
+func LoadInput[T, Q any](load func(*Ctx, Q) (T, error)) func(*Ctx) (any, error) {
 	key := reflect.ValueOf(load).Pointer()
+	return func(c *Ctx) (any, error) {
+		return useKeyed(c, key, func(c *Ctx) (T, error) {
+			var q Q
+			if err := BindQuery(c, &q); err != nil {
+				var zero T
+				return zero, err
+			}
+			return load(c, q)
+		})
+	}
+}
+
+// useKeyed is Use for the Load that key names.
+func useKeyed[T any](c *Ctx, key uintptr, load func(*Ctx) (T, error)) (T, error) {
+	var zero T
 	if key == c.load {
 		return zero, errors.New("tifa: a Load cannot Use itself")
 	}

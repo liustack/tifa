@@ -97,7 +97,7 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 	for _, l := range m.Layouts {
 		fmt.Fprintf(&app, "{\nID: %q,\nPath: %q,\n", l.ID, l.Path)
 		if l.Load != nil {
-			fmt.Fprintf(&app, "Load: %s,\n", imports.load(l.Package, l.Dir, "Layout"))
+			fmt.Fprintf(&app, "Load: %s,\n", imports.load(l.Package, l.Dir, "Layout", l.Load))
 			if l.Load.HTML {
 				app.WriteString("HTML: true,\n")
 			}
@@ -114,7 +114,7 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 	for _, r := range m.Routes {
 		fmt.Fprintf(&app, "{\nID: %q,\nPath: %q,\nPage: %t,\n", r.ID, r.Path, r.Page)
 		if r.Load != nil {
-			fmt.Fprintf(&app, "Load: %s,\n", imports.load(r.Package, r.Dir, "Load"))
+			fmt.Fprintf(&app, "Load: %s,\n", imports.load(r.Package, r.Dir, "Load", r.Load))
 		}
 		for _, h := range r.Handlers {
 			fmt.Fprintf(&app, "%s: %s,\n", h.Method, imports.handler(r.Package, r.Dir, h))
@@ -222,10 +222,8 @@ func (g *goImports) handler(path, dir string, h analyze.Handler) string {
 	}
 	switch {
 	case h.Input != "" && h.Output != "":
-		g.tifa = true
 		return fmt.Sprintf("server.InputOutput(%s, %s)", fn, bind)
 	case h.Input != "":
-		g.tifa = true
 		return fmt.Sprintf("server.Input(%s, %s)", fn, bind)
 	case h.Output != "":
 		return fmt.Sprintf("server.Output(%s)", fn)
@@ -254,8 +252,13 @@ func (g *goImports) alias(path, dir string) string {
 }
 
 // load wraps the Load of a route or the Layout function of a Layout in tifa.Use, so the run the
-// server starts and the runs other Loads ask for through tifa.Use are the same one.
-func (g *goImports) load(path, dir, fn string) string {
+// server starts and the runs other Loads ask for through tifa.Use are the same one. One that takes
+// its query parameters as a second parameter goes through server.LoadInput, which decodes them
+// and runs it once the same way.
+func (g *goImports) load(path, dir, fn string, load *analyze.Load) string {
+	if load.Input != "" {
+		return fmt.Sprintf("server.LoadInput(%s.%s)", g.alias(path, dir), fn)
+	}
 	g.tifa = true
 	return fmt.Sprintf("func(c *tifa.Ctx) (any, error) { return tifa.Use(c, %s.%s) }", g.alias(path, dir), fn)
 }

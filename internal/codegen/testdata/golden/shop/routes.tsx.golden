@@ -3,10 +3,10 @@ import { createRootRouteWithContext, createRoute, lazyRouteComponent } from "@ta
 import { createAppRouter, DefaultError, leave, load, missing, outside, pick, searchTypes, unmatched, type RouterContext } from "./runtime/router"
 import { routeHead } from "./runtime/head"
 import * as m1 from "../app/layout"
-import type { LayoutData as D1, LayoutSearch as S1 } from "./app/route.gen"
+import type { LayoutData as D1 } from "./app/route.gen"
 const m2 = () => import("../app/auth/layout")
 const m3 = () => import("../app/projects/projectId+/layout")
-import type { LayoutData as D3, LayoutSearch as S3 } from "./app/projects/projectId+/route.gen"
+import type { LayoutData as D3 } from "./app/projects/projectId+/route.gen"
 import * as m4 from "../app/page"
 const m5 = () => import("../app/auth/login/page")
 const m6 = () => import("../app/auth/register/page")
@@ -37,10 +37,8 @@ const r1 = createRoute({
   component: m1.default,
   errorComponent: DefaultError,
   notFoundComponent: n1,
-  validateSearch: searchTypes<S1>(),
   loader: ({ context, location, preload }) => load<D1>(context, "app/layout", location, preload),
-  staticData: { load: "app/layout", query: ["lang"] },
-  loaderDeps: ({ search }) => pick(search, ["lang"]),
+  staticData: { load: "app/layout" },
 })
 
 const r2 = createRoute({
@@ -57,10 +55,8 @@ const r3 = createRoute({
   component: lazyRouteComponent(m3),
   errorComponent: e1,
   notFoundComponent: n3,
-  validateSearch: searchTypes<S3>(),
   loader: ({ context, location, preload }) => load<D3>(context, "app/projects/projectId+/layout", location, preload),
-  staticData: { load: "app/projects/projectId+/layout", query: ["currency", "lang"] },
-  loaderDeps: ({ search }) => pick(search, ["currency", "lang"]),
+  staticData: { load: "app/projects/projectId+/layout" },
   remountDeps: ({ params }) => [params.projectId],
 })
 
@@ -96,8 +92,8 @@ const r7 = createRoute({
   errorComponent: e3,
   validateSearch: searchTypes<S7>(),
   loader: ({ context, location, preload }) => load<D7>(context, "app/projects/projectId+/route", location, preload),
-  staticData: { page: true, load: "app/projects/projectId+/route", query: ["currency", "lang", "sort", "tag"] },
-  loaderDeps: ({ search }) => pick(search, ["currency", "lang", "sort", "tag"]),
+  staticData: { page: true, load: "app/projects/projectId+/route", query: ["sort", "tag"] },
+  loaderDeps: ({ search }) => pick(search, ["sort", "tag"]),
   remountDeps: ({ params }) => [params.projectId],
 })
 

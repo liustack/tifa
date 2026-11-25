@@ -14,12 +14,12 @@ func pass(u useFunc, c *tifa.Ctx) {}
 type wrapped struct{ *tifa.Ctx }
 
 func Load(c *tifa.Ctx) (string, error) {
-	q := c.Query
-	tab := (*tifa.Ctx).Query(c, "tab")
+	q := c.Param
+	tab := (*tifa.Ctx).Param(c, "tab")
 	use := tifa.Use[string]
 	pass(tifa.Use[string], c)
 	s, err := use(c, app.Layout)
-	lang := wrapped{c}.Query("lang")
+	lang := wrapped{c}.Header("lang")
 	return q("x") + tab + s + lang, err
 }
 

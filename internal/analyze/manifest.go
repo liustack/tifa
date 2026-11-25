@@ -115,8 +115,15 @@ type Load struct {
 	Type string `json:"type"`
 	// Params lists the path parameters read with c.Param in the body of Load, sorted and deduplicated.
 	Params []string `json:"params"`
-	// Query lists the query parameters read with c.Query in the body of Load, sorted and deduplicated.
+	// Query lists the names of the fields of the query struct, the second parameter of Load, sorted
+	// and deduplicated. A name is the json tag of the field, or its Go name.
 	Query []string `json:"query"`
+	// Input is the Go type of the second parameter of Load, the query struct, qualified by full
+	// import paths, and empty when Load has none.
+	Input string `json:"input,omitempty"`
+	// Fields are the fields of the query struct with the type of each, sorted by name. The page
+	// reads the type of a parameter from them.
+	Fields []QueryField `json:"fields"`
 	// Uses lists the IDs of the Layouts whose Layout function this Load calls through tifa.Use, sorted.
 	Uses []string `json:"uses"`
 	// AllQuery is Query together with the AllQuery of every Load in Uses, sorted and deduplicated.
@@ -128,6 +135,19 @@ type Load struct {
 	HTML bool `json:"html"`
 	// Result is T for code generation inside the same process. It satisfies the rules of checkTS.
 	Result types.Type `json:"-"`
+}
+
+// QueryField is one field of the query struct of a Load: a query parameter.
+type QueryField struct {
+	// Name is the name of the parameter in the query string.
+	Name string `json:"name"`
+	// Type is the Go type of the field, qualified by full import paths.
+	Type string `json:"type"`
+	// Kind is what the values are read as: string, bool, int, int8, int16, int32, int64, uint, uint8,
+	// uint16, uint32, uint64, uintptr, float32 or float64. A named type has the kind it is made of.
+	Kind string `json:"kind"`
+	// List is true for a slice, whose values are the parameters of that name in order.
+	List bool `json:"list"`
 }
 
 // Handler describes a method handler of route.go, a function named after the HTTP method it

@@ -175,3 +175,11 @@ func carryCalledSession(c *tifa.Ctx) error {
 	c.SetHeader(sessionHeader, "1")
 	return c.JSON(http.StatusOK, sessionAnswer{Session: session})
 }
+
+// LoadInput wraps the Load or Layout function of a page that takes its query parameters as a
+// second parameter, as the generated app.go does for every such function. Each request decodes
+// the query string into the parameter (a value that is not valid answers 400 before the function
+// runs) and the function runs once, as a Load that goes through tifa.Use does.
+func LoadInput[T, Q any](load func(*tifa.Ctx, Q) (T, error)) func(*tifa.Ctx) (any, error) {
+	return core.LoadInput(load)
+}

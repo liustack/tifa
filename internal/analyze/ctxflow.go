@@ -116,8 +116,8 @@ func (a *analyzer) ctxUse(info *types.Info, e ast.Expr, t types.Type, parents []
 				}
 				return ""
 			}
-			if paramMethod(sel.Obj()) != "" {
-				return "" // checkDirectCalls reports c.Param and c.Query taken as values
+			if paramMethod(sel.Obj()) == "Param" {
+				return "" // checkDirectCalls reports c.Param taken as a value
 			}
 			return fmt.Sprintf("%s has its method %s taken as a value", text, sel.Obj().Name())
 		}

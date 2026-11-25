@@ -35,11 +35,11 @@ var App = server.App{
 			ID:      "app/files/path++/route",
 			Path:    "/files/{path...}",
 			Page:    true,
-			Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_files_path__.Load) },
+			Load:    server.LoadInput(app_files_path__.Load),
 			SSR:     true,
 			Layouts: []string{},
 			Query:   []string{"rev"},
 		},
 	},
-	Fingerprint: "dffb00bfa46d0a904ade00986443d03b",
+	Fingerprint: "645526b33fc734a596621ef5c273f8b7",
 }

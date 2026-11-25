@@ -96,13 +96,32 @@ func Finish(c *Ctx) error {
 	return errors.Join(errs...)
 }
 
-func (c *Ctx) Param(name string) string  { return c.r.PathValue(name) }
-func (c *Ctx) Query(name string) string  { return c.r.URL.Query().Get(name) }
+func (c *Ctx) Param(name string) string { return c.r.PathValue(name) }
+
+// Query returns the first value of the query parameter name. Load and Layout take their query
+// parameters as a second parameter instead (see LoadInput), so a call from either panics: the
+// parameter the page reads must be in its signature, where the build and the browser can see it.
+func (c *Ctx) Query(name string) string {
+	c.noQueryInLoad("Query")
+	return c.r.URL.Query().Get(name)
+}
 func (c *Ctx) Header(name string) string { return c.r.Header.Get(name) }
 
 // QueryValues returns every value of the query parameter name, in order, and nil when there is
 // none. Query returns only the first.
-func (c *Ctx) QueryValues(name string) []string { return c.r.URL.Query()[name] }
+func (c *Ctx) QueryValues(name string) []string {
+	c.noQueryInLoad("QueryValues")
+	return c.r.URL.Query()[name]
+}
+
+// noQueryInLoad panics when method is called while a Load or Layout runs. The build refuses the
+// calls it can see, and this is for the ones it cannot: a Ctx kept in a variable, a helper outside
+// the module. The panic reaches OnError as the error of that Load.
+func (c *Ctx) noQueryInLoad(method string) {
+	if c.mode == modeLoad {
+		panic("tifa: c." + method + " cannot run in Load or Layout, which take their query parameters as a second parameter: declare them as the fields of a struct, such as type Filter struct { Page int `json:\"page\"` }, and write func Load(c *tifa.Ctx, q Filter) (T, error)")
+	}
+}
 
 func (c *Ctx) Cookie(name string) (*http.Cookie, error) { return c.r.Cookie(name) }
 

@@ -13,9 +13,9 @@ import (
 )
 
 // fixHint tells the user how to change a call the analyzer cannot follow.
-const fixHint = `read the values with c.Param("name") and c.Query("name") in Load, or in a function the analyzer follows, and pass the values instead, or pass c.Context() when only the request context is needed`
+const fixHint = `read the path parameters with c.Param("name") in Load, or in a function the analyzer follows, and pass the values instead, take the query parameters as the second parameter of Load and pass its fields, or pass c.Context() when only the request context is needed`
 
-// loadWalk collects what one Load reads: the c.Param and c.Query names and the tifa.Use calls in
+// loadWalk collects what one Load reads: the c.Param names and the tifa.Use calls in
 // its body and in every function it passes the Ctx to, followed through any number of calls
 // inside the module. Each Load gets its own walk, so a helper shared by several Loads counts for
 // each of them.
@@ -92,6 +92,14 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		return
 	}
 	if method := ctxMethod(info, call); method != "" {
+		if method != "Param" && !w.validate {
+			what := "Load"
+			if w.layout {
+				what = "Layout"
+			}
+			a.errorAt(call.Pos(), "c.%s cannot be used in Load, Layout or the functions they call: they take their query parameters as a second parameter, which the build and the browser can read. Declare the parameters in a struct and take it as the second parameter, for example type Filter struct { Sort string `json:\"sort\"` } and func %s(c *tifa.Ctx, q Filter) (T, error), then read q.Sort. c.%s is for method handlers, Validate and OnRequest", method, what, method)
+			return
+		}
 		if len(call.Args) != 1 {
 			return
 		}
@@ -278,7 +286,7 @@ func refusedInLoad(fn *types.Func) string {
 	}
 	switch fn.Name() {
 	case "Request", "Writer":
-		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which parameters are read: in Load and the functions it calls, use c.Param, c.Query, c.QueryValues, c.Header, c.Cookie, c.Path (the path of the page) or c.Context() instead. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
+		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which path parameters are read: in Load and the functions it calls, use c.Param, c.Header, c.Cookie, c.Path (the path of the page) or c.Context() instead, and take the query parameters as the second parameter of Load. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
 	}
 	return ""
 }

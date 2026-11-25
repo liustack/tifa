@@ -11,6 +11,11 @@ type Data struct {
 	Q        string `json:"q"`
 }
 
-func Load(c *tifa.Ctx) (Data, error) {
-	return Data{Language: c.Language(), Q: c.Query("q")}, nil
+// Query is the query string of the page.
+type Query struct {
+	Q string `json:"q"`
+}
+
+func Load(c *tifa.Ctx, q Query) (Data, error) {
+	return Data{Language: c.Language(), Q: q.Q}, nil
 }

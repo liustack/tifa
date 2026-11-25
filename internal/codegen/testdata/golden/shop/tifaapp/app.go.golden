@@ -28,20 +28,18 @@ var App = server.App{
 	},
 	Layouts: []server.Layout{
 		{
-			ID:    "app/layout",
-			Path:  "/",
-			Load:  func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app.Layout) },
-			Query: []string{"lang"},
+			ID:   "app/layout",
+			Path: "/",
+			Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app.Layout) },
 		},
 		{
 			ID:   "app/auth/layout",
 			Path: "/auth",
 		},
 		{
-			ID:    "app/projects/projectId+/layout",
-			Path:  "/projects/{projectId}",
-			Load:  func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Layout) },
-			Query: []string{"currency", "lang"},
+			ID:   "app/projects/projectId+/layout",
+			Path: "/projects/{projectId}",
+			Load: func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Layout) },
 		},
 	},
 	Routes: []server.Route{
@@ -83,11 +81,11 @@ var App = server.App{
 			ID:      "app/projects/projectId+/route",
 			Path:    "/projects/{projectId}",
 			Page:    true,
-			Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId_.Load) },
+			Load:    server.LoadInput(app_projects_projectId_.Load),
 			SSR:     true,
 			NoMemo:  true,
 			Layouts: []string{"app/layout", "app/projects/projectId+/layout"},
-			Query:   []string{"currency", "lang", "sort", "tag"},
+			Query:   []string{"sort", "tag"},
 		},
 		{
 			ID:      "app/projects/projectId+/orders/orderId+/route",
@@ -111,5 +109,5 @@ var App = server.App{
 	Settings: map[string]string{
 		"server.addr": "127.0.0.1:8090",
 	},
-	Fingerprint: "8feac37c8471cc68bcc5cd8d4ca6aa90",
+	Fingerprint: "f87a825fca8bdb7e62881bdc8dd1643d",
 }

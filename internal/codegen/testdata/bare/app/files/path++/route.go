@@ -7,6 +7,10 @@ type Entry struct {
 	Children []Entry `json:"children"`
 }
 
-func Load(c *tifa.Ctx) (Entry, error) {
-	return Entry{Name: c.Param("path") + c.Query("rev")}, nil
+type Rev struct {
+	Rev string `json:"rev"`
+}
+
+func Load(c *tifa.Ctx, q Rev) (Entry, error) {
+	return Entry{Name: c.Param("path") + q.Rev}, nil
 }

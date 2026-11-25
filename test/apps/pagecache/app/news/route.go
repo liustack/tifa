@@ -17,8 +17,13 @@ type Data struct {
 	Page string `json:"page"`
 }
 
-func Load(c *tifa.Ctx) (Data, error) {
-	return Data{N: counter.NewsLoads.Add(1), Page: c.Query("page")}, nil
+// Query is the query string of the page.
+type Query struct {
+	Page string `json:"page"`
+}
+
+func Load(c *tifa.Ctx, q Query) (Data, error) {
+	return Data{N: counter.NewsLoads.Add(1), Page: q.Page}, nil
 }
 
 // POST of a page with Cache is a method handler like any other: it sees the cookie and the session.

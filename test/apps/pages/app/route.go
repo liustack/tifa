@@ -8,8 +8,13 @@ type Site struct {
 	Lang string `json:"lang"`
 }
 
-func Layout(c *tifa.Ctx) (Site, error) {
-	lang := c.Query("lang")
+// Query is the query string of every page.
+type Query struct {
+	Lang string `json:"lang"`
+}
+
+func Layout(c *tifa.Ctx, q Query) (Site, error) {
+	lang := q.Lang
 	if lang == "" {
 		lang = "en"
 	}
