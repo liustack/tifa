@@ -12,6 +12,18 @@ export default function Typed() {
       <Link to="/typed" search={{ page: 3 }} id="other">
         other
       </Link>
+      <Link to="/typed" search={{ ids: [7] }} id="one">
+        one
+      </Link>
+      <Link to="/typed" search={{ ids: [7, 8] }} id="two">
+        two
+      </Link>
+      <Link to="/typed" search={{ ids: [] }} id="none">
+        none
+      </Link>
+      <Link to="/typed" search={{ page: undefined }} activeOptions={{ explicitUndefined: true }} id="undef">
+        undef
+      </Link>
     </>
   )
 }

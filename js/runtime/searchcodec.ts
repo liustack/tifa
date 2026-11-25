@@ -46,6 +46,11 @@ const ranges: Record<string, [number, number]> = {
   uintptr: [0, maxExact],
 }
 
+// maxNumberText is the longest text of a number, in bytes, which is its length in characters since only
+// ASCII passes the test below. A very long decimal is rounded differently by Go and by a browser, so no
+// number a person types or a form sends is that long. It is maxNumberText in internal/core/query.go.
+const maxNumberText = 64
+
 const wholeText = /^[+-]?[0-9]+(\.0*)?$/
 const floatText = /^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$/
 
@@ -53,7 +58,7 @@ const floatText = /^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$/
 // for a whole number and false for a float. The number is 0 or between 1e-6 and 1e21 in size, a whole
 // number is at most 2^53-1 in size, and -0 is 0. It is undefined for a text that is no such number.
 function readNumber(text: string, whole: boolean): number | undefined {
-  if (!(whole ? wholeText : floatText).test(text)) return undefined
+  if (text.length > maxNumberText || !(whole ? wholeText : floatText).test(text)) return undefined
   const n = Number(text)
   const size = Math.abs(n)
   if (size !== 0 && (size < 1e-6 || size >= 1e21)) return undefined
@@ -157,18 +162,25 @@ function parseSpec(spec: Spec) {
 // gives the numbers and booleans of the parameters of the spec back as the text the router writes
 // for them (String), and the Link is active at the address it makes. It sits outside the validation
 // that the router adds when it builds the address of a page (_includeValidateSearch), so a parameter
-// the codec left out stays out (and an undefined one is left out, as the router writes none). A Layout and a page that name the same parameter both convert it, and
+// the codec left out stays out. A parameter that is undefined stays undefined, which the router writes as none and a Link that asks for it with explicitUndefined sees. A Layout and a page that name the same parameter both convert it, and
 // a text stays a text.
 export function searchText<S>(spec: Spec): (context: { search: S; next: (search: S) => S }) => S {
-  const lists = new Map(parseSpec(spec).map(({ name, list }) => [name, list]))
-  const text = (value: unknown) => (typeof value === 'number' || typeof value === 'boolean' ? String(value) : value)
+  const fields = new Map(parseSpec(spec).map(({ name, list }) => [name, list]))
+  const lists = new Set([...fields].filter(([, list]) => list).map(([name]) => name))
+  const text = (value: unknown, key: string) => (fields.has(key) && (typeof value === 'number' || typeof value === 'boolean') ? String(value) : value)
   return (({ search, next }: { search: Record<string, unknown>; next: (search: unknown) => Record<string, unknown> }) => {
     const result = next(search)
     const out: Record<string, unknown> = Object.create(null)
     for (const key of Object.keys(result)) {
       const value = result[key]
-      if (value === undefined) continue
-      out[key] = lists.has(key) ? (Array.isArray(value) ? value.map(text) : text(value)) : value
+      if (!lists.has(key) || !Array.isArray(value)) {
+        out[key] = text(value, key)
+        continue
+      }
+      // A list is written as parseSearch reads the address back: one element is the single text, two
+      // or more are the array, and an empty list is no key.
+      if (value.length === 1) out[key] = text(value[0], key)
+      else if (value.length > 1) out[key] = value.map((item) => text(item, key))
     }
     return out
   }) as never
