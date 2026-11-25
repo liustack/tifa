@@ -95,3 +95,37 @@ export default function Section() {
 		t.Fatalf("the click fetched navigation data:\n%s", fetched)
 	}
 }
+
+// Dot files in public/ are not part of the program: a .DS_Store or a .env that was left there is
+// answered with 404. The folder .well-known is served.
+func TestDotFilesOfPublicAreNotServed(t *testing.T) {
+	skipUnlessEnabled(t)
+	dir := copyApp(t, "pages")
+	for name, text := range map[string]string{
+		"public/.DS_Store":                "Bud1",
+		"public/.env":                     "SECRET=1",
+		"public/.hidden/x.txt":            "x",
+		"public/.well-known/security.txt": "Contact: mailto:security@example.com\n",
+		"public/robots.txt":               "User-agent: *\n",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base, _, _ := start(t, buildAt(t, dir))
+	for path, want := range map[string]int{
+		"/.DS_Store":                404,
+		"/.env":                     404,
+		"/.hidden/x.txt":            404,
+		"/.well-known/security.txt": 200,
+		"/robots.txt":               200,
+	} {
+		if status, _, body := get(t, base+path); status != want {
+			t.Errorf("%s: %d, want %d\n%.200s", path, status, want, body)
+		}
+	}
+}
