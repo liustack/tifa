@@ -2,7 +2,7 @@
 summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: 8bf9fbf3d316
+translatedFrom: 3963352a2d6e
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -47,7 +47,7 @@ tifa new <dir> [--module module-path] [--empty]
 | `package.json`, `tsconfig.json`, `vite.config.ts`, `.gitignore`, `README.md` | npm 包，TypeScript 和 Vite 的设置，被忽略的构建产物和数据库文件，以及相关命令 |
 | `pnpm-workspace.yaml` | `minimumReleaseAge: 4320`，这样 pnpm 不会安装发布不满 3 天的包版本（见下文） |
 | `.gitattributes` | `* text=auto eol=lf`：git 在所有系统上都让文件保持 LF 换行。Windows 上的 git 会用 CRLF 检出文件，而程序会嵌入其中一些文件，比如 `schema.sql`，所以在那里构建出的程序会和别处用同一个提交构建出的不一样 |
-| `.github/workflows/ci.yml` | 一个 GitHub Actions 工作流，在拉取请求和推送到 `main` 时运行 `go tool tifa check`：它按 `go.mod` 安装 Go，安装 Node 24，并用 `pnpm install --frozen-lockfile --ignore-scripts` 安装包（没有用 pnpm 创建的应用用 `npm ci`），所以请提交锁文件。`package.json` 里没有 `packageManager`，所以工作流给 pnpm 指定版本 10。这个文件归你编辑：Tifa 只写一次，之后不会再改。在 GitHub Actions 里，`tifa check`、`tifa build` 和 `tifa gen` 会把发现的问题打印成工作流命令，于是运行记录和拉取请求会标出每个问题所在的文件和行，并区分错误和警告。`--ignore-scripts` 把检查留给 `tifa check`：pnpm 会给 `prepare` 脚本的输出加前缀，而 GitHub 读不了带前缀的命令。setup-go 和 setup-node 会标记 `go` 和 `tsc` 的输出 |
+| `.github/workflows/ci.yml` | 一个 GitHub Actions 工作流，在拉取请求和推送到 `main` 时运行 `go tool tifa check`：它的令牌只能读仓库。它按 `go.mod` 安装 Go，安装 Node 24，并用 `pnpm install --frozen-lockfile --ignore-scripts` 安装包（没有用 pnpm 创建的应用用 `npm ci`），所以请提交锁文件。`package.json` 里没有 `packageManager`，所以工作流给 pnpm 指定版本 10。这个文件归你编辑：Tifa 只写一次，之后不会再改。在 GitHub Actions 里，`tifa check`、`tifa build` 和 `tifa gen` 会把发现的问题打印成工作流命令，于是运行记录和拉取请求会标出每个问题所在的文件和行，并区分错误和警告。`--ignore-scripts` 把检查留给 `tifa check`：pnpm 会给 `prepare` 脚本的输出加前缀，而 GitHub 读不了带前缀的命令。setup-go 和 setup-node 会标记 `go` 和 `tsc` 的输出 |
 | `.vscode/settings.json` | 通过 `workbench.editor.customLabels.patterns`，让 VS Code 的编辑器标签页用文件夹名来区分每个文件夹里都重复出现的文件名，比如 `orders/page.tsx` 和 `orders/route.go`（`app/` 下的 `page.tsx`、`layout.tsx`、`route.go`、`route_test.go` 和 `route.gen.ts`）。其他编辑器会忽略它 |
 
 - `--empty` 写出一个骨架，代替待办清单：同样的根目录文件（`go.mod`、`tifa.yaml`、`package.json`、Vite 和 TypeScript 配置、`.gitignore`、`.gitattributes`、`.github/workflows/ci.yml`、`AGENTS.md`、`CLAUDE.md`、`hooks.go`、`db.go`、`sessions.go`、`options.go`），一个只有会话表的 `schema.sql`，一个带错误组件的根 `layout.tsx`，一行的 `page.tsx` 和 `styles.css`。它没有 `app/todos/`、关于页、路由或路由测试。它能构建，能通过 `go test` 和 `go vet`，也能启动。不带这个参数就得到待办清单。
