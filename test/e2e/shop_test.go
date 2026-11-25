@@ -556,16 +556,23 @@ func checkStorefrontKeepsCustomersApart(t *testing.T, base string) {
 		}
 	}
 	// A page past the last shows the last, from the 145th product on. The largest page a browser holds
-	// exactly is valid, and a larger one answers 400 like any value that is not written the one way.
+	// exactly is valid, and a larger one answers 400 like any value that is no number of its type.
 	if status, _, list := get(t, base+"/zh-CN/store/products?page=9007199254740991"); status != 200 || !strings.Contains(rendered(list), "第 145 到") {
 		t.Errorf("a page past the last of the list: %d", status)
 	}
-	for _, query := range []string{"page=9223372036854775807", "page=02", "min=x", "stock=1", "page=1&page=2"} {
+	for _, query := range []string{"page=9223372036854775807", "page=2.5", "min=x", "stock=1", "page=1&page=2"} {
 		if status, _, _ := get(t, base+"/zh-CN/store/products?"+query); status != 400 {
 			t.Errorf("?%s: %d, want 400", query, status)
 		}
 	}
-	for _, query := range []string{"page=", "min=&max=&stock=", "utm_source=mail"} {
+	// A number written another way is the same number, and the same page: one render for ?page=007 and ?page=7.
+	_, _, seventh := get(t, base+"/zh-CN/store/products?page=7")
+	for _, query := range []string{"page=007", "page=%2B7.0", "page=7."} {
+		if status, _, list := get(t, base+"/zh-CN/store/products?"+query); status != 200 || rendered(list) != rendered(seventh) {
+			t.Errorf("?%s: %d, want the page of ?page=7", query, status)
+		}
+	}
+	for _, query := range []string{"page=", "min=&max=&stock=", "utm_source=mail", "min=010.0&rating=1.0"} {
 		if status, _, _ := get(t, base+"/zh-CN/store/products?"+query); status != 200 {
 			t.Errorf("?%s: %d, want 200", query, status)
 		}
