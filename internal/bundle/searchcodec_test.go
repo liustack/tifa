@@ -108,6 +108,9 @@ var searchScenarios = []struct{ spec, in, want string }{
 	{`{"ids":"int[]"}`, `{"ids":[1,2]}`, `{"ids":[1,2]}`},
 	// Parameters the spec does not name stay as they are, in the order of the address.
 	{`{"page":"int"}`, `{"utm":"x","page":"2","a":["1","2"]}`, `{"utm":"x","page":2,"a":["1","2"]}`},
+	// A parameter may be called __proto__, which is an ordinary name.
+	{`{"__proto__":"int"}`, `{"__proto__":"2"}`, `{"__proto__":2}`},
+	{`{"__proto__":"int"}`, `{"__proto__":"02"}`, `error invalid query parameter "__proto__"`},
 	// With two that are not valid the error names the first by name.
 	{`{"zeta":"int","alpha":"int"}`, `{"zeta":"x","alpha":"y"}`, `error invalid query parameter "alpha"`},
 }
@@ -137,7 +140,7 @@ const table = %s.map(({ kind, input }) => {
 })
 const scenarios = %s.map(([spec, input]) => {
   try {
-    const out = searchCodec(JSON.parse(spec))(Object.assign(Object.create(null), JSON.parse(input)))
+    const out = searchCodec(Object.entries(JSON.parse(spec)))(Object.assign(Object.create(null), JSON.parse(input)))
     return JSON.stringify(out, (key, value) => (value === undefined ? null : value))
   } catch (error) {
     return 'error ' + error.message + ' ' + error.status

@@ -260,6 +260,25 @@ test('a navigation writes typed values and asks Go with the text', async () => {
   assert(shown(router).search.page === 3, `page ${shown(router).search.page}`)
 })
 
+test('a Link with typed values is active at the address that has them', async () => {
+  // TanStack decides it by comparing the search of the location, which the router read as text, with
+  // the search the Link built, which holds what the app wrote: the numbers and booleans must compare equal.
+  const html = await render('/typed?page=2&on=true&ids=1&ids=3&min=1.5', typedData)
+  const link = (id: string) => html.match(new RegExp('<a [^>]*id="' + id + '"[^>]*>'))?.[0] ?? ''
+  assert(/data-status="active"/.test(link('same')) && /aria-current="page"/.test(link('same')), `same: ${link('same')}`)
+  assert(!/data-status="active"/.test(link('other')), `other: ${link('other')}`)
+  // The address a Link writes is the one the values make.
+  assert(/href="\/typed\?page=2&amp;on=true&amp;ids=1&amp;ids=3&amp;min=1.5"/.test(link('same')), `href: ${link('same')}`)
+  // What the router builds for a typed search has the text of the address in it, and the matches
+  // still have the typed values.
+  const { router } = await client('/typed?page=2&on=true&ids=1&ids=3&min=1.5')
+  const built = router.buildLocation({ to: '/typed', search: { page: 2, on: true, ids: [1, 3], min: 1.5 } } as never).search
+  assert(JSON.stringify(built) === JSON.stringify(router.state.location.search), `built ${JSON.stringify(built)}, location ${JSON.stringify(router.state.location.search)}`)
+  const again = router.buildLocation({ to: '/typed', search: (prev: any) => ({ ...prev, page: prev.page + 1 }), from: '/typed' } as never)
+  assert(again.href === '/typed?page=3&on=true&ids=1&ids=3&min=1.5', `next page ${again.href}`)
+  assert(shown(router).search.page === 2 && shown(router).search.on === true, `match ${JSON.stringify(shown(router).search)}`)
+})
+
 test('a full page with a query that is not valid shows the TifaError of the route', async () => {
   const message = 'invalid query parameter "page"'
   const bad = { status: 400, error: message } as const

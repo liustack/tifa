@@ -171,5 +171,40 @@ try {
   Object.assign(g, saved)
 }
 
+// The search middleware of a route with a codec (searchText in js/runtime/searchcodec.ts) rests on
+// how the router builds the search of a Link: the middlewares of the routes wrap the validation that
+// _includeValidateSearch adds, and what comes out is what the Link is compared with, by deepEqual,
+// against the search of the location, which parseSearch read as text.
+{
+  const typed: Anything = createAppRouter(routeTree, async (_u, id): Promise<RouteResult> => ({ status: 200, data: id }), {
+    history: createMemoryHistory({ initialEntries: ['/typed?page=2&on=true&min=1.5'] }),
+  })
+  await typed.load()
+  const built = typed.buildLocation({ to: '/typed', search: { page: 2, on: true, min: 1.5 } })
+  check(
+    'router.buildLocation applies route.options.search.middlewares',
+    'a Link with a number or a boolean in its search is never active: the router compares it with the text of the address',
+    'js/runtime/searchcodec.ts (searchText), js/runtime/router.tsx',
+    () => built.search.page === '2' && built.search.on === 'true' && built.search.min === '1.5',
+  )
+  check(
+    'the search of the location is text, and a Link compares with it by deepEqual',
+    'a Link with a number or a boolean in its search is never active',
+    'js/runtime/searchcodec.ts (searchText)',
+    () => JSON.stringify(typed.state.location.search) === JSON.stringify(built.search),
+  )
+  const emptied: Anything = createAppRouter(routeTree, async (_u, id): Promise<RouteResult> => ({ status: 200, data: id }), {
+    history: createMemoryHistory({ initialEntries: ['/typed?page=&q=x'] }),
+  })
+  await emptied.load()
+  const clean = emptied.buildLocation({ to: '/typed', search: true, params: true, hash: true, state: true, _includeValidateSearch: true })
+  check(
+    'router.buildLocation with _includeValidateSearch runs the middlewares outside the validation',
+    'the address of a page with an empty number keeps ?page=, so the server redirects and cleanAddress has nothing to clean',
+    'js/runtime/router.tsx (cleanAddress), js/runtime/searchcodec.ts',
+    () => clean.href === '/typed?q=x',
+  )
+}
+
 if (failures.length > 0) throw new Error(`TanStack Router changed under tifa:\n- ${failures.join('\n- ')}`)
 console.log('ok   every member of TanStack Router that tifa relies on is there')

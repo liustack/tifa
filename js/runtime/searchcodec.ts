@@ -22,9 +22,11 @@ export class InvalidQuery extends Error {
   }
 }
 
-// Spec maps the name of a parameter to its kind: string, bool, int, int8, int16, int32, int64, uint,
-// uint8, uint16, uint32, uint64, uintptr or float64, with [] after it for a list.
-export type Spec = Record<string, string>
+// Spec lists the name of each parameter with its kind: string, bool, int, int8, int16, int32, int64,
+// uint, uint8, uint16, uint32, uint64, uintptr or float64, with [] after it for a list. It is a list of
+// pairs and not an object, since a parameter may be called __proto__, which an object literal would
+// take for its prototype.
+export type Spec = ReadonlyArray<readonly [string, string]>
 
 // maxExact is the largest whole number a browser holds exactly, 2^53-1.
 const maxExact = Number.MAX_SAFE_INTEGER
@@ -109,12 +111,7 @@ function decodeField(kind: string, list: boolean, value: unknown): unknown {
 // value of a number or bool among them, is returned as undefined and not left out. A route below
 // another gets the converted values of the route above, so a value that is already typed is valid.
 export function searchCodec<S>(spec: Spec): (search: S) => S {
-  const fields = Object.keys(spec)
-    .sort()
-    .map((name) => {
-      const list = spec[name].endsWith('[]')
-      return { name, kind: list ? spec[name].slice(0, -2) : spec[name], list }
-    })
+  const fields = parseSpec(spec)
   return ((raw: Record<string, unknown>) => {
     // The first parameter that is not valid in the order of the names is the one the error names, as
     // in Go, where a page with two of them gets one answer.
@@ -128,6 +125,38 @@ export function searchCodec<S>(spec: Spec): (search: S) => S {
     // The parameters keep the order of the address, so the router writes the same address back.
     const out: Record<string, unknown> = Object.create(null)
     for (const key of Object.keys(raw)) out[key] = decoded.has(key) ? decoded.get(key) : raw[key]
+    return out
+  }) as never
+}
+
+function parseSpec(spec: Spec) {
+  return spec
+    .map(([name, kind]) => {
+      const list = kind.endsWith('[]')
+      return { name, kind: list ? kind.slice(0, -2) : kind, list }
+    })
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+}
+
+// searchText makes the search middleware of a route that has a codec. A Link or navigate gives numbers
+// and booleans, and the router compares the search of a Link with the search of the location, which it
+// read from the address as text, to tell whether the Link is the page it is on. So the middleware
+// gives the numbers and booleans of the parameters of the spec back as the text the router writes
+// for them (String), and the Link is active at the address it makes. It sits outside the validation
+// that the router adds when it builds the address of a page (_includeValidateSearch), so a parameter
+// the codec left out stays out (and an undefined one is left out, as the router writes none). A Layout and a page that name the same parameter both convert it, and
+// a text stays a text.
+export function searchText<S>(spec: Spec): (context: { search: S; next: (search: S) => S }) => S {
+  const lists = new Map(parseSpec(spec).map(({ name, list }) => [name, list]))
+  const text = (value: unknown) => (typeof value === 'number' || typeof value === 'boolean' ? String(value) : value)
+  return (({ search, next }: { search: Record<string, unknown>; next: (search: unknown) => Record<string, unknown> }) => {
+    const result = next(search)
+    const out: Record<string, unknown> = Object.create(null)
+    for (const key of Object.keys(result)) {
+      const value = result[key]
+      if (value === undefined) continue
+      out[key] = lists.has(key) ? (Array.isArray(value) ? value.map(text) : text(value)) : value
+    }
     return out
   }) as never
 }

@@ -907,7 +907,8 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 		if hasSearch(n) {
 			codec = true
 			runtime["searchFailed"] = true
-			opts = append(opts, fmt.Sprintf("validateSearch: searchCodec<S%d>(%s)", i, searchSpec(n)), "onError: searchFailed")
+			opts = append(opts, fmt.Sprintf("validateSearch: searchCodec<S%d>(%s)", i, searchSpec(n)),
+				fmt.Sprintf("search: { middlewares: [searchText<S%d>(%s)] }", i, searchSpec(n)), "onError: searchFailed")
 		}
 		if n.load != nil {
 			query = n.load.AllQuery
@@ -1004,7 +1005,7 @@ declare module "@tanstack/react-router" {
 	names = append(names, "type RouterContext")
 	fmt.Fprintf(&out, `import { %s } from "./runtime/router"`+"\n", strings.Join(names, ", "))
 	if codec {
-		out.WriteString(`import { searchCodec } from "./runtime/searchcodec"` + "\n")
+		out.WriteString(`import { searchCodec, searchText } from "./runtime/searchcodec"` + "\n")
 	}
 	rootHead := app != nil && app.exported("documentHead")
 	if heads && rootHead {
@@ -1377,9 +1378,9 @@ func searchSpec(n *tsNode) string {
 		if f.List {
 			kind += "[]"
 		}
-		parts[i] = jsString(f.Name) + ": " + jsString(kind)
+		parts[i] = "[" + jsString(f.Name) + ", " + jsString(kind) + "]"
 	}
-	return "{ " + strings.Join(parts, ", ") + " }"
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 // hasSearch reports whether the Load or Layout function of n reads query parameters, so that
