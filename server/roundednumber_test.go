@@ -172,7 +172,7 @@ func TestSessionRefusesARoundedNumber(t *testing.T) {
 	app.Session = SessionOf[bigUser]
 	app.Routes = append(app.Routes, Route{ID: "app/in", Path: "/in", POST: Input(func(c *tifa.Ctx, in loginInput) error {
 		return tifa.SetSession(c, &bigUser{ID: 1<<53 + 1})
-	}, BindBody)})
+	}, (*tifa.Ctx).Bind)})
 	s, _ := wireServer(t, app)
 	w := postJSON(s, "/in", `{"name":"a"}`)
 	c := cookieOf(w, prodCookie)

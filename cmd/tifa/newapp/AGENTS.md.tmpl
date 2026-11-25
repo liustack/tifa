@@ -41,7 +41,7 @@ Never edit `.tifa/`. It is generated.
   - calls `c.Query` or `c.QueryValues`, or `c.Param` other than directly with a constant string, such as `c.Param("order")`,
   - calls `tifa.Use` with anything but a package-level `Layout` that wraps the caller,
   - passes `c` anywhere but a plain function or method of this module or of Tifa,
-  - calls `c.Request()` or `c.Writer()`.
+  - calls `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`.
 
   `c.JSON`, `c.Text` and `c.NoContent` return an error there. Headers and cookies are fine. Pass `c.Context()` when a function needs only the context. See "How Load may use Ctx" in `docs/pages-and-data/loading-data.md`.
 

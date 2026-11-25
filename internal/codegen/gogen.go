@@ -213,17 +213,19 @@ type goImports struct {
 // for an input that holds files.
 func (g *goImports) handler(path, dir string, h analyze.Handler) string {
 	fn := g.alias(path, dir) + "." + h.Method
-	bind := "server.BindBody"
+	bind := "(*tifa.Ctx).Bind"
 	switch {
 	case h.Method == "GET" || h.Method == "DELETE":
-		bind = "server.BindQuery"
+		bind = "(*tifa.Ctx).BindQuery"
 	case h.Form:
 		bind = "server.BindForm"
 	}
 	switch {
 	case h.Input != "" && h.Output != "":
+		g.tifa = true
 		return fmt.Sprintf("server.InputOutput(%s, %s)", fn, bind)
 	case h.Input != "":
+		g.tifa = true
 		return fmt.Sprintf("server.Input(%s, %s)", fn, bind)
 	case h.Output != "":
 		return fmt.Sprintf("server.Output(%s)", fn)

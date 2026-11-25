@@ -24,7 +24,11 @@ func GET(c *tifa.Ctx) error {
 	}
 }
 
-func POST(c *tifa.Ctx, in Order) (Order, error) {
+func POST(c *tifa.Ctx) error {
+	var in Order
+	if err := c.Bind(&in); err != nil {
+		return err
+	}
 	in.ID = c.Param("order")
-	return in, nil
+	return c.JSON(201, in)
 }

@@ -9,8 +9,8 @@ import (
 )
 
 // The generated routes.go registers a method handler that takes an input or returns a result
-// through these adapters. bind is BindBody for a request body, BindForm for a body that holds files
-// and BindQuery for the query string of GET and DELETE.
+// through these adapters. bind is (*tifa.Ctx).Bind for a request body and (*tifa.Ctx).BindQuery
+// for the query string of GET and DELETE.
 
 // callAnswer is the body of the answer to a call from the browser (a request with callHeader):
 // the result of the handler, and the session when the call changed it. A request without the
@@ -143,19 +143,10 @@ func isFields(err error) bool {
 	return ok
 }
 
-// BindBody decodes the input of a POST, PUT or PATCH handler from the request body by its
-// Content-Type: JSON, URL-encoded form or multipart form. The generated routes.go passes it to Input
-// and InputOutput.
-func BindBody(c *tifa.Ctx, v any) error { return core.BindBody(c, v) }
-
 // BindForm decodes the input of a handler that takes files, *multipart.FileHeader or
 // []*multipart.FileHeader fields: the body is a multipart or URL-encoded form, and JSON is
-// answered with 415. The generated routes.go passes it in place of BindBody.
+// answered with 415. The generated routes.go passes it in place of (*tifa.Ctx).Bind.
 func BindForm(c *tifa.Ctx, v any) error { return core.BindForm(c, v) }
-
-// BindQuery decodes the input of a GET or DELETE handler from the query string. The generated
-// routes.go passes it to Input and InputOutput.
-func BindQuery(c *tifa.Ctx, v any) error { return core.BindQuery(c, v) }
 
 // carryCalledSession answers a call from the browser to a handler that wrote nothing and changed
 // the session, which has no input and no result for the session to ride on: 200, sessionHeader

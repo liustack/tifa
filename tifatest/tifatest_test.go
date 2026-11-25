@@ -2,7 +2,6 @@ package tifatest_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -68,8 +67,8 @@ func TestRecorderHoldsWhatAHandlerWrites(t *testing.T) {
 	c, w := tifatest.NewCtx(t, httptest.NewRequest("POST", "/orders", strings.NewReader(`{"id":"SH-2"}`)))
 	c.Request().Header.Set("Content-Type", "application/json")
 	var in order
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil || in.ID != "SH-2" {
-		t.Fatalf("decoding the body: %+v, %v", in, err)
+	if err := c.Bind(&in); err != nil || in.ID != "SH-2" {
+		t.Fatalf("Bind: %+v, %v", in, err)
 	}
 	if err := c.JSON(201, in); err != nil {
 		t.Fatal(err)
@@ -99,8 +98,8 @@ func TestBodyLimitIsTheDefault(t *testing.T) {
 	body := `{"id":"` + strings.Repeat("x", 1<<20) + `"}`
 	c, _ := tifatest.NewCtx(t, httptest.NewRequest("POST", "/orders", strings.NewReader(body)))
 	c.Request().Header.Set("Content-Type", "application/json")
-	var tooLarge *http.MaxBytesError
-	if _, err := io.ReadAll(c.Request().Body); !errors.As(err, &tooLarge) {
+	var e tifa.Error
+	if err := c.Bind(&order{}); !errors.As(err, &e) || e.Status != 413 {
 		t.Fatalf("a body over 1 MiB: %v", err)
 	}
 }

@@ -8,8 +8,8 @@ import (
 )
 
 // app.go imports tifa only for what refers to it: a Load or Layout without a query struct goes
-// through tifa.Use. A handler with an input, and a Load with a query struct, need no import of it,
-// and an import that nothing uses stops the program from compiling.
+// through tifa.Use, and a handler with an input names (*tifa.Ctx).Bind. A Load with a query struct
+// needs no import of it, and an import that nothing uses stops the program from compiling.
 func TestGeneratedAppImportsTifaOnlyWhenItUsesIt(t *testing.T) {
 	handler := analyze.Route{ID: "app/a/route", Path: "/a", Package: "example.com/x/app/a", Dir: "app/a",
 		Handlers: []analyze.Handler{{Method: "POST", Input: "example.com/x/app/a.In"}, {Method: "GET", Input: "example.com/x/app/a.Q", Output: "string"}}}
@@ -21,7 +21,7 @@ func TestGeneratedAppImportsTifaOnlyWhenItUsesIt(t *testing.T) {
 		routes []analyze.Route
 		want   bool
 	}{
-		"handlers with inputs":         {[]analyze.Route{handler}, false},
+		"handlers with inputs":         {[]analyze.Route{handler}, true},
 		"a Load with a query struct":   {[]analyze.Route{queryLoad}, false},
 		"a Load that goes through Use": {[]analyze.Route{plainLoad}, true},
 	} {

@@ -131,7 +131,7 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, 
 			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file, which comes in a request body, and a %s input comes from the query string: take files in a POST, PUT or PATCH handler", label, root, f.Name(), method), f))
 			ok = false
 		}
-		if !a.checkQueryStruct(label, in, st, files, pos, fmt.Sprintf("a %s input comes from the query string", method)) {
+		if !a.checkFlatInput(label, in, st, files, pos, fmt.Sprintf("a %s input comes from the query string", method)) {
 			ok = false
 		}
 	case form:

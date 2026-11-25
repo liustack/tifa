@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -541,6 +542,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkLayoutURLs(routes, layouts)
 	a.checkUses(layouts)
 	a.checkDirectCalls()
+	a.checkBindTags()
 	a.propagateQuery(routes, layouts)
 	a.checkQueryTypes(routes, layouts)
 	a.checkCacheIdentity(routes, layouts)
@@ -979,10 +981,9 @@ func queryKind(b *types.Basic) string {
 	return b.Name()
 }
 
-// checkQueryStruct checks a struct that the query string is decoded into, the input of a GET or
-// DELETE handler or the second parameter of a Load or Layout. See checkFlatInput for what it holds.
-// files is nil for a Load or Layout, which cannot hold a file, and for a handler the files of its
-// input, which the caller has reported.
+// checkQueryStruct checks the struct the query string of a page is decoded into, the second
+// parameter of a Load or Layout. See checkFlatInput for what it holds. files is nil: a page cannot
+// hold a file.
 // The name _tifa is the one the browser asks for the data of a navigation with, which the server
 // removes before any code sees the request.
 func (a *analyzer) checkQueryStruct(label string, in types.Type, st *types.Struct, files map[*types.Var]bool, pos token.Pos, why string) bool {
@@ -1586,6 +1587,45 @@ func (a *analyzer) checkQueryTypes(routes []*route, layouts []*layout) {
 					}
 				}
 			}
+		}
+	}
+}
+
+// checkBindTags reports a form tag in a struct passed to c.Bind or c.BindQuery, as it does for the
+// input of a typed handler: those read a field by its json tag only. The argument is checked by its
+// static type, so a value behind an interface or built by reflection is not seen.
+func (a *analyzer) checkBindTags() {
+	for _, pkg := range a.pkgs {
+		for _, f := range pkg.Syntax {
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) != 1 {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || (sel.Sel.Name != "Bind" && sel.Sel.Name != "BindQuery") {
+					return true
+				}
+				fn, ok := pkg.TypesInfo.Uses[sel.Sel].(*types.Func)
+				if !ok || fn.Signature().Recv() == nil {
+					return true
+				}
+				if named, ok := types.Unalias(derefType(fn.Signature().Recv().Type())).(*types.Named); !ok || !isCtxNamed(named) {
+					return true
+				}
+				t := pkg.TypesInfo.TypeOf(call.Args[0])
+				if t == nil {
+					return true
+				}
+				root := types.ExprString(call.Args[0])
+				root = strings.TrimPrefix(root, "&")
+				walkFields(t, root, map[types.Type]bool{}, func(path string, field *types.Var, tag string) {
+					if _, has := reflect.StructTag(tag).Lookup("form"); has {
+						a.errorAt(call.Pos(), "%s", a.withField(fmt.Sprintf("c.%s: %s has a form tag: c.%s names a field by its json tag only, as a typed handler input does, so remove the form tag", sel.Sel.Name, path, sel.Sel.Name), field))
+					}
+				})
+				return true
+			})
 		}
 	}
 }

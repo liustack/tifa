@@ -74,7 +74,7 @@ func TestBindJSONIsStrict(t *testing.T) {
 	for _, tc := range cases {
 		c, _ := newCtx("POST", tc.body, "application/json", 1024)
 		var v in
-		err := BindBody(c, &v)
+		err := c.Bind(&v)
 		var e Error
 		if tc.name == "other case" {
 			// An unknown name is skipped, so the field stays empty.

@@ -57,7 +57,7 @@ func signInApp() server.App {
 						return err
 					}
 					return tifa.Redirect(in.Next, http.StatusSeeOther)
-				}, server.BindBody)},
+				}, (*tifa.Ctx).Bind)},
 			{ID: "app/account/route", Path: "/account", Page: true, SSR: true, Layouts: []string{},
 				Load: func(c *tifa.Ctx) (any, error) {
 					return tifa.Use(c, func(c *tifa.Ctx) (string, error) { return "hello " + tifa.Session[account](c).Name, nil })

@@ -136,7 +136,7 @@ type queryInput struct {
 func decodeRaw(raw string, v any) error {
 	r := httptest.NewRequest("GET", "/list", nil)
 	r.URL.RawQuery = raw
-	return BindQuery(New(httptest.NewRecorder(), r, "/list", 1024), v)
+	return decodePageQuery(New(httptest.NewRecorder(), r, "/list", 1024), v)
 }
 
 func TestQueryDecoding(t *testing.T) {

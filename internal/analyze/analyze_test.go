@@ -306,6 +306,8 @@ func TestViolations(t *testing.T) {
 			{"app/api/route.go:23:", "PUT input", "Tagged.Name", "form tag", "app/api/route.go:10"},
 			{"app/api/route.go:27:", "DELETE input", "Embeds.Tagged", "embedded"},
 			{"app/api/route.go:27:", "DELETE input", "Embeds.Tagged.Name", "form tag"},
+			{"app/bindform/route.go:16:", "c.Bind", "in.Filter.Tag", "form tag", "json"},
+			{"app/bindform/route.go:23:", "c.BindQuery", "q.Tag", "form tag", "json"},
 			{"app/more/route.go:15:", "GET input", ".Data", "query string"},
 			{"app/more/route.go:17:", "POST input", "Iface.V", "interface"},
 			{"app/more/route.go:19:", "PUT result", "chan"},
@@ -332,7 +334,7 @@ func TestViolations(t *testing.T) {
 			{"app/api/route.go:15:", "Validate", "func() error", "func(c *tifa.Ctx) error", "PATCH"},
 			{"app/api/route.go:20:", "c.SetHeader", "Validate"},
 			{"app/api/route.go:21:", "c.JSON", "Validate"},
-			{"app/api/route.go:28:", "c.SetBodyLimit", "Validate"},
+			{"app/api/route.go:28:", "c.Bind", "Validate"},
 			{"app/api/route.go:31:", "c.Writer", "Validate"},
 			{"app/api/route.go:32:", "c.SetReadTimeout", "Validate"},
 			{"app/helper/route.go:11:", "c.SetCookie", "Validate"},
@@ -509,9 +511,13 @@ func TestViolations(t *testing.T) {
 		// tifa.Use takes a Layout function with no query parameters. The type checker says so in its own
 		// words, and the build adds what to do.
 		{"uselayoutquery", [][]string{{"app/page/route.go:9:", "tifa.Use", "second parameter", "cannot be passed to tifa.Use"}}},
+		{"bindquery", [][]string{
+			{"app/list/route.go:12:", "c.BindQuery", "second parameter", "func Load(c *tifa.Ctx, q Filter)"},
+			{"filter/filter.go:12:", "c.BindQuery"},
+			{"app/list/route.go:20:", "c.Bind", "request body", "second parameter"},
+		}},
 		{"reservedquery", [][]string{
 			{"app/list/route.go:12:", `"_tifa"`, "reserved", "Load query"},
-			{"app/api/route.go:11:", `"_tifa"`, "reserved", "GET input"},
 		}},
 		{"ctxflow", [][]string{
 			{"app/page/route.go:26:", "element of map[int]*tifa.Ctx"},

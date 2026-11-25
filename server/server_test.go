@@ -61,14 +61,14 @@ func newTestServer(hooks Hooks) *server {
 	})
 	s.handle("POST", "/orders/{orderId}", func(c *tifa.Ctx) error {
 		var in order
-		if err := BindBody(c, &in); err != nil {
+		if err := c.Bind(&in); err != nil {
 			return err
 		}
 		return c.JSON(200, in)
 	})
 	s.handle("POST", "/uploads", func(c *tifa.Ctx) error {
 		var in order
-		if err := BindBody(c, &in); err != nil {
+		if err := c.Bind(&in); err != nil {
 			return err
 		}
 		return c.NoContent(204)
@@ -389,7 +389,7 @@ func TestMultipartTempFilesAreRemovedAfterWithContext(t *testing.T) {
 	}})
 	s.handle("POST", "/bind", func(c *tifa.Ctx) error {
 		var in order
-		if err := BindBody(c, &in); err != nil {
+		if err := c.Bind(&in); err != nil {
 			return err
 		}
 		return c.NoContent(204)

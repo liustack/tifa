@@ -78,7 +78,7 @@ Rendering on the server:
 Go side:
 
 6. Putting `Load`, `Layout`, `Memo`, a handler and so on in a file other than `route.go` of the folder. The build fails. A `Load` needs a `page.tsx` beside it, and a folder with `page.tsx` cannot declare `GET`.
-7. Calling `c.Request()` or `c.Writer()` in `Load`, in `Layout`, or in helpers they call. Use `c.Param("x")`, `c.Header`, `c.Cookie`, `c.Context()`, and take query parameters as the second parameter, `func Load(c *tifa.Ctx, q Filter) (T, error)`, never `c.Query`. Pass `c.Param` constant strings, never store or convert `c` (see `references/routing-and-data.md`).
+7. Calling `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery` in `Load`, in `Layout`, or in helpers they call. Use `c.Param("x")`, `c.Header`, `c.Cookie`, `c.Context()`, and take query parameters as the second parameter, `func Load(c *tifa.Ctx, q Filter) (T, error)`, never `c.Query`. Pass `c.Param` constant strings, never store or convert `c` (see `references/routing-and-data.md`).
 8. Doing permission checks only in a `Layout`: a cached Layout does not run again on navigation. Check in `OnRequest`, or make each page's `Load` call `tifa.Use(c, theCheckingLayout)`.
 9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Go slices and maps arrive as `[]` and `{}`, never `null`, and `time.Duration` is not accepted. Integers a browser would round (above 9007199254740991, such as snowflake IDs or `UnixNano`) are refused when a page reads them (`Load`, `Layout`, session data, a handler called with `X-Tifa-Call` by the generated function of a page). `tifatest.Start` refuses it in `Load` and `Layout` too. A plain HTTP client gets the raw number from a handler, and so does a test with `tifatest.Start` unless the request sets `X-Tifa-Call: 1`. Tag the field `json:",string"`, or send milliseconds.
 10. Changing state in a `GET`. The cross-site write check covers POST, PUT, PATCH and DELETE only.
@@ -93,7 +93,7 @@ Sessions (see `references/routing-and-data.md`):
 
 Write Tifa, not another framework: `next/link`, `'use client'`, `loader`, `getServerSideProps`, `createServerFn` and `[id]` folders are reported by `tifa check` with the Tifa way (`docs/start/app.md#coming-from-another-framework`).
 
-Names the build rejects: exporting `NotFound`, `Document` or `Error` (rename it to `ErrorBoundary`), declaring `const Path`, a `form` struct tag, `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `ErrorBoundary` export, with a check `error instanceof TifaError && error.status === 404`.
+Names the build rejects: exporting `NotFound`, `Document` or `Error` (rename it to `ErrorBoundary`), declaring `const Path`, a `form` struct tag (also in a struct passed to `c.Bind` or `c.BindQuery`), `layout.tsx` and `layout_.tsx` in one folder. A 404 is shown by the `ErrorBoundary` export, with a check `error instanceof TifaError && error.status === 404`.
 
 Build and deploy:
 

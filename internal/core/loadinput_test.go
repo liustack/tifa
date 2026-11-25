@@ -69,6 +69,12 @@ func TestQueryReadInALoadPanicsWithTheFix(t *testing.T) {
 	for name, read := range map[string]func(*Ctx){
 		"Query":       func(c *Ctx) { c.Query("sort") },
 		"QueryValues": func(c *Ctx) { c.QueryValues("sort") },
+		"BindQuery": func(c *Ctx) {
+			var v struct {
+				Sort string `json:"sort"`
+			}
+			c.BindQuery(&v)
+		},
 	} {
 		c := newQueryCtx("/list?sort=name")
 		_, err := Use(c, func(c *Ctx) (int, error) { read(c); return 0, nil })
@@ -76,7 +82,10 @@ func TestQueryReadInALoadPanicsWithTheFix(t *testing.T) {
 			t.Errorf("c.%s in a Load: got %v", name, err)
 		}
 		// Outside Load, in a handler or OnRequest, it reads as before.
-		if c.Query("sort") != "name" || len(c.QueryValues("sort")) != 1 {
+		var v struct {
+			Sort string `json:"sort"`
+		}
+		if c.Query("sort") != "name" || len(c.QueryValues("sort")) != 1 || c.BindQuery(&v) != nil || v.Sort != "name" {
 			t.Errorf("c.%s outside Load does not read the query string", name)
 		}
 	}

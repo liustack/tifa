@@ -406,7 +406,7 @@ func TestInterfaceApp(t *testing.T) {
 		{"GET", "/", "", 200, "home"},
 		{"GET", "/health", "", 200, `{"status":"ok"}`},
 		{"GET", "/orders/7", "", 200, `{"id":"7","note":""}`},
-		{"POST", "/orders/9", `{"note":"gift"}`, 200, `{"id":"9","note":"gift"}`},
+		{"POST", "/orders/9", `{"note":"gift"}`, 201, `{"id":"9","note":"gift"}`},
 		{"GET", "/orders/missing", "", 404, `{"error":"Not Found"}`},
 		{"GET", "/nowhere", "", 404, `{"error":"Not Found"}`},
 		{"GET", "/orders/shipped", "", 409, `{"error":"order already shipped"}`},

@@ -24,7 +24,7 @@ func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) {
 }
 
 // LoadInput wraps a Load or Layout function that takes its query parameters as a second parameter:
-// the returned function decodes the query string into a Q (see BindQuery, a value that is not valid
+// the returned function decodes the query string into a Q (see decodePageQuery, a value that is not valid
 // answers 400 and the Load does not run) and runs load once per request, in the same table as the
 // Loads that go through Use. The key is the code pointer of load itself, so two Loads never share
 // one through the wrapper, which is a closure of this one function. The generated app.go makes the
@@ -34,7 +34,7 @@ func LoadInput[T, Q any](load func(*Ctx, Q) (T, error)) func(*Ctx) (any, error) 
 	return func(c *Ctx) (any, error) {
 		return useKeyed(c, key, func(c *Ctx) (T, error) {
 			var q Q
-			if err := BindQuery(c, &q); err != nil {
+			if err := decodePageQuery(c, &q); err != nil {
 				var zero T
 				return zero, err
 			}

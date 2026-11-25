@@ -16,12 +16,10 @@ import (
 	"strings"
 )
 
-// BindBody decodes the request body into v by Content-Type: JSON, URL-encoded form or multipart form.
+// Bind decodes the request body into v by Content-Type: JSON, URL-encoded form or multipart form.
 // A multipart form also fills the fields of type *multipart.FileHeader and []*multipart.FileHeader
-// with its files. Client mistakes come back as Error with status 400, 408, 413 or 415. The generated
-// routes.go passes it to the adapters of the server package for the input of a POST, PUT or PATCH
-// handler.
-func BindBody(c *Ctx, v any) error {
+// with its files. Client mistakes come back as Error with status 400, 408, 413 or 415.
+func (c *Ctx) Bind(v any) error {
 	mediaType, _, _ := mime.ParseMediaType(c.r.Header.Get("Content-Type"))
 	if mediaType == "application/json" {
 		// UnmarshalRead reads to the end of the body, so trailing data and an oversized body are not
@@ -36,7 +34,7 @@ func BindBody(c *Ctx, v any) error {
 
 // BindForm is Bind for the input of a method handler that takes files: the body must be a form,
 // multipart or URL-encoded, and JSON is answered with 415 like any other content type. Every field
-// of v but the files must be one a form fills, as for the query string (see decodeQuery).
+// of v but the files must be one a form fills, as for BindQuery.
 func BindForm(c *Ctx, v any) error {
 	mediaType, _, _ := mime.ParseMediaType(c.r.Header.Get("Content-Type"))
 	return c.bindForm(mediaType, v, true)
@@ -63,6 +61,20 @@ func (c *Ctx) bindForm(mediaType string, v any, flat bool) error {
 		return publicError(http.StatusUnsupportedMediaType, "")
 	}
 	return decodeForm(c.r.PostForm, files, v, "form field", flat)
+}
+
+// BindQuery decodes the query string into the struct v, with the names and value types of a
+// form body. Query parameters that name no field are ignored. A query string that does not parse,
+// or a value that does not, comes back as Error with status 400. Every exported field of v must be
+// one a form fills (see formTypeProblem), or BindQuery returns an error whatever the query holds.
+func (c *Ctx) BindQuery(v any) error {
+	c.noQueryInLoad("BindQuery")
+	// URL.Query drops the parameters it cannot parse, so a broken one would look absent.
+	query, err := url.ParseQuery(c.r.URL.RawQuery)
+	if err != nil {
+		return publicError(http.StatusBadRequest, "invalid query string")
+	}
+	return decodeForm(query, nil, v, "query parameter", true)
 }
 
 func bodyError(err error, message string) error {

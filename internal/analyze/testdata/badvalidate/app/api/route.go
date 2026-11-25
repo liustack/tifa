@@ -25,9 +25,9 @@ type Reads struct{ A string }
 
 func (Reads) Validate(c *tifa.Ctx) error {
 	var in Reads
-	_ = c.SetBodyLimit(1)
-	_ = in
-	//
+	if err := c.Bind(&in); err != nil {
+		return err
+	}
 	_ = c.Writer()
 	_ = c.SetReadTimeout(1)
 	return nil

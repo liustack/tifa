@@ -16,12 +16,13 @@ import (
 // beyond it, whatever the width of the field.
 const maxExact = 1<<53 - 1
 
-// BindQuery decodes the query string of the request into the struct v: the input of a GET or
-// DELETE handler, and the second parameter of Load and Layout. A query string that does not parse,
-// or a value that is not valid, comes back as Error with status 400 (see decodeQuery for the
-// rules). Every exported field of v must be one the query string fills (see formTypeProblem), or
-// BindQuery returns an error whatever the query holds.
-func BindQuery(c *Ctx, v any) error {
+// decodePageQuery decodes the query string of the request into the struct v, the second parameter
+// of Load and Layout. A query string that does not parse, or a value that is not valid, comes back as
+// Error with status 400 (see decodeQuery for the rules). Every exported field of v must be one the
+// query string fills (see formTypeProblem), or it returns an error whatever the query holds. The
+// input of a GET or DELETE handler is read by (*Ctx).BindQuery, which is looser: a page has one
+// address and a render memo key, and the browser must read the same query the same way.
+func decodePageQuery(c *Ctx, v any) error {
 	// URL.Query drops the parameters it cannot parse, so a broken one would look absent.
 	query, err := url.ParseQuery(c.r.URL.RawQuery)
 	if err != nil {

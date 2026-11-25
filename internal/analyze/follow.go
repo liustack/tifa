@@ -287,6 +287,10 @@ func refusedInLoad(fn *types.Func) string {
 	switch fn.Name() {
 	case "Request", "Writer":
 		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which path parameters are read: in Load and the functions it calls, use c.Param, c.Header, c.Cookie, c.Path (the path of the page) or c.Context() instead, and take the query parameters as the second parameter of Load. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
+	case "BindQuery":
+		return `c.BindQuery decodes the query string in a method handler, where the response is the handler's own: Load and Layout take their query parameters as the second parameter, for example type Filter struct { Page int ` + "`json:\"page\"`" + ` } and func Load(c *tifa.Ctx, q Filter) (T, error)`
+	case "Bind":
+		return `c.Bind reads the request body, which a page load and the data request of a navigation do not have: in Load and the functions it calls, take the query parameters as the second parameter, func Load(c *tifa.Ctx, q Filter) (T, error). c.Bind is for the POST, PUT, PATCH and DELETE handlers`
 	}
 	return ""
 }
@@ -358,8 +362,8 @@ func refusedInValidate(fn *types.Func) string {
 	switch fn.Name() {
 	case "JSON", "Text", "NoContent", "SetHeader", "SetCookie", "Writer", "SetAlternates":
 		return "c." + fn.Name() + " changes the response, which cannot be done in Validate or the functions it calls: Validate only checks the input, and what it returns is the answer. Return an error, or tifa.Fields for single fields, and write the response in the method handler"
-	case "SetBodyLimit", "SetReadTimeout":
-		return "c." + fn.Name() + " limits the request body, which is already decoded when Validate runs: use the fields of the input"
+	case "Bind", "BindQuery", "SetBodyLimit", "SetReadTimeout":
+		return "c." + fn.Name() + " reads or limits the request body, which is already decoded when Validate runs: use the fields of the input"
 	}
 	return ""
 }
