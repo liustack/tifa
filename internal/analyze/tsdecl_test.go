@@ -156,7 +156,7 @@ func TestTSShapeNamesDoNotDependOnOrder(t *testing.T) {
 // that is the very type of that export.
 func TestTSShapeReservedNames(t *testing.T) {
 	pkg := types.NewPackage("example.com/app/p", "p")
-	for _, name := range []string{"Params", "Record", "Blob", "HTML", "Promise", "Response", "CallOptions", "SessionData", "GETInput", "string", "delete"} {
+	for _, name := range []string{"Params", "Record", "Blob", "HTML", "Promise", "Response", "CallOptions", "SessionData", "GETInput", "string", "delete", "intrinsic", "unique"} {
 		inner := named(pkg, name, "X", `json:"x"`, types.Typ[types.Int])
 		data := named(pkg, "Data", "In", `json:"in"`, inner)
 		_, decls := shapesOf(t, data, pkg.Path(), "PageData")

@@ -157,7 +157,7 @@ var tsReservedNames = []string{
 	"implements", "interface", "package", "private", "protected", "public", "static", "yield",
 	"await", "async", "do", "else", "for", "if", "while", "with", "try", "catch", "finally",
 	"throw", "return", "switch", "case", "break", "continue", "debugger", "eval", "arguments",
-	"type", "namespace", "module", "declare", "abstract", "get", "set",
+	"type", "namespace", "module", "declare", "abstract", "get", "set", "intrinsic", "unique",
 }
 
 // tsReserved reports whether a declaration may not be called name: besides tsReservedNames, the
