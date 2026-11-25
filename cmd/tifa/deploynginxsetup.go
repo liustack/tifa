@@ -63,7 +63,7 @@ func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
 	}
 	host, app := t.own, t.app
 	// ufw comes first: Let's Encrypt must reach port 80 when certbot asks for the certificate.
-	if after := r.firewallFor(ctx, p, "nginx", nginxPorts, nil); after != nil {
+	if after := r.firewallFor(ctx, p, r.nginxOwner(), nginxPorts, nil); after != nil {
 		after()
 	}
 	p.firewall = "Visitors need ports 80 and 443 of the server open. Tifa does not change your provider's firewall or security groups: if they block them, open them there."
@@ -198,7 +198,7 @@ func (r *setupRun) nginxRemovalSteps(ctx context.Context, p *setupPlan, why stri
 			}
 			return res, err
 		}))
-	if after := r.firewallFor(ctx, p, "nginx", nil, nginxPorts); after != nil {
+	if after := r.firewallFor(ctx, p, r.nginxOwner(), nil, nginxPorts); after != nil {
 		n := len(p.steps)
 		after()
 		for i := n; i < len(p.steps); i++ {

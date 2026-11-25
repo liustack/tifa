@@ -350,10 +350,10 @@ func TestSetupNginxOpensUFW(t *testing.T) {
 	srv.nginx(t, "apt yes\n")
 	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded))
 	out, err := runSetup(t, root, false, "", "--yes")
-	if err != nil || !strings.Contains(out, "change  firewall: allow ports 80 and 443 (tcp) in ufw, so visitors reach nginx, in rules with the comment 'tifa nginx', as root") {
+	if err != nil || !strings.Contains(out, "change  firewall: allow ports 80 and 443 (tcp) in ufw, so visitors reach nginx, in rules with the comment 'tifa nginx front', as root") {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if !strings.Contains(srv.unquoted(), "ufw allow 80/tcp comment 'tifa nginx'") || !strings.Contains(srv.unquoted(), "ufw allow 443/tcp comment 'tifa nginx'") {
+	if !strings.Contains(srv.unquoted(), "ufw allow 80/tcp comment 'tifa nginx front'") || !strings.Contains(srv.unquoted(), "ufw allow 443/tcp comment 'tifa nginx front'") {
 		t.Errorf("the rules:\n%s", srv.unquoted())
 	}
 	// Let's Encrypt must reach port 80 when certbot asks, so ufw is opened before the certificate.
@@ -377,7 +377,7 @@ func TestSetupMovesFromNoneToNginx(t *testing.T) {
 	for _, want := range []string{
 		"change  app: move shop from port 80 to port 9527",
 		"add     server: install nginx with apt",
-		"change  firewall: allow ports 80 and 443 (tcp) in ufw, so visitors reach nginx, in rules with the comment 'tifa nginx'",
+		"change  firewall: allow ports 80 and 443 (tcp) in ufw, so visitors reach nginx, in rules with the comment 'tifa nginx front'",
 		"remove  firewall: the rules of ufw for port 80 (tcp) with the comment 'tifa shop', which shop no longer needs",
 	} {
 		if !strings.Contains(out, want) {
@@ -486,6 +486,63 @@ func TestDeployRemoveNginx(t *testing.T) {
 	}
 }
 
+// The ufw rules of the nginx of Tifa carry a comment that no app can have: "tifa <app>" has one word
+// after tifa, so an app called nginx has "tifa nginx", and the shared rules say "tifa nginx front".
+func TestNginxUFWCommentsCannotMeetAnApp(t *testing.T) {
+	if ufwNginxComment == ufwComment("nginx") || len(strings.Fields(ufwNginxComment)) == 2 {
+		t.Errorf("%q can be the comment of an app", ufwNginxComment)
+	}
+	for _, app := range []string{"nginx", "front", "nginx-front", "a.b_c"} {
+		if _, err := deployAppName("example.com/" + app); err != nil {
+			t.Fatal(err)
+		}
+		if ufwComment(app) == ufwNginxComment {
+			t.Errorf("the app %s has the comment of nginx", app)
+		}
+	}
+	if _, err := deployAppName("example.com/nginx front"); err == nil {
+		t.Error("an app name with a space")
+	}
+}
+
+// A server set up by an earlier version has the rules of nginx with the comment "tifa nginx". Setup
+// takes them over: it allows the same ports with the new comment, which ufw writes over the old one,
+// and deletes nothing, so the ports stay open all the time. When the last app goes, the new rules go.
+func TestSetupNginxTakesOverTheOldUFWComment(t *testing.T) {
+	root := setupApp(t, "deploy:\n  front: nginx\n", nil)
+	srv := newSetupServer(t, "", nginxUserFacts(9527, "shop")+"ufw on\n")
+	srv.nginx(t, nginxFacts(false, nil, siteOf("shop", "", 9527, false)))
+	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx'\nufw allow 443/tcp comment 'tifa nginx'\n"))
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil || !strings.Contains(out, "firewall: allow ports 80 and 443 (tcp) in ufw, so visitors reach nginx, in rules with the comment 'tifa nginx front'") || strings.Contains(out, "remove  firewall") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(srv.unquoted(), "ufw allow 80/tcp comment 'tifa nginx front'") || strings.Contains(srv.unquoted(), "delete allow") {
+		t.Errorf("the rules:\n%s", srv.unquoted())
+	}
+
+	// Removing the last app deletes the rules of either comment.
+	srv = newSetupServer(t, "", nginxUserFacts(9527, "shop")+"ufw on\n")
+	srv.nginx(t, nginxFacts(false, nil, siteOf("shop", "", 9527, false)))
+	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx'\nufw allow 443/tcp comment 'tifa nginx front'\n"))
+	out, _, err = runRemove(t, root, false, "", "--yes")
+	if err != nil || !strings.Contains(srv.unquoted(), "ufw delete allow 80/tcp comment 'tifa nginx'") || !strings.Contains(srv.unquoted(), "ufw delete allow 443/tcp comment 'tifa nginx front'") {
+		t.Errorf("%v\n%s\n%s", err, out, srv.unquoted())
+	}
+}
+
+// An app called nginx owns the comment "tifa nginx": the shared rules never take it over or delete it.
+func TestSetupNginxLeavesTheRulesOfAnAppCalledNginx(t *testing.T) {
+	root := setupApp(t, "deploy:\n  front: nginx\n", nil)
+	srv := newSetupServer(t, "", nginxUserFacts(9527, "shop")+"other nginx\nufw on\n")
+	srv.nginx(t, nginxFacts(false, nil, siteOf("shop", "", 9527, false)))
+	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 8443/tcp comment 'tifa nginx'\n"))
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil || strings.Contains(out, "'tifa nginx', which") || strings.Contains(srv.unquoted(), "delete allow") {
+		t.Errorf("%v\n%s\n%s", err, out, srv.unquoted())
+	}
+}
+
 // A site that nginx would not let go stays, and then nothing else of it goes: its certificate, which the
 // configuration on disk still names, nginx itself and its ufw rules stay too, so nginx restarts in the
 // state it was in. The failure is the error, and the run again finishes the job.
@@ -493,7 +550,7 @@ func TestDeployRemoveNginxKeepsWhatTheSiteNeeds(t *testing.T) {
 	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: nginx\n", nil)
 	srv := newSetupServer(t, "", nginxUserFacts(9527, "shop")+"ufw on\n")
 	srv.nginx(t, nginxFacts(true, []string{"shop shop.example.com"}, siteOf("shop", "shop.example.com", 9527, true)))
-	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx'\nufw allow 443/tcp comment 'tifa nginx'\n"))
+	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx front'\nufw allow 443/tcp comment 'tifa nginx front'\n"))
 	writeFile(t, filepath.Join(srv.dir, "removesitefail"), "")
 	out, _, err := runRemove(t, root, false, "", "--yes")
 	if err == nil || !strings.Contains(out, "warning nginx: the site of shop") || !strings.Contains(out, "boom") {
@@ -519,7 +576,7 @@ func TestDeployRemoveNginxKeepsPortsForANewSite(t *testing.T) {
 	root := setupApp(t, "deploy:\n  front: nginx\n", nil)
 	srv := newSetupServer(t, "", nginxUserFacts(9527, "shop")+"ufw on\n")
 	srv.nginx(t, nginxFacts(false, nil, siteOf("shop", "", 9527, false)))
-	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx'\nufw allow 443/tcp comment 'tifa nginx'\n"))
+	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx front'\nufw allow 443/tcp comment 'tifa nginx front'\n"))
 	writeFile(t, filepath.Join(srv.dir, "uninstallkept"), "")
 	out, _, err := runRemove(t, root, false, "", "--yes")
 	if strings.Contains(srv.calls(), "ufwdelete") || !strings.Contains(out, "nginx has a site again") {
@@ -532,13 +589,13 @@ func TestDeployRemoveNginxDeletesItsUFWRules(t *testing.T) {
 	root := setupApp(t, "deploy:\n  front: nginx\n", nil)
 	srv := newSetupServer(t, "", nginxUserFacts(9527, "shop"))
 	srv.nginx(t, nginxFacts(false, nil, siteOf("shop", "", 9527, false)))
-	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx'\nufw allow 443/tcp comment 'tifa nginx'\nufw allow 80/tcp comment 'tifa other'\n"))
+	srv.ufw(t, ufwRead(ufwVerbose, ufwAdded+"ufw allow 80/tcp comment 'tifa nginx front'\nufw allow 443/tcp comment 'tifa nginx front'\nufw allow 80/tcp comment 'tifa other'\n"))
 	setFacts(t, srv, nginxUserFacts(9527, "shop")+"ufw on\n")
 	out, _, err := runRemove(t, root, false, "", "--yes")
-	if err != nil || !strings.Contains(out, "remove  firewall: the rules of ufw for ports 80 and 443 (tcp) with the comment 'tifa nginx', which nginx no longer needs, as root") {
+	if err != nil || !strings.Contains(out, "remove  firewall: the rules of ufw for ports 80 and 443 (tcp) with the comment 'tifa nginx front', which nginx no longer needs, as root") {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if !strings.Contains(srv.unquoted(), "ufw delete allow 80/tcp comment 'tifa nginx'") || strings.Contains(srv.unquoted(), "tifa other") {
+	if !strings.Contains(srv.unquoted(), "ufw delete allow 80/tcp comment 'tifa nginx front'") || strings.Contains(srv.unquoted(), "tifa other") {
 		t.Errorf("rules:\n%s", srv.unquoted())
 	}
 }
