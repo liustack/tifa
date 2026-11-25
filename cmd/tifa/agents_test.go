@@ -452,8 +452,8 @@ func TestAgentsKeepsCRLFLineEnds(t *testing.T) {
 var testNotesApp = newApp{Module: "example.com/shop", Package: "shop", Install: "pnpm install", Run: "pnpm", Written: "Tifa v9.9.9"}
 
 // The managed block holds an index of the docs for writing an app, made from the docs of this
-// version: a line per section folder, then one line per doc with its file name and its whole summary.
-// Docs about developing Tifa are left out.
+// version: one line per section folder with the file names of its docs. The summaries are not in
+// it: tifa docs prints them. Docs about developing Tifa are left out.
 func TestNotesIndexTheAppDocs(t *testing.T) {
 	block, err := notesBlock(testNotesApp)
 	if err != nil {
@@ -462,6 +462,12 @@ func TestNotesIndexTheAppDocs(t *testing.T) {
 	all, _, err := readDocs(repoRoot, "")
 	if err != nil {
 		t.Fatal(err)
+	}
+	lines := map[string]string{}
+	for _, line := range strings.Split(block, "\n") {
+		if folder, names, ok := strings.Cut(line, "`: "); ok && strings.HasPrefix(folder, "- `docs/") {
+			lines[strings.TrimPrefix(folder, "- `")] = names
+		}
 	}
 	var app int
 	for _, d := range all {
@@ -473,11 +479,11 @@ func TestNotesIndexTheAppDocs(t *testing.T) {
 			continue
 		}
 		app++
-		head := "`" + section + "`"
-		line := "- `" + name + "`: " + strings.Join(strings.Fields(d.summary), " ")
-		i, j := strings.Index(block, "\n"+head+"\n"), strings.Index(block, "\n"+line+"\n")
-		if i < 0 || j < i {
-			t.Errorf("the block has no line %q under %q", line, head)
+		if !strings.Contains(lines[section], "`"+name+"`") {
+			t.Errorf("the line of %s does not name %s: %q", section, name, lines[section])
+		}
+		if summary := strings.Join(strings.Fields(d.summary), " "); strings.Contains(block, summary) {
+			t.Errorf("the block holds the summary of %s, which tifa docs prints", d.path)
 		}
 	}
 	if app < 20 {
@@ -489,10 +495,9 @@ func TestNotesIndexTheAppDocs(t *testing.T) {
 	}
 }
 
-// Long context files lower the success of coding agents, so the block stays small. Its two parts
-// have a limit each: the notes, which do not grow with the docs, and the index, where a doc has
-// one line with a summary of a bounded length. A limit on the whole block made every new doc
-// shorten the summaries of the others.
+// Long context files lower the success of coding agents, and an agent reads this one at the start
+// of every session, so the block and the whole file have a limit. The index is the file names
+// only, and what each doc covers is one command away.
 func TestNotesBlockIsSmall(t *testing.T) {
 	block, err := notesBlock(testNotesApp)
 	if err != nil {
@@ -508,12 +513,6 @@ func TestNotesBlockIsSmall(t *testing.T) {
 	if n := len(block) - len(index); n > notesLimit {
 		t.Errorf("the managed block of AGENTS.md is %d bytes without the index of the docs, keep it at most %d: move details to the docs and leave the path", n, notesLimit)
 	}
-	for _, line := range strings.Split(index, "\n") {
-		name, summary, ok := strings.Cut(line, "`: ")
-		if ok && len(summary) > summaryLimit {
-			t.Errorf("the summary of %s` is %d bytes, keep it at most %d: it is a line of the AGENTS.md of every app", name, len(summary), summaryLimit)
-		}
-	}
 	t.Logf("notes %d bytes, index %d bytes", len(block)-len(index), len(index))
 
 	// An agent reads the whole file at the start of every session, the part tifa new writes
@@ -528,15 +527,13 @@ func TestNotesBlockIsSmall(t *testing.T) {
 	t.Logf("file %d bytes", len(file))
 }
 
-// notesLimit is the size the managed block may have without the index of the docs, and
-// summaryLimit the size of the summary of one doc in that index. fileLimit is the size of the
-// whole AGENTS.md of a new app: the budget is 4,000 tokens for what an agent reads at the start
-// of every session, and this text measures about 3.7 bytes a token (o200k_base), so 14,000 bytes
-// are about 3,800 tokens.
+// notesLimit is the size the managed block may have without the index of the docs. fileLimit is
+// the size of the whole AGENTS.md of a new app: the budget is 4,000 tokens for what an agent reads
+// at the start of every session, and this text measures about 3.7 bytes a token (o200k_base), so
+// 12,000 bytes are about 3,250 tokens and leave room below the budget.
 const (
-	notesLimit   = 8500
-	summaryLimit = 125
-	fileLimit    = 14000
+	notesLimit = 8500
+	fileLimit  = 12000
 )
 
 // The docs that tifa carries for the index are the English docs for apps, every one of them and

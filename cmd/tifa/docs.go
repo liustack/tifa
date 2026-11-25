@@ -201,7 +201,8 @@ func writeDoc(out *strings.Builder, d docEntry, summary string, when bool) {
 }
 
 // docsOverview is what tifa docs prints after the folder. By default it lists the docs for the
-// author of an app, one sentence each. all adds the docs about developing tifa, and when the
+// author of an app, a line each with the whole summary: what the doc is and the names, settings
+// and commands it covers, which AGENTS.md leaves out. all adds the docs about developing tifa, and when the
 // lines that say when to read each doc. A tifa that has no audience in any doc (a version from
 // before the field) lists every doc as one for apps.
 func docsOverview(docs []docEntry, all, when bool) string {
@@ -219,12 +220,12 @@ func docsOverview(docs []docEntry, all, when bool) string {
 		out.WriteString("For writing an app:\n")
 	}
 	for _, d := range app {
-		writeDoc(&out, d, firstSentence(d.summary), when)
+		writeDoc(&out, d, d.summary, when)
 	}
 	if all && len(dev) > 0 {
 		out.WriteString("\nFor developing tifa itself:\n")
 		for _, d := range dev {
-			writeDoc(&out, d, firstSentence(d.summary), when)
+			writeDoc(&out, d, d.summary, when)
 		}
 	}
 	out.WriteString("\n")
@@ -236,36 +237,6 @@ func docsOverview(docs []docEntry, all, when bool) string {
 	}
 	out.WriteString("Read the docs that apply before you change code.\n")
 	return out.String()
-}
-
-// maxSummary is the most characters of a summary in the list. The front matter holds the full one,
-// which is a sentence followed by what the doc covers.
-const maxSummary = 110
-
-// firstSentence cuts a summary to its first clause: up to the first colon, since a summary says
-// what the doc is and then, after the colon, what it covers. Without a colon, or when the clause
-// is still long, it ends at the last comma before maxSummary characters, or before an opening
-// parenthesis that the cut leaves open.
-func firstSentence(s string) string {
-	if i := strings.Index(s, ": "); i > 0 {
-		s = s[:i]
-	}
-	if i := strings.Index(s, "："); i > 0 {
-		s = s[:i]
-	}
-	if r := []rune(s); len(r) > maxSummary {
-		cut := string(r[:maxSummary])
-		if i := max(strings.LastIndex(cut, ", "), strings.LastIndex(cut, "，")); i > 0 {
-			cut = cut[:i]
-		} else if i := strings.LastIndex(cut, " "); i > 0 {
-			cut = cut[:i]
-		}
-		if open := max(strings.LastIndex(cut, "("), strings.LastIndex(cut, "（")); open > strings.LastIndexAny(cut, ")）") {
-			cut = strings.TrimRight(cut[:open], " ")
-		}
-		return cut
-	}
-	return s
 }
 
 // docMeta is what the front matter of a doc says.
