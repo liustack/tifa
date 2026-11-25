@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -64,12 +65,18 @@ func decodeQuery(query url.Values, v any) error {
 			return fmt.Errorf("tifa: a query string cannot fill the field %s of %s: its type %s is a float32, which a browser cannot write the way Go does, so declare it float64", field.Name, target.Type(), t)
 		}
 	}
+	// The first value that is not valid in the order of the names is the one the answer names.
+	var names []string
+	index := map[string]int{}
 	for i := range target.NumField() {
-		field := target.Type().Field(i)
-		name := formName(field)
-		if !field.IsExported() || name == "-" {
-			continue
+		if field := target.Type().Field(i); field.IsExported() && formName(field) != "-" {
+			names = append(names, formName(field))
+			index[formName(field)] = i
 		}
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		i := index[name]
 		values, ok := query[name]
 		if !ok {
 			continue

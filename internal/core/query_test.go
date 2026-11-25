@@ -235,3 +235,17 @@ func TestSliceOfQueryValuesKeepsOrder(t *testing.T) {
 		t.Errorf("%v %v", err, in.N)
 	}
 }
+
+// With two values that are not valid the answer names the first by name, whatever the order of the
+// fields in the struct or of the parameters in the address, because the codec of the browser reads
+// them in that order too and the two must give the same message.
+func TestQueryErrorNamesTheFirstParameterByName(t *testing.T) {
+	var in struct {
+		Zeta  int `json:"zeta"`
+		Alpha int `json:"alpha"`
+	}
+	var e Error
+	if err := decodeRaw("zeta=x&alpha=y", &in); !errors.As(err, &e) || e.Message != `invalid query parameter "alpha"` {
+		t.Errorf("got %v", err)
+	}
+}
