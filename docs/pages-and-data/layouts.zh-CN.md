@@ -59,19 +59,19 @@ app/
 
 ## 代替路由分组的写法 {#instead-of-route-groups}
 
-路由分组是这样一种文件夹：它给里面的页面一个 Layout，却不往 URL 里加东西。Next.js、SvelteKit 和 Nuxt 写成 `(shop)`，TanStack Router 是 `_name` 路由，React Router 是不带路径的布局路由。Tifa 没有路由分组，以后也不会加。这一节讲路由分组的每种用途在 Tifa 里怎么写，以及 Tifa 为什么不要它。
+路由分组是这样一种文件夹：它给里面的页面一个布局，却不往 URL 里加东西。Next.js、SvelteKit 和 Nuxt 写成 `(shop)`，TanStack Router 是 `_name` 路由，React Router 是不带路径的布局路由。Tifa 没有路由分组，以后也不会加。这一节讲路由分组的每种用途在 Tifa 里怎么写，以及 Tifa 为什么不要它。
 
-在 Tifa 里，`app/` 下的每个文件夹是一个 URL 段，Layout 包住它所在文件夹和下面的页面。下文把 Layout 画在页面外面的那一圈叫「外框」：页头、侧栏、页脚。
+在 Tifa 里，`app/` 下的每个文件夹是一个 URL 段，布局包住它所在文件夹和下面的页面。下文把布局画在页面外面的那一圈叫「外框」：页头、侧栏、页脚。
 
 ### 站点的一部分有自己的外框 {#one-part-of-the-site-has-a-frame-of-its-own}
 
-把这一部分的 Layout 文件命名为 `layout_.tsx`。它的页面显示时不带上面的任何 Layout，根 Layout 也不带。
+把这一部分的布局文件命名为 `layout_.tsx`。它的页面显示时不带上面的任何布局，根布局也不带。
 
 目录树和规则见[不带上层布局的布局](#a-layout-without-the-layouts-above)。
 
 ### 几个页面共用一个外框，可以共用一个 URL 前缀 {#several-pages-share-a-frame-and-can-share-a-url-prefix}
 
-把它们放进同一个文件夹。文件夹就是前缀，它的 Layout 就是外框。
+把它们放进同一个文件夹。文件夹就是前缀，它的布局就是外框。
 
 ```text
 app/
@@ -86,11 +86,11 @@ app/
       route.go  page.tsx        /console/settings
 ```
 
-在 `/console` 和 `/console/settings` 之间切换时，外框保持挂载，状态还在，它的数据也不会再加载。控制台要显示在根 Layout 里面时，`console/` 里用 `layout.tsx`。不要根 Layout 时用 `layout_.tsx`。
+在 `/console` 和 `/console/settings` 之间切换时，外框保持挂载，状态还在，它的数据也不会再加载。控制台要显示在根布局里面时，`console/` 里用 `layout.tsx`。不要根布局时用 `layout_.tsx`。
 
 ### 几个页面共用一个外框，URL 留在同一层 {#several-pages-share-a-frame-and-their-urls-stay-at-the-same-level}
 
-比如 `/dashboard` 和 `/settings` 共用控制台的外框，旁边的 `/` 和 `/pricing` 没有这个外框，而且不想加前缀。给每个文件夹各写一个 Layout，用同样的数据渲染同一个组件：
+比如 `/dashboard` 和 `/settings` 共用控制台的外框，旁边的 `/` 和 `/pricing` 没有这个外框，而且不想加前缀。给每个文件夹各写一个布局，用同样的数据渲染同一个组件：
 
 ```text
 app/
@@ -132,11 +132,11 @@ export default function Layout() {
 }
 ```
 
-这样写的代价：`/dashboard` 和 `/settings` 是两个长得一样的 Layout。访客从一个走到另一个时，外框会重新挂载，它保存的状态会从头开始，比如展开的菜单、列表滚动到的位置，它的数据也会再加载一次，和页面的数据在同一个请求里。在意这个代价时，像上一节那样给这些页面加前缀。
+这样写的代价：`/dashboard` 和 `/settings` 是两个长得一样的布局。访客从一个走到另一个时，外框会重新挂载，它保存的状态会从头开始，比如展开的菜单、列表滚动到的位置，它的数据也会再加载一次，和页面的数据在同一个请求里。在意这个代价时，像上一节那样给这些页面加前缀。
 
 ### `/` 的页面 {#the-page-at-}
 
-`app/` 里不能放 `layout_.tsx`，所以 `/` 的页面总是显示在根 Layout 里。让根 Layout 做 `/` 这个页面的外框，其他外框不同的部分用 `layout_.tsx` 离开它，就像上面几棵目录树那样。所有页面都没有共用外框的应用，可以不写根 `layout.tsx`。
+`app/` 里不能放 `layout_.tsx`，所以 `/` 的页面总是显示在根布局里。让根布局做 `/` 这个页面的外框，其他外框不同的部分用 `layout_.tsx` 离开它，就像上面几棵目录树那样。所有页面都没有共用外框的应用，可以不写根 `layout.tsx`。
 
 ### Tifa 为什么没有路由分组 {#why-tifa-has-no-route-groups}
 
