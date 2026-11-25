@@ -337,6 +337,8 @@ fi
 apt-get install -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold $nginx_pkgs $certbot_pkgs </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; exit 1; }
 rm -f "$policy_made" "$etc/nginx/sites-enabled/default"
 if [ -n "$nginx_pkgs" ]; then systemctl enable --quiet nginx; fi
+# certbot renews with its own timer, which the block above kept from starting with the package.
+if [ -n "$certbot_pkgs" ]; then systemctl enable --quiet --now certbot.timer; fi
 echo "installed $(echo $nginx_pkgs $certbot_pkgs)"
 `
 

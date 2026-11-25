@@ -300,6 +300,9 @@ func TestNginxInstallMarksWhatItInstalls(t *testing.T) {
 			t.Errorf("marker lacks %q:\n%s", want, marker)
 		}
 	}
+	if !strings.Contains(b.calls(), "systemctl enable --quiet --now certbot.timer") {
+		t.Errorf("the timer of certbot does not run:\n%s", b.calls())
+	}
 	if strings.Count(marker, "installed nginx nginx\n") != 1 {
 		t.Errorf("a line twice:\n%s", marker)
 	}
