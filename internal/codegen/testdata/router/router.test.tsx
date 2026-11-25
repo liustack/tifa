@@ -142,6 +142,16 @@ test('the canonical link writes numbers the shortest way and leaves out an empty
   }
 })
 
+test('the canonical query is read from before the fragment and takes a long value', async () => {
+  const kinds = { whole: ['page'], floats: [], bools: [] }
+  // A ? inside the fragment is no query.
+  assert(renderQuery('/typed#?page=2', ['page'], kinds) === '', 'a fragment with a ?: ' + renderQuery('/typed#?page=2', ['page'], kinds))
+  assert(renderQuery('/typed?page=2#?page=3', ['page'], kinds) === '?page=2', 'the query before a fragment')
+  // A value too long to spread into a call is no number, and is kept as it is.
+  const long = '1'.repeat(300000)
+  assert(renderQuery('/typed?page=' + long, ['page'], kinds) === '?page=' + long, 'a long value')
+})
+
 test('the router reads the query of a route as Go does', async () => {
   const first = await client('/q?q=1.0')
   const { router, calls } = first
@@ -292,6 +302,32 @@ test('a Link with typed values is active at the address that has them', async ()
   const again = router.buildLocation({ to: '/typed', search: (prev: any) => ({ ...prev, page: prev.page + 1 }), from: '/typed' } as never)
   assert(again.href === '/typed?page=3&on=true&ids=1&ids=3&min=1.5', `next page ${again.href}`)
   assert(shown(router).search.page === 2 && shown(router).search.on === true, `match ${JSON.stringify(shown(router).search)}`)
+})
+
+test('a list is written as the address is read back, so a Link to it is active', async () => {
+  const active = (html: string, id: string) => /data-status="active"/.test(html.match(new RegExp('<a [^>]*id="' + id + '"[^>]*>'))?.[0] ?? '')
+  const href = (html: string, id: string) => html.match(new RegExp('<a [^>]*id="' + id + '"[^>]*href="([^"]*)"'))?.[1] ?? html.match(new RegExp('<a [^>]*href="([^"]*)"[^>]*id="' + id + '"'))?.[1]
+  // One element is the single text, as parseSearch reads ?ids=7.
+  const one = await render('/typed?ids=7', typedData)
+  assert(active(one, 'one') && !active(one, 'two'), 'at ?ids=7: one is active, two is not')
+  // Two or more are the array.
+  const two = await render('/typed?ids=7&ids=8', typedData)
+  assert(active(two, 'two') && !active(two, 'one'), 'at ?ids=7&ids=8: two is active, one is not')
+  // An empty list is no key.
+  const none = await render('/typed', typedData)
+  assert(active(none, 'none') && !active(none, 'one'), 'at /typed: none is active, one is not')
+  // The addresses the Links write are the ones the lists make.
+  assert(href(one, 'one') === '/typed?ids=7' && href(one, 'two') === '/typed?ids=7&amp;ids=8' && href(one, 'none') === '/typed', 'hrefs ' + [href(one, 'one'), href(one, 'two'), href(one, 'none')])
+  // The matches still hold the lists the field declares.
+  const { router } = await client('/typed?ids=7')
+  assert(JSON.stringify(shown(router).search.ids) === '[7]', 'ids ' + JSON.stringify(shown(router).search.ids))
+})
+
+test('a Link that names a parameter as undefined is not active where the address has it', async () => {
+  const html = await render('/typed?page=2', typedData)
+  const link = html.match(/<a [^>]*id="undef"[^>]*>/)?.[0] ?? ''
+  assert(link !== '' && !/data-status="active"/.test(link), 'undef: ' + link)
+  assert(/href="\/typed"/.test(link), 'href: ' + link)
 })
 
 test('a full page with a query that is not valid shows the TifaError of the route', async () => {
