@@ -171,8 +171,6 @@ func TestQueryDecodingRefusesWhatIsNotTheWrittenForm(t *testing.T) {
 		{"page=1&page=2", "page"}, {"page=&page=2", "page"}, {"status=a&status=b", "status"}, {"status=&status=", "status"},
 		// A number too small to hold reads as 0, which is not what was written.
 		{"min=0." + strings.Repeat("0", 400) + "1", "min"},
-		// Text that is not UTF-8 would come back from the page as another text.
-		{"status=%FF", "status"},
 	} {
 		var in queryInput
 		var e Error
@@ -189,6 +187,15 @@ func TestQueryDecodingRefusesWhatIsNotTheWrittenForm(t *testing.T) {
 	// The message does not carry a Go type.
 	if err := decodeRaw("page=x", &queryInput{}); err != nil && strings.Contains(err.Error(), "int") {
 		t.Errorf("the answer names a Go type: %v", err)
+	}
+}
+
+// Text that is not UTF-8 is not refused: the page shows U+FFFD for the byte, as the browser reads
+// the same address (the pages app checks the render in test/e2e).
+func TestQueryStringFieldTakesBytesThatAreNotUTF8(t *testing.T) {
+	var in queryInput
+	if err := decodeRaw("status=%FF", &in); err != nil || in.Status != "\xff" {
+		t.Fatalf("%v %q", err, in.Status)
 	}
 }
 

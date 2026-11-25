@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 // maxExact is the largest whole number a browser holds exactly, 2^53-1. The query string of a page
@@ -114,10 +113,8 @@ func setQueryField(f reflect.Value, values []string) error {
 func setQueryValue(f reflect.Value, s string) error {
 	switch f.Kind() {
 	case reflect.String:
-		// Text that is not UTF-8 leaves the page as U+FFFD, so it would not come back as written.
-		if !utf8.ValidString(s) {
-			return errQueryValue
-		}
+		// Text that is not UTF-8 is taken as it is: the page gets U+FFFD for each such byte, which is
+		// what the router reads from the same address in the browser.
 		f.SetString(s)
 	case reflect.Bool:
 		switch s {
