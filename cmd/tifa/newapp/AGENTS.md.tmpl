@@ -36,9 +36,8 @@ Never edit `.tifa/`. It is generated.
 - Return `tifa.Redirect(url, status)` to redirect. Return `tifa.ErrNotFound`, `tifa.Error{Status, Message}` or `tifa.Fields{"field": "message"}` (422) for an error that a page shows in the nearest `ErrorBoundary` as a `TifaError` and a handler answers as JSON. Any other error or a panic goes to `OnError`, or a logged 500. See `docs/pages-and-data/errors.md`.
 - A typed handler: `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`. Tifa decodes `in` from a JSON or form body (the query string for `GET` and `DELETE`), runs `in.Validate()` when it exists and writes the result as JSON. `func POST(c *tifa.Ctx) error` writes its own answer.
 - Data, inputs and results travel as JSON, and Tifa writes their TypeScript types. No interfaces, funcs or channels. A Go slice or map can be `null`, so write `?? []`. An integer above 9007199254740991 is refused where a page reads it: add `json:",string"` or send milliseconds.
-- `Load` and `Layout` take query parameters as a second parameter, `func Load(c *tifa.Ctx, q Filter) (T, error)`: a struct of strings, bools, numbers and slices, named by `json` tags. A value not in canonical form (`?page=02`) answers 400. See "Query parameters" in `docs/pages-and-data/loading-data.md`.
 - The build fails with the file and line when `Load` or `Layout`:
-  - calls `c.Query` or `c.QueryValues`, or `c.Param` other than directly with a constant string, such as `c.Param("order")`,
+  - calls `c.Query` or `c.QueryValues` (take `q Filter`, a struct, as the second parameter instead), or `c.Param` other than directly with a constant string,
   - calls `tifa.Use` with anything but a package-level `Layout` that wraps the caller,
   - passes `c` anywhere but a plain function or method of this module or of Tifa,
   - calls `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`.
