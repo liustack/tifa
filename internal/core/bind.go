@@ -16,10 +16,12 @@ import (
 	"strings"
 )
 
-// Bind decodes the request body into v by Content-Type: JSON, URL-encoded form or multipart form.
+// BindBody decodes the request body into v by Content-Type: JSON, URL-encoded form or multipart form.
 // A multipart form also fills the fields of type *multipart.FileHeader and []*multipart.FileHeader
-// with its files. Client mistakes come back as Error with status 400, 408, 413 or 415.
-func (c *Ctx) Bind(v any) error {
+// with its files. Client mistakes come back as Error with status 400, 408, 413 or 415. The generated
+// routes.go passes it to the adapters of the server package for the input of a POST, PUT or PATCH
+// handler.
+func BindBody(c *Ctx, v any) error {
 	mediaType, _, _ := mime.ParseMediaType(c.r.Header.Get("Content-Type"))
 	if mediaType == "application/json" {
 		// UnmarshalRead reads to the end of the body, so trailing data and an oversized body are not
@@ -67,7 +69,7 @@ func (c *Ctx) bindForm(mediaType string, v any, flat bool) error {
 // form body. Query parameters that name no field are ignored. A query string that does not parse,
 // or a value that does not, comes back as Error with status 400. Every exported field of v must be
 // one a form fills (see formTypeProblem), or BindQuery returns an error whatever the query holds.
-func (c *Ctx) BindQuery(v any) error {
+func BindQuery(c *Ctx, v any) error {
 	// URL.Query drops the parameters it cannot parse, so a broken one would look absent.
 	query, err := url.ParseQuery(c.r.URL.RawQuery)
 	if err != nil {

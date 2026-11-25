@@ -23,7 +23,7 @@ func (in noteInput) Validate(c *tifa.Ctx) error {
 }
 
 func validateCtxApp() App {
-	post := Input(func(c *tifa.Ctx, in noteInput) error { return nil }, (*tifa.Ctx).Bind)
+	post := Input(func(c *tifa.Ctx, in noteInput) error { return nil }, BindBody)
 	app := i18nTestApp(false)
 	app.Routes = append(app.Routes,
 		Route{ID: "app/store/notes/note+/route", Path: "/store/notes/{id}", POST: post, Languages: storeLanguages},
@@ -69,7 +69,7 @@ func TestValidateLanguageOutsideAreas(t *testing.T) {
 	if w := send(s, "POST", "/plain", `{"text":""}`); w.Code != 422 || !strings.Contains(w.Body.String(), "请输入内容") {
 		t.Errorf("outside every area: %d %s, want the default language", w.Code, w.Body.String())
 	}
-	plain := newAppServer(t, App{Routes: []Route{{ID: "app/plain/route", Path: "/plain", POST: Input(func(c *tifa.Ctx, in noteInput) error { return nil }, (*tifa.Ctx).Bind)}}})
+	plain := newAppServer(t, App{Routes: []Route{{ID: "app/plain/route", Path: "/plain", POST: Input(func(c *tifa.Ctx, in noteInput) error { return nil }, BindBody)}}})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/plain", strings.NewReader(`{"text":""}`))
 	r.Header.Set("Content-Type", "application/json")

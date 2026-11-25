@@ -41,13 +41,13 @@ func wireApp() App {
 	app.Routes = append(app.Routes,
 		Route{ID: "app/in", Path: "/in", POST: Input(func(c *tifa.Ctx, in loginInput) error {
 			return tifa.SetSession(c, &wireUser{ID: 1, Name: in.Name, Secret: "s"})
-		}, (*tifa.Ctx).Bind)},
+		}, BindBody)},
 		Route{ID: "app/inout", Path: "/inout", POST: InputOutput(func(c *tifa.Ctx, in loginInput) (map[string]string, error) {
 			return map[string]string{"hello": in.Name}, tifa.SetSession(c, &wireUser{ID: 1, Name: in.Name})
-		}, (*tifa.Ctx).Bind)},
-		Route{ID: "app/out", Path: "/out", POST: Input(func(c *tifa.Ctx, in loginInput) error { return tifa.ClearSession(c) }, (*tifa.Ctx).Bind),
+		}, BindBody)},
+		Route{ID: "app/out", Path: "/out", POST: Input(func(c *tifa.Ctx, in loginInput) error { return tifa.ClearSession(c) }, BindBody),
 			GET: Output(func(c *tifa.Ctx) (int, error) { return 7, nil })},
-		Route{ID: "app/same", Path: "/same", POST: Input(func(c *tifa.Ctx, in loginInput) error { return nil }, (*tifa.Ctx).Bind)},
+		Route{ID: "app/same", Path: "/same", POST: Input(func(c *tifa.Ctx, in loginInput) error { return nil }, BindBody)},
 		Route{ID: "app/go", Path: "/go", POST: func(c *tifa.Ctx) error {
 			if err := tifa.SetSession(c, &wireUser{ID: 1, Name: "Ann"}); err != nil {
 				return err
@@ -59,7 +59,7 @@ func wireApp() App {
 				return err
 			}
 			return tifa.Error{Status: 400, Message: "no"}
-		}, (*tifa.Ctx).Bind)},
+		}, BindBody)},
 	)
 	return app
 }

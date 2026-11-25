@@ -99,12 +99,12 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 ```
 
 - The input is a struct (not a pointer). POST, PUT and PATCH decode it from the body: JSON, or a URL-encoded or multipart form. GET and DELETE decode it from the query string, so only strings, numbers, bools and slices of them, with no `MarshalText` or `UnmarshalText` on a field type or its element (a form never calls them).
-- Fields are named by their `json` tags. A `form` tag fails the build, also in a struct passed to `c.Bind` or `c.BindQuery`, which name fields the same way.
+- Fields are named by their `json` tags. A `form` tag fails the build.
 - If the input type has `Validate() error` or `Validate(c *tifa.Ctx) error` (the Ctx gives `c.Language()` for a message in the visitor's language, and may only read the request), it runs before the handler. Return `tifa.Fields{"carrier": "pick a carrier"}` for a message per field (422). Collect into a `tifa.Fields{}` and end with `return fields.Err()`, which is nil when empty. Any other error answers 500 and its text stays in the log, as from a handler: return `tifa.Error{Status: 400, Message: "..."}` for a message the user should see.
 - A field of type `*multipart.FileHeader` or `[]*multipart.FileHeader` in a POST, PUT or PATCH input holds uploaded files (`Blob | null` and `Blob[]` in TypeScript). The generated function then sends a multipart form, and a JSON body gets 415. The other fields of that input follow the GET rules. Files only go in fields of the input itself: anywhere else fails the build. Check the bytes, not the name or Content-Type, and copy the file before the handler returns. Guide: uploads (`docs/guides/uploads.md`).
 - `c.SetBodyLimit(20 << 20)` and `c.SetReadTimeout(5 * time.Minute)` in `OnRequest`, before anything reads the body, replace `server.body_limit` and `server.read_timeout` for that request. Match `c.Pattern()` and the method (not the GET of a page). `BodyLimit` and `ReadTimeout` constants in `route.go` fail the build. They are going away in the next minor version: write `c.SetBodyLimit(20 << 20)` and `c.SetReadTimeout(5 * time.Minute)` in `OnRequest` instead, for the route's `c.Pattern()` and the POST method (`c.Request().Method == http.MethodPost`), before anything reads the body, and return the error of either call. Either may be a var, such as a `tifa.Size` setting. 408 when the body is too slow.
 - A body that does not decode answers 400 (413 over the body limit, 415 for another content type, 408 when it does not arrive in time). The handler does not run.
-- A handler that writes its own response reads input with `c.Bind(&in)` or `c.BindQuery(&in)`, and answers with `c.JSON`, `c.Text` or `c.NoContent`.
+- A handler that writes its own response reads the raw body from `c.Request()` and answers with `c.JSON`, `c.Text` or `c.NoContent`.
 - A POST, PUT, PATCH or DELETE sent by a browser from another site gets 403 before your code runs. See [build-and-deploy.md](build-and-deploy.md) for letting chosen origins through.
 
 ## Ctx
@@ -119,7 +119,6 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.Path()` | Path of the page as in the address bar: escaped, language prefix included, no query. Same for a page load and a navigation data request. A handler gets its own path. Not in `Layout` |
 | `c.SetHeader(k, v)`, `c.SetCookie(cookie)` | Response header and cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Write the response. Not allowed in `Load` or `Layout` |
-| `c.Bind(&v)`, `c.BindQuery(&v)` | Decode body or query into a struct. Not in `Load` |
 | `c.Request()`, `c.Writer()` | Raw request and writer. Method handlers and `OnRequest` only |
 
 Request-scoped values (the signed-in user) ride on the standard context: `OnRequest` passes `c.WithContext(context.WithValue(...))` to `next` and a domain package offers a typed getter. Domain code takes `context.Context`, not `*tifa.Ctx`.
@@ -130,7 +129,7 @@ At build time Tifa reads `Load`, `Layout` and the module functions they call, to
 
 - Pass `c.Param`, `c.Query` and `c.QueryValues` a constant string: `c.Param("order")`. A variable name fails the build.
 - Call them and `tifa.Use` directly. Storing the method in a variable or passing it as a value fails.
-- Do not call `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`. Read each query value with `c.Query("name")`. A body does not exist in a page load. The path of the page is `c.Path()` (not in a `Layout`, whose data is shared by the pages below it).
+- Do not call `c.Request()` or `c.Writer()`. Read each query value with `c.Query("name")`. A body does not exist in a page load. The path of the page is `c.Path()` (not in a `Layout`, whose data is shared by the pages below it).
 - `*tifa.Ctx` may be passed to a plain (non-generic) function of this module or of Tifa, or used for a direct method call. Converting it, returning it, putting it in a slice, map or channel, assigning to an existing variable, `go` or `defer` with it, passing it to an interface, a function variable, a generic function or a library function all fail the build, and the error names the file and line.
 - If a helper needs only the context, pass `c.Context()`.
 

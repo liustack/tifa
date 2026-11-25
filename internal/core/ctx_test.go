@@ -113,12 +113,12 @@ type input struct {
 func TestBindJSONAndForm(t *testing.T) {
 	c, _ := newCtx("POST", `{"name":"林夏","count":2}`, "application/json; charset=utf-8", 1024)
 	var in input
-	if err := c.Bind(&in); err != nil || in.Name != "林夏" || in.Count != 2 {
+	if err := BindBody(c, &in); err != nil || in.Name != "林夏" || in.Count != 2 {
 		t.Fatalf("%v %+v", err, in)
 	}
 	c, _ = newCtx("POST", "name=a&count=3&tag=x&tag=y&ready=true", "application/x-www-form-urlencoded", 1024)
 	in = input{}
-	if err := c.Bind(&in); err != nil || in.Name != "a" || in.Count != 3 || len(in.Tags) != 2 || !in.Ready {
+	if err := BindBody(c, &in); err != nil || in.Name != "a" || in.Count != 3 || len(in.Tags) != 2 || !in.Ready {
 		t.Fatalf("%v %+v", err, in)
 	}
 }
@@ -136,7 +136,7 @@ func TestBindReportsClientErrors(t *testing.T) {
 		c, _ := newCtx("POST", tc.body, tc.contentType, 1024)
 		var in input
 		var e Error
-		if err := c.Bind(&in); !errors.As(err, &e) || e.Status != tc.status {
+		if err := BindBody(c, &in); !errors.As(err, &e) || e.Status != tc.status {
 			t.Errorf("%s %q: got %v", tc.contentType, tc.body, err)
 		}
 	}
@@ -151,13 +151,13 @@ func TestBindRespectsBodyLimit(t *testing.T) {
 		}
 		var in input
 		var e Error
-		if err := c.Bind(&in); !errors.As(err, &e) || e.Status != http.StatusRequestEntityTooLarge {
+		if err := BindBody(c, &in); !errors.As(err, &e) || e.Status != http.StatusRequestEntityTooLarge {
 			t.Errorf("%s: got %v", contentType, err)
 		}
 	}
 	c, _ := newCtx("POST", body, "application/json", 1024)
 	var in input
-	if err := c.Bind(&in); err != nil {
+	if err := BindBody(c, &in); err != nil {
 		t.Fatalf("within limit: %v", err)
 	}
 }
@@ -221,7 +221,7 @@ func TestBindJSONReadsToEndOfBody(t *testing.T) {
 	for _, tc := range cases {
 		c, _ := newCtx("POST", tc.body, "application/json", 32)
 		var in input
-		err := c.Bind(&in)
+		err := BindBody(c, &in)
 		var e Error
 		if tc.status == 0 && err != nil || tc.status != 0 && (!errors.As(err, &e) || e.Status != tc.status) {
 			t.Errorf("%s: got %v, want status %d", tc.name, err, tc.status)
@@ -233,7 +233,7 @@ func TestBindFormUsesConfiguredLimitAboveTenMiB(t *testing.T) {
 	body := "name=" + strings.Repeat("x", 11<<20)
 	c, _ := newCtx("POST", body, "application/x-www-form-urlencoded", 16<<20)
 	var in input
-	if err := c.Bind(&in); err != nil || len(in.Name) != 11<<20 {
+	if err := BindBody(c, &in); err != nil || len(in.Name) != 11<<20 {
 		t.Fatalf("form within the configured limit: %v", err)
 	}
 	c, _ = newCtx("POST", body, "application/x-www-form-urlencoded", 16<<20)
@@ -241,7 +241,7 @@ func TestBindFormUsesConfiguredLimitAboveTenMiB(t *testing.T) {
 		t.Fatal(err)
 	}
 	var e Error
-	if err := c.Bind(&in); !errors.As(err, &e) || e.Status != http.StatusRequestEntityTooLarge {
+	if err := BindBody(c, &in); !errors.As(err, &e) || e.Status != http.StatusRequestEntityTooLarge {
 		t.Fatalf("form over a lowered limit: %v", err)
 	}
 }
@@ -346,14 +346,14 @@ func TestBindQuery(t *testing.T) {
 	r := httptest.NewRequest("GET", "/orders?status=open&page=2&tags=a&tags=b&Done=true&Skip=x&other=1&ptr=7&ptrs=8", nil)
 	c := New(httptest.NewRecorder(), r, "/orders", 1024)
 	var in filter
-	if err := c.BindQuery(&in); err != nil || in.Status != "open" || in.Page != 2 || len(in.Tags) != 2 || !in.Done || in.Skip != "" ||
+	if err := BindQuery(c, &in); err != nil || in.Status != "open" || in.Page != 2 || len(in.Tags) != 2 || !in.Done || in.Skip != "" ||
 		in.Ptr != 7 || len(in.Ptrs) != 1 || in.Ptrs[0] != 8 {
 		t.Fatalf("%v %+v", err, in)
 	}
 	r = httptest.NewRequest("GET", "/orders?page=two", nil)
 	c = New(httptest.NewRecorder(), r, "/orders", 1024)
 	var e Error
-	if err := c.BindQuery(&in); !errors.As(err, &e) || e.Status != 400 || e.Message != `invalid query parameter "page"` {
+	if err := BindQuery(c, &in); !errors.As(err, &e) || e.Status != 400 || e.Message != `invalid query parameter "page"` {
 		t.Fatalf("got %v", err)
 	}
 	// url.URL.Query drops what it cannot parse, which would decode as a missing field.
@@ -361,7 +361,7 @@ func TestBindQuery(t *testing.T) {
 		r = httptest.NewRequest("GET", "/orders", nil)
 		r.URL.RawQuery = query
 		c = New(httptest.NewRecorder(), r, "/orders", 1024)
-		if err := c.BindQuery(&filter{}); !errors.As(err, &e) || e.Status != 400 || e.Message != "invalid query string" {
+		if err := BindQuery(c, &filter{}); !errors.As(err, &e) || e.Status != 400 || e.Message != "invalid query string" {
 			t.Errorf("?%s: got %v", query, err)
 		}
 	}
@@ -536,7 +536,7 @@ func TestBindIgnoresFormTags(t *testing.T) {
 	}
 	c, _ := newCtx("POST", "name=a&n=b&Page=2&p=9", "application/x-www-form-urlencoded", 1024)
 	var got in
-	if err := c.Bind(&got); err != nil || got.Name != "a" || got.Page != 2 {
+	if err := BindBody(c, &got); err != nil || got.Name != "a" || got.Page != 2 {
 		t.Fatalf("%v %+v", err, got)
 	}
 }

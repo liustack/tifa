@@ -56,10 +56,10 @@ var App = server.App{
 			ID:      "app/api/health/route",
 			Path:    "/api/health",
 			Page:    false,
-			GET:     server.InputOutput(app_api_health.GET, (*tifa.Ctx).BindQuery),
+			GET:     server.InputOutput(app_api_health.GET, server.BindQuery),
 			POST:    app_api_health.POST,
 			PUT:     server.Output(app_api_health.PUT),
-			DELETE:  server.Input(app_api_health.DELETE, (*tifa.Ctx).BindQuery),
+			DELETE:  server.Input(app_api_health.DELETE, server.BindQuery),
 			SSR:     true,
 			Layouts: []string{"app/layout"},
 		},
@@ -94,7 +94,7 @@ var App = server.App{
 			Path:    "/projects/{projectId}/orders/{orderId}",
 			Page:    true,
 			Load:    func(c *tifa.Ctx) (any, error) { return tifa.Use(c, app_projects_projectId__orders_orderId_.Load) },
-			POST:    server.InputOutput(app_projects_projectId__orders_orderId_.POST, (*tifa.Ctx).Bind),
+			POST:    server.InputOutput(app_projects_projectId__orders_orderId_.POST, server.BindBody),
 			SSR:     true,
 			Layouts: []string{"app/layout", "app/projects/projectId+/layout"},
 		},
@@ -111,5 +111,5 @@ var App = server.App{
 	Settings: map[string]string{
 		"server.addr": "127.0.0.1:8090",
 	},
-	Fingerprint: "200df278d4edcbfeb398864d374abec3",
+	Fingerprint: "8feac37c8471cc68bcc5cd8d4ca6aa90",
 }

@@ -65,7 +65,7 @@ func content(t *testing.T, f *multipart.FileHeader) string {
 }
 
 func TestBindFillsTheFilesOfAMultipartForm(t *testing.T) {
-	for _, bind := range []func(*Ctx, any) error{(*Ctx).Bind, BindForm} {
+	for _, bind := range []func(*Ctx, any) error{BindBody, BindForm} {
 		body, contentType := formBody(t, [][2]string{{"title", "Sea"}},
 			[][3]string{{"photo", "sea.png", "png bytes"}, {"photos", "a.jpg", "a"}, {"photos", "b.jpg", "bb"}, {"cover", "", ""}})
 		c, _ := newCtx("POST", body.String(), contentType, 1<<20)
@@ -112,7 +112,7 @@ func TestBindFillsNamedFileTypes(t *testing.T) {
 // The multipart reader stops at the closing boundary, so data sent after it counts toward the
 // body limit too: a body over the limit is 413 before the handler, wherever the bytes are.
 func TestBindCountsDataAfterTheClosingBoundary(t *testing.T) {
-	for _, bind := range []func(*Ctx, any) error{(*Ctx).Bind, BindForm} {
+	for _, bind := range []func(*Ctx, any) error{BindBody, BindForm} {
 		body, contentType := formBody(t, [][2]string{{"title", "Sea"}}, [][3]string{{"photo", "sea.png", "png bytes"}})
 		form := body.Len()
 		body.WriteString(strings.Repeat("x", 64<<10))
@@ -138,7 +138,7 @@ func TestBindRefusesTextForAFile(t *testing.T) {
 	c, _ := newCtx("POST", body.String(), contentType, 1<<20)
 	var in upload
 	var e Error
-	if err := c.Bind(&in); !errors.As(err, &e) || e.Status != 400 || e.Message != `invalid form field "photo"` {
+	if err := BindBody(c, &in); !errors.As(err, &e) || e.Status != 400 || e.Message != `invalid form field "photo"` {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -188,7 +188,7 @@ func TestFormDecodingRefusesTextMethods(t *testing.T) {
 			c, _ := newCtx("GET", "", "", 1<<20)
 			c.r.URL.RawQuery = query
 			var e Error
-			err := c.BindQuery(in)
+			err := BindQuery(c, in)
 			if err == nil || errors.As(err, &e) || !strings.Contains(err.Error(), "query string") {
 				t.Errorf("BindQuery %T from %q: got %v, %+v", in, query, err, in)
 			}
@@ -219,7 +219,7 @@ func TestFormDecodingRefusesFileTypesWithTextMethods(t *testing.T) {
 	c, _ := newCtx("GET", "", "", 1<<20)
 	var e Error
 	var in input
-	if err := c.BindQuery(&in); err == nil || errors.As(err, &e) || !strings.Contains(err.Error(), "file") {
+	if err := BindQuery(c, &in); err == nil || errors.As(err, &e) || !strings.Contains(err.Error(), "file") {
 		t.Errorf("BindQuery: got %v", err)
 	}
 	body, contentType := formBody(t, [][2]string{{"title", "Sea"}}, [][3]string{{"files", "sea.png", "png"}})
@@ -231,13 +231,13 @@ func TestFormDecodingRefusesFileTypesWithTextMethods(t *testing.T) {
 	body, contentType = formBody(t, [][2]string{{"title", "Sea"}}, [][3]string{{"files", "sea.png", "png"}})
 	c, _ = newCtx("POST", body.String(), contentType, 1<<20)
 	in = input{}
-	if err := c.Bind(&in); err != nil || in.Title != "Sea" || in.Files != nil {
+	if err := BindBody(c, &in); err != nil || in.Title != "Sea" || in.Files != nil {
 		t.Errorf("Bind with a file: got %v, %+v", err, in)
 	}
 	body, contentType = formBody(t, [][2]string{{"title", "Sea"}, {"files", "a,b"}}, nil)
 	c, _ = newCtx("POST", body.String(), contentType, 1<<20)
 	in = input{}
-	if err := c.Bind(&in); !errors.As(err, &e) || e.Status != 400 {
+	if err := BindBody(c, &in); !errors.As(err, &e) || e.Status != 400 {
 		t.Errorf("Bind with text: got %v, %+v", err, in)
 	}
 }
@@ -255,14 +255,14 @@ func TestBindFormLeavesFieldsAFormDoesNotFill(t *testing.T) {
 	}
 	c, _ := newCtx("POST", "title=Sea", "application/x-www-form-urlencoded", 1<<20)
 	var in input
-	if err := c.Bind(&in); err != nil || in.Title != "Sea" {
+	if err := BindBody(c, &in); err != nil || in.Title != "Sea" {
 		t.Fatalf("got %v, %+v", err, in)
 	}
 	for _, body := range []string{"title=Sea&tags=a,b", "title=Sea&inner=x"} {
 		c, _ := newCtx("POST", body, "application/x-www-form-urlencoded", 1<<20)
 		var in input
 		var e Error
-		if err := c.Bind(&in); !errors.As(err, &e) || e.Status != 400 {
+		if err := BindBody(c, &in); !errors.As(err, &e) || e.Status != 400 {
 			t.Errorf("%s: got %v, %+v", body, err, in)
 		}
 	}
@@ -314,7 +314,7 @@ func TestBindReportsAReadDeadlineAs408(t *testing.T) {
 		c := New(httptest.NewRecorder(), r, "/photos", 1<<20)
 		var in upload
 		var e Error
-		if err := c.Bind(&in); !errors.As(err, &e) || e.Status != http.StatusRequestTimeout {
+		if err := BindBody(c, &in); !errors.As(err, &e) || e.Status != http.StatusRequestTimeout {
 			t.Errorf("%s: got %v", tc.contentType, err)
 		}
 	}

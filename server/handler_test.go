@@ -41,11 +41,11 @@ func typedApp(shipped *[]string) App {
 		ID: "app/orders/order+/route", Path: "/orders/{order}", SSR: true,
 		GET: InputOutput(func(c *tifa.Ctx, in listInput) ([]string, error) {
 			return []string{c.Param("order"), in.Status}, nil
-		}, (*tifa.Ctx).BindQuery),
+		}, BindQuery),
 		POST: Input(func(c *tifa.Ctx, in shipInput) error {
 			*shipped = append(*shipped, in.Carrier)
 			return nil
-		}, (*tifa.Ctx).Bind),
+		}, BindBody),
 		PUT: Output(func(c *tifa.Ctx) (shipment, error) {
 			return shipment{Carrier: "SF", Order: c.Param("order")}, nil
 		}),
@@ -58,7 +58,7 @@ func typedApp(shipped *[]string) App {
 				return nil, fmt.Errorf("ship: %w", err)
 			}
 			return &shipment{Carrier: in.Carrier, Order: c.Param("order")}, nil
-		}, (*tifa.Ctx).Bind),
+		}, BindBody),
 	}}}
 }
 

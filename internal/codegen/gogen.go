@@ -213,10 +213,10 @@ type goImports struct {
 // for an input that holds files.
 func (g *goImports) handler(path, dir string, h analyze.Handler) string {
 	fn := g.alias(path, dir) + "." + h.Method
-	bind := "(*tifa.Ctx).Bind"
+	bind := "server.BindBody"
 	switch {
 	case h.Method == "GET" || h.Method == "DELETE":
-		bind = "(*tifa.Ctx).BindQuery"
+		bind = "server.BindQuery"
 	case h.Form:
 		bind = "server.BindForm"
 	}
