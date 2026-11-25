@@ -83,6 +83,10 @@ func TestUILibsApp(t *testing.T) {
 		}
 	})
 
+	// styled-components and Ant Design are here because their code once made the build run without
+	// end, not as libraries Tifa keeps working (docs/internals/decisions.md, a place for styles
+	// collected after the render). When an upgrade breaks what the next two say about their styles,
+	// drop that part and keep the build and the render.
 	t.Run("styled", func(t *testing.T) {
 		// styled-components keeps the styles of a server render in a sheet, and nothing writes them
 		// out unless the app does. A page without the sheet in the tree has class names and no CSS.
