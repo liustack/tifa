@@ -239,6 +239,11 @@ func (c *tsChecker) encode(t types.Type, path string, quoted bool) (ts string) {
 	}
 
 	if n, ok := t.(*types.Named); ok {
+		if c.decls != nil {
+			if ts, ok := c.namedStruct(n, path); ok {
+				return ts
+			}
+		}
 		key := tsKey{types.TypeString(n, nil), quoted}
 		if c.decls != nil {
 			if name, ok := c.decls.declared[key]; ok {
@@ -376,8 +381,18 @@ type jsonField struct {
 	quoted   bool
 }
 
-// object mirrors makeStructFields of json v2: a breadth-first walk over embedded structs, then the dominance rules.
+// object writes the properties of s on one line.
 func (c *tsChecker) object(s *types.Struct, path string) string {
+	props := c.objectProps(s, path)
+	if len(props) == 0 {
+		return "{}"
+	}
+	return "{ " + strings.Join(props, "; ") + " }"
+}
+
+// objectProps lists the properties of s, as "name: type". It mirrors makeStructFields of json v2:
+// a breadth-first walk over embedded structs, then the dominance rules.
+func (c *tsChecker) objectProps(s *types.Struct, path string) []string {
 	type level struct {
 		s          *types.Struct
 		key        string
@@ -552,10 +567,7 @@ func (c *tsChecker) object(s *types.Struct, path string) string {
 		}
 		props[i] = tsPropertyName(f.name) + opt + ": " + ts
 	}
-	if len(props) == 0 {
-		return "{}"
-	}
-	return "{ " + strings.Join(props, "; ") + " }"
+	return props
 }
 
 // stringOptionType reports whether the string tag option is accepted on a field of type t: json v2

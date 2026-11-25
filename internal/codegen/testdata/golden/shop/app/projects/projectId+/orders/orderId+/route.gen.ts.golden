@@ -2,15 +2,23 @@
 import { getRouteApi } from "@tanstack/react-router"
 import { call, segment, type CallOptions } from "../../../../../runtime/call"
 
+export type Order = {
+  id: string
+  total: number
+}
+export type ShipInput = {
+  carrier: string
+}
+
 // PageData is what the Go Load function of app/projects/projectId+/orders/orderId+ returns, as JSON.
-export type PageData = { id: string; total: number } | null
+export type PageData = Order | null
 
 export type Params = { projectId: string; orderId: string }
 
 export const page = getRouteApi("/_app/projects/$projectId/orders/$orderId")
 
-export type POSTInput = { carrier: string }
-export type POSTOutput = { id: string; total: number }
+export type POSTInput = ShipInput
+export type POSTOutput = Order
 
 // POST sends a request to the Go POST handler of app/projects/projectId+/orders/orderId+.
 // It resolves to undefined when the handler or OnRequest redirects.

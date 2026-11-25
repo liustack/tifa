@@ -199,7 +199,7 @@ func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, v
 	modules := map[string]*routeGen{}
 	moduleOf := func(dir string, segs []pathSeg) *routeGen {
 		if modules[dir] == nil {
-			modules[dir] = &routeGen{dir: dir, segs: segs}
+			modules[dir] = &routeGen{dir: dir, pkg: m.Module + "/" + dir, segs: segs}
 		}
 		return modules[dir]
 	}
@@ -1061,6 +1061,7 @@ func subtree(r *tsRoute) string {
 // directory, as nodes of the route tree, and its method handlers.
 type routeGen struct {
 	dir      string
+	pkg      string // the import path of the Go package of dir
 	segs     []pathSeg
 	page     *tsNode // nil without page.tsx
 	layout   *tsNode // nil without a Layout
@@ -1075,27 +1076,31 @@ type routeGen struct {
 // Params for its path parameters, and a function per method handler, named after its method,
 // that sends a request to it.
 func routeModule(g *routeGen) ([]byte, error) {
-	// The data and the inputs and results of the handlers share the declarations of recursive types.
+	// The data and the inputs and results of the handlers share the declarations of the structs.
+	// exports names what the module exports for each type.
 	var goTypes []types.Type
+	var exports []string
 	for _, n := range []*tsNode{g.layout, g.page} {
 		if n != nil && n.load != nil {
 			if n.load.Result == nil {
 				return nil, fmt.Errorf("codegen: %s: the manifest carries no Load result type, analyze the application in this process", n.id)
 			}
 			goTypes = append(goTypes, n.load.Result)
+			exports = append(exports, map[string]string{"layout": "LayoutData", "route": "PageData"}[n.file])
 		}
 	}
 	for _, h := range g.handlers {
 		if (h.Input != "") != (h.InputType != nil) || (h.Output != "") != (h.OutputType != nil) {
 			return nil, fmt.Errorf("codegen: %s: the manifest carries no types of %s, analyze the application in this process", g.dir, h.Method)
 		}
-		for _, t := range []types.Type{h.InputType, h.OutputType} {
+		for i, t := range []types.Type{h.InputType, h.OutputType} {
 			if t != nil {
 				goTypes = append(goTypes, t)
+				exports = append(exports, h.Method+[]string{"Input", "Output"}[i])
 			}
 		}
 	}
-	shapes, decls, html, err := analyze.TSShapes(goTypes)
+	shapes, decls, html, err := analyze.TSShapes(goTypes, analyze.TSScope{Own: g.pkg, Exports: exports})
 	if err != nil {
 		return nil, fmt.Errorf("codegen: %s: %w", g.dir, err)
 	}
@@ -1146,7 +1151,9 @@ func routeModule(g *routeGen) ([]byte, error) {
 		} else {
 			fmt.Fprintf(&b, "// %s has no Go %s function.\n", g.dir, fn)
 		}
-		fmt.Fprintf(&b, "export type %s = %s\n\n", name, shape)
+		if shape != name { // the struct of that very name is declared above
+			fmt.Fprintf(&b, "export type %s = %s\n\n", name, shape)
+		}
 	}
 	if g.layout != nil {
 		data(g.layout, "LayoutData", "Layout")
@@ -1184,12 +1191,16 @@ func routeModule(g *routeGen) ([]byte, error) {
 		}
 		result, answer := "Response", "raw"
 		if h.Input != "" {
-			fmt.Fprintf(&b, "export type %sInput = %s\n", h.Method, next())
+			if shape := next(); shape != h.Method+"Input" {
+				fmt.Fprintf(&b, "export type %sInput = %s\n", h.Method, shape)
+			}
 			options = append(options, fmt.Sprintf("{ input: %sInput }", h.Method))
 			result, answer = "void", "none"
 		}
 		if h.Output != "" {
-			fmt.Fprintf(&b, "export type %sOutput = %s\n", h.Method, next())
+			if shape := next(); shape != h.Method+"Output" {
+				fmt.Fprintf(&b, "export type %sOutput = %s\n", h.Method, shape)
+			}
 			// The promise of a redirected call resolves to undefined, see call in
 			// js/runtime/call.ts. Whether a handler redirects is not known statically: OnRequest
 			// may redirect any request, and a redirect is an error value that can come from
@@ -1260,7 +1271,7 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 	if s.ExposedResult == nil {
 		return nil, fmt.Errorf("codegen: the manifest carries no Exposed result type, analyze the application in this process")
 	}
-	shape, decls, html, err := analyze.TSShape(s.ExposedResult)
+	shape, decls, html, err := analyze.TSShape(s.ExposedResult, analyze.TSScope{Own: s.Package, Exports: []string{"SessionData"}})
 	if err != nil {
 		return nil, fmt.Errorf("codegen: session Exposed result: %w", err)
 	}
@@ -1274,7 +1285,9 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 		b.WriteString("\n")
 	}
 	b.WriteString("// SessionData is what the Exposed method of the session type returns, as JSON.\n")
-	fmt.Fprintf(&b, "export type SessionData = %s\n", shape)
+	if shape != "SessionData" {
+		fmt.Fprintf(&b, "export type SessionData = %s\n", shape)
+	}
 	return []byte(b.String()), nil
 }
 
