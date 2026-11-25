@@ -79,6 +79,12 @@ type server struct {
 	front     atomic.Pointer[front]
 	rendering sync.RWMutex
 	memo      *renderMemo
+	// lists holds the newest checked list of the site files for each language, see listedPages.
+	lists  map[string]siteList
+	listMu sync.Mutex
+	// fixedKey is the hash siteFixed makes once.
+	fixedOnce sync.Once
+	fixedKey  string
 	// dev answers the requests of tifa dev under /__tifa/dev/, set only by DevMain for an app with
 	// pages.
 	dev http.Handler
@@ -99,7 +105,7 @@ func newServer(cfg config.Config, hooks Hooks) *server {
 	s := &server{
 		cfg: cfg.Server, hooks: hooks, mux: http.NewServeMux(),
 		routes: map[string]map[string]func(*tifa.Ctx) error{}, pages: map[string]bool{}, uncached: map[string]bool{}, query: map[string][]string{}, kinds: map[string]queryKinds{}, shared: map[string]time.Duration{},
-		modules: map[string][]string{}, layouts: map[string]layoutChain{}, memo: newRenderMemo(cfg.SSR.MemoSize),
+		modules: map[string][]string{}, layouts: map[string]layoutChain{}, memo: newRenderMemo(cfg.SSR.MemoSize), lists: map[string]siteList{},
 		langs: map[string][]string{}, layoutLangs: map[string][]string{},
 	}
 	s.crossSite = crossSiteProtection(cfg.Server)

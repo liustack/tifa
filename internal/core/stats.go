@@ -8,7 +8,8 @@ import (
 // Stats is what the running server reports about its VM pool and its render memo, see ReadStats.
 type Stats struct {
 	SSR SSRStats
-	// Memo counts the renders of pages.
+	// Memo counts the renders of pages and the answers for the files of the site (sitemap.xml, llms.txt
+	// and the Markdown of a page).
 	Memo MemoStats
 	// MemoBytes is what the render memo holds now, and MemoSize what it may hold (ssr.memo_size).
 	MemoBytes, MemoSize int64
@@ -39,7 +40,7 @@ type SSRStats struct {
 // keeps now.
 type MemoStats struct {
 	Entries int
-	// Hits are answered from an entry. Misses made the page, and Shared waited for a page another
+	// Hits are answered from an entry. Misses made the page or the file, and Shared waited for a page another
 	// request was making at the time. Evictions are the entries dropped, the least recently used
 	// first, to make room for another.
 	Hits, Misses, Shared, Evictions uint64

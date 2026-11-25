@@ -309,13 +309,22 @@ func TestEachSitemapMistakeIsLoggedAndLeftOut(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newSiteServer(t, siteApp(), siteDist())
 			s.sitemap = func(*tifa.Ctx) (tifa.Sitemap, error) { return tc.sm, nil }
-			for _, p := range []string{"/sitemap.xml", "/llms-full.txt", "/llms.txt"} {
+			// The mistake is logged when the list is checked, which the first file does, and once
+			// for the list: the other files reuse the pages.
+			for i, p := range []string{"/sitemap.xml", "/llms-full.txt", "/llms.txt"} {
 				log.Reset()
 				w := get(s, p)
 				if w.Code != 200 {
 					t.Fatalf("GET %s: %d %s", p, w.Code, w.Body.String())
 				}
-				if got := strings.TrimSpace(log.String()); strings.Count(got, "\n") != 0 || !strings.Contains(got, "level=ERROR") || !strings.Contains(got, tc.log) {
+				got := strings.TrimSpace(log.String())
+				if i > 0 {
+					if got != "" {
+						t.Errorf("GET %s logged again:\n%s", p, got)
+					}
+					continue
+				}
+				if strings.Count(got, "\n") != 0 || !strings.Contains(got, "level=ERROR") || !strings.Contains(got, tc.log) {
 					t.Errorf("GET %s logged:\n%s\nwant one line with %q", p, got, tc.log)
 				}
 			}
@@ -351,7 +360,7 @@ func TestEachSitemapMistakeIsLoggedAndLeftOut(t *testing.T) {
 
 // A route with parameters that has no page in the sitemap, such as a blog without posts yet, and a
 // Path that no route matches leave their pages out: the files answer with the rest, and each
-// request logs one error line that names what is missing.
+// list logs one error line that names what is missing, when the list is checked.
 func TestSitemapMismatchesAreLoggedAndLeftOut(t *testing.T) {
 	var log bytes.Buffer
 	defer func(l *slog.Logger) { slog.SetDefault(l) }(slog.Default())
@@ -364,7 +373,7 @@ func TestSitemapMismatchesAreLoggedAndLeftOut(t *testing.T) {
 			{Language: "zh-CN", Path: "/also/nowhere"},
 		}}, nil
 	}
-	for _, p := range []string{"/sitemap.xml", "/llms.txt", "/llms-full.txt"} {
+	for i, p := range []string{"/sitemap.xml", "/llms.txt", "/llms-full.txt"} {
 		log.Reset()
 		w := get(s, p)
 		if w.Code != 200 || p != "/llms-full.txt" && !strings.Contains(w.Body.String(), "https://shop.example.com/store") || strings.Contains(w.Body.String(), "nowhere") {
@@ -372,6 +381,12 @@ func TestSitemapMismatchesAreLoggedAndLeftOut(t *testing.T) {
 		}
 		if p != "/llms-full.txt" && !strings.Contains(w.Body.String(), "https://shop.example.com/en-US/store/journal/hi") {
 			t.Errorf("GET %s lacks the page listed: %s", p, w.Body.String())
+		}
+		if i > 0 {
+			if log.Len() != 0 {
+				t.Errorf("GET %s logged again: %s", p, log.String())
+			}
+			continue
 		}
 		lines := strings.Split(strings.TrimSpace(log.String()), "\n")
 		if len(lines) != 2 ||

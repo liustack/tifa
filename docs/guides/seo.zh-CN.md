@@ -2,7 +2,7 @@
 summary: '搜索引擎和语言模型怎样找到 Tifa 站点：site.url、sitemap.xml、robots.txt、llms.txt、og 标签'
 audience: app
 order: 8
-translatedFrom: 8d83d5178c3b
+translatedFrom: 3b08dc8a05c1
 read_when:
   - '设置页面的标题、描述或分享卡片（`og:title`、`og:image`、`twitter:card`），或者站点链接在聊天或信息流里不显示图片'
   - '让搜索引擎收录 Tifa 站点，或者添加 sitemap 或 robots.txt'
@@ -133,7 +133,7 @@ func sitemap(c *tifa.Ctx) (tifa.Sitemap, error) {
 }
 ```
 
-这个函数在每个对 `/sitemap.xml`、`/llms.txt`、`/llms-full.txt` 和 `.md` 路径的请求上运行，所以到了日期才发布的文章，从那一刻起就在 sitemap 里了。要保持它很快：读内存里已有的东西，比如内容集合，或者只跑一次查询。`SetSitemap` 和 `SetHTTPHandler` 一样，服务器开始监听之后调用会 panic。
+这个函数在每个对 `/sitemap.xml`、`/llms.txt`、`/llms-full.txt` 和 `.md` 路径的请求上运行，所以到了日期才发布的文章，从那一刻起就在 sitemap 里了。只要列表和上一次一样，这些文件就不会重新生成：Tifa 按函数返回的内容，把每个文件保存在[渲染记忆](../reference/memo.zh-CN.md#site-files)里，发送时带 `ETag`，客户端已有该文件时得到 304。所以 `llms-full.txt` 不会每次都把每个条目的 Markdown 重新读一遍，一个抓取所有 `.md` 的爬虫也不用每页都付一次整张列表的代价。列表变了，比如有了新文章或新标题，下一次请求就能看到。函数每次仍然会运行，所以要保持它很快：读内存里已有的东西，比如内容集合，或者只跑一次查询。`SetSitemap` 和 `SetHTTPHandler` 一样，服务器开始监听之后调用会 panic。
 
 这个函数放在根包里，在 `hooks.go` 旁边。它可以直接读 `content.go` 里的集合。要读 `app/` 下的某个域，根包必须能导入它：见 [导入的方向](../start/structure.zh-CN.md#which-way-imports-go)。
 
@@ -263,7 +263,7 @@ Sitemap: https://shop.example.com/sitemap.xml
 
 sitemap、`llms` 文件和 Markdown 版本和其他请求一样：`OnRequest` 会为它们运行，`c.Pattern()` 是 `/sitemap.xml`、`/llms.txt`、`/llms-full.txt`，或者页面带 `.md` 的路由，比如 `/blog/{slug}.md`（`/` 对应 `/index.md`）。`c.Language()` 对 `.md` 路径是页面的语言，对其他文件是默认语言。在 `OnRequest` 里把未登录的访客送到登录页面的守卫，也会守住这些文件，所以在不该拦的时候要放行。
 
-函数返回的内容里有错误，绝不会让请求失败。出错的页面或 `Exclude` 模式会被略去，文件用其余的内容响应，每个请求为每一种错误记一行 `ERROR` 日志，指出页面（按路径和语言）或模式：
+函数返回的内容里有错误，绝不会让请求失败。出错的页面或 `Exclude` 模式会被略去，文件用其余的内容响应，每一种错误记一行 `ERROR` 日志，指出页面（按路径和语言）或模式。这一行在检查一份列表时写出，函数每返回一份新列表写一次（每种语言各一次），不是每个请求或每个文件都写：
 
 | 错误 | 会怎样 |
 | --- | --- |

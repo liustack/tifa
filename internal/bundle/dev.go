@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/liustack/tifa/internal/content"
 	"github.com/liustack/tifa/internal/foreign"
@@ -49,8 +51,11 @@ type Dev struct {
 	links    *content.Links
 	headings map[string][]content.Heading
 	// bodies counts the conversions, each of which writes its bodies into a folder of its own,
-	// see Content. last is the one of the last conversion that worked, loaded the one the app
-	// loaded last, 0 for none.
+	// see Content. It starts from a number of its own for each run (NewDev), so that the file of a
+	// body is never one an earlier run wrote: the build ID of tifa dev leaves the content out, so
+	// that file name is what tells a client that kept an ETag (a site file, a page) that the text
+	// changed. last is the one of the last conversion that worked, loaded the one the app loaded
+	// last, 0 for none.
 	bodies, last, loaded int
 
 	// What the last Build that worked used, for Styles: the public folder, the files the SSR bundle
@@ -121,6 +126,9 @@ func (d *Dev) Styles(ctx context.Context) error {
 	return writeInputs(d.root, d.dist, d.public, d.modules, d.incomplete)
 }
 
+// devRuns tells the runs of one process apart, where the clock gives two of them the same time.
+var devRuns atomic.Int64
+
 // NewDev prepares the dev build of the application at root, with Vite's dev server on
 // 127.0.0.1:port once the application has pages. output receives what Node and Vite print.
 // Nothing runs before the first call that needs Node.
@@ -140,6 +148,7 @@ func NewDev(root string, port int, output io.Writer, notices Notices) (*Dev, err
 	return &Dev{
 		node: n,
 		root: root, dist: filepath.Join(root, ".tifa", "dist"), port: port,
+		bodies: int(time.Now().UnixNano()) + int(devRuns.Add(1)),
 	}, nil
 }
 

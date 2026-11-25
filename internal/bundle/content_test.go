@@ -399,3 +399,21 @@ func TestDevKeepsTheBodiesTheAppLoaded(t *testing.T) {
 		t.Errorf("a:\n%s", got)
 	}
 }
+
+// Each tifa dev run numbers the folders of its conversions from a number of its own, so that the
+// file of a body that a run wrote is not the file another run wrote: the page of the app, and the
+// ETag of a site file, which hold that file's name, follow the text.
+func TestDevRunsNumberTheirBodyFoldersApart(t *testing.T) {
+	root := t.TempDir()
+	seen := map[int]bool{}
+	for range 5 {
+		d, err := NewDev(root, freePort(t), io.Discard, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.bodies <= 0 || seen[d.bodies] {
+			t.Fatalf("a run starts counting its conversions at %d, as a run before it did or from nothing", d.bodies)
+		}
+		seen[d.bodies] = true
+	}
+}
