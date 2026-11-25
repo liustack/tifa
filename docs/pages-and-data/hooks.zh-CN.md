@@ -2,7 +2,7 @@
 summary: '怎样在 hooks.go 和 setup.ts 里设置整个应用：OnStart、OnShutdown、OnRequest、OnError、中间件'
 audience: app
 order: 11
-translatedFrom: 1aabb4733d07
+translatedFrom: 7c9ca81f6fb9
 read_when:
   - '在程序启动时打开数据库、开始工作或设置日志，或者让程序干净地停下'
   - '编写 `OnRequest` 或 `OnError`，或者用 `tifa.SetHTTPHandler` 给应用包一层 `net/http` 中间件'
@@ -25,7 +25,7 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 
 - `OnStart` 拿到的是程序的 context：程序收到 SIGINT 或 SIGTERM 时它就结束。把它传给可能要等待的调用，比如 `db.PingContext(ctx)`，这样按 Ctrl-C 时就不用等一个永远不回答的数据库。如果 `OnStart` 返回错误，程序就停止。`OnStart` 返回之后 `ctx` 仍然有效，所以 goroutine 可以监视它，但停止信号一到它就结束了：比正在处理的请求完成更早，也比 `OnShutdown` 运行更早。由请求喂数据的工作，比如任务队列，在它自己的 context 上运行，由 `OnShutdown` 来取消，所以最后几个请求排进去的任务仍然会运行（见 [后台任务](../guides/jobs.zh-CN.md)）。
 - `OnShutdown` 在正在处理的请求都返回之后运行。自己没有结束时刻的流式处理函数，比如 server-sent events，会让它一直等到 `server.shutdown_timeout`：它应该在 `tifa.ShuttingDown(c.Context())` 关闭时返回，也就是停止一开始的时候（见 [流式响应](../guides/streaming.zh-CN.md#when-the-program-stops)）。
-- `OnRequest` 对页面、导航数据请求、API 路由和未匹配的 URL 运行。它不对静态文件运行，也看不到从别的站点发来的写请求：程序会先用 403 拒绝它（见 [跨站写请求](../build-and-deploy/config.zh-CN.md#cross-site-writes)）。它看到的 [安全头](../build-and-deploy/config.zh-CN.md#security-headers) 已经设好了，可以修改。对未匹配的 URL，`c.Pattern()` 为空，`next(c)` 会运行它的 404 页面所在的布局（见 [404](errors.zh-CN.md#404)）。在带 `Cache` 的页面上，它看到的是匿名请求，没有 cookie、会话和大多数头（见 [给 CDN 用的缓存](ssr-and-cache.zh-CN.md#cache-for-cdns)）。
+- `OnRequest` 对页面、导航数据请求、API 路由和未匹配的 URL 运行。它不对静态文件运行，也看不到从别的站点发来的写请求：程序会先用 403 拒绝它（见 [跨站写请求](../build-and-deploy/config.zh-CN.md#cross-site-writes)）。它看到的 [安全头](../build-and-deploy/config.zh-CN.md#security-headers) 已经设好了，可以修改。对未匹配的 URL，`c.Pattern()` 为空，`next(c)` 会运行它的 404 页面所在的布局（见 [404](errors.zh-CN.md#404)）。在带 `Cache` 的页面上，它看到的是匿名请求，没有 cookie、会话和大多数头（见 [给 CDN 用的缓存](ssr-and-cache.zh-CN.md#cache-for-cdns)）。 Tifa 默认防住了什么、还有什么留给你，见[安全](../guides/security.zh-CN.md)。
 - 整个应用共享的资源，比如数据库连接或日志器，放在应用根目录里、与 `hooks.go` 同级的文件中，例如 `db.go` 或 `middleware.go`。每个文件构建一个包级变量或函数：在 `OnStart` 里设置，在 `OnShutdown` 里释放，在任何地方直接使用，例如导入 `example.com/myapp` 之后用 `myapp.DB`。`app/` 下的各个域为此导入根包。模型和查询留在各自的域里。路由代码只在函数内部使用这些资源，绝不在包级变量初始化时使用。不要用 `init()` 做设置。见 [导入的方向](../start/structure.zh-CN.md#which-way-imports-go)。
 - `next` 运行匹配到的路由，只能运行一次。第二次调用会返回错误。传给它路由应该看到的 `*tifa.Ctx`：`next(c)`，或者用 `next(c.WithContext(ctx))` 把请求范围的值存进标准 context，就像 `r.WithContext(ctx)` 对请求所做的那样。`c.WithContext` 返回一个副本，不改动 `c`。业务包提供带类型的 getter。
 - `next` 返回的错误可以用 `errors.Is` 和 `errors.As` 识别，重定向是 `*tifa.RedirectError`，因为所有 VM 都忙而被拒绝的渲染是 `tifa.ErrSSRBusy`（见 [处理被拒绝的渲染](../build-and-deploy/config.zh-CN.md#handling-a-rejected-render)）。
