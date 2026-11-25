@@ -5,7 +5,7 @@
 
 This is a [Tifa](https://github.com/liustack/tifa) app. Go routes requests, loads data and runs the hooks. React pages render to HTML inside the Go process (beastjs, no Node at run time), and TanStack Router takes over in the browser. The build bundles the front end with Vite, on Node, and makes one executable that needs no Node.
 
-Before you change code, read the docs that apply. [Docs](#docs) at the end of this block lists them, and they are those of the Tifa version in `go.mod`. Do not read the docs on GitHub, which belong to the main branch.
+Before you change code, read the docs that apply. [Docs](#docs) at the end of this block names them, and `go tool tifa docs` says what each one covers. They are those of the Tifa version in `go.mod`. Do not read the docs on GitHub, which belong to the main branch.
 
 ## Commands
 
@@ -17,8 +17,8 @@ Before you change code, read the docs that apply. [Docs](#docs) at the end of th
 | `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build, those of the browser too. Run it after a change and after you open the pages you changed. Exits with 1 when there are errors |
 | `go tool tifa check` | The one command to run before you finish: the routing conventions, `.tifa/`, `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end and build `bin/` |
-| `go tool tifa routes` | List the routes and their URLs, and the addresses Tifa answers itself (sitemap, robots.txt, session, assets, public files) |
-| `go tool tifa docs` | Print the docs folder of this Tifa version and its docs |
+| `go tool tifa routes` | List the routes, their URLs and the addresses Tifa answers itself |
+| `go tool tifa docs` | Print the docs folder of this Tifa version and what each doc covers |
 | `go tool tifa agents` | Write this block and the skill in `.claude/skills/tifa/` again for the Tifa in `go.mod` |
 | `go tool tifa upgrade [version]` | Move the app to a newer Tifa (not a hand-made `go get`) and print the `Upgrading:` notes to act on |
 
@@ -72,7 +72,7 @@ Never edit `.tifa/`. It is generated.
 
 ## Docs
 
-The paths below are relative to the folder of the Tifa module in `go.mod`, which `go tool tifa docs` prints. Open the files there. Each has a Chinese copy beside it, `<name>.zh-CN.md`.
+`go tool tifa docs` prints the folder of the Tifa module in `go.mod` and one line on what each doc covers. Run it, then open the files that apply in that folder. Each has a Chinese copy beside it, `<name>.zh-CN.md`.
 
 {{docsIndex}}
 

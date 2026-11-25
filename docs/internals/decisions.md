@@ -204,6 +204,17 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Instead.** The page calls `router.invalidate()`, which is an ordinary navigation request and right for that reason.
 
+### Removing c.Bind and c.BindQuery
+
+**Turned down (2026-11-25).** Leaving the second parameter of a handler as the only way to decode an input, and reading the raw body with `c.Request()` otherwise.
+
+**Why not.**
+- They are for a handler that writes its own response: a stream, a download, server-sent events. A handler with a second parameter has its response written by the framework, so such a handler cannot take one. The ones that read the query string are common, since `EventSource` only sends GET.
+- `c.Bind` does more than parse JSON: it reads JSON, a URL-encoded form or a multipart form with files by the content type, refuses data after the JSON value, and answers 413, 408, 415 and 400 for a body that is too big, too slow, of another type or broken. A handler that reads `c.Request().Body` itself would get most of these wrong.
+- They are no second decoder: the second parameter is decoded by the same code.
+
+**Instead.** Both stay, for handlers only. In `Load`, `Layout` and `Validate` they fail the build.
+
 ## Head, setup and page exports
 
 ### The title and meta tags as elements in a component
@@ -585,6 +596,12 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Instead.** `build.public_dotfiles` names the dot files and folders to copy, and `tifa build` says which ones it left out: [Configuration](../build-and-deploy/config.md).
 
+### camelCase or hyphens in the keys of tifa.yaml
+
+**Kept as it is (2026-11-25).** `server.bodyLimit` or `server.body-limit` in place of `server.body_limit`.
+
+**Why not.** Each key is also an environment variable and a flag, and with underscores the three match word for word: `server.body_limit`, `SERVER_BODY_LIMIT`, `--server-body-limit`. camelCase would need a guess at where a word ends, as in `tlsCA`. Hyphens would map as well and bring nothing new. Docker Compose, Prometheus and fly.toml use underscores, Kubernetes and Hugo camelCase, GitHub Actions hyphens, so there is no standard to follow.
+
 ## Languages
 
 ### Choosing the language from the request
@@ -731,3 +748,13 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 **Why not.** How an agent is set up is its user's business. Tifa gives an agent notes and a skill to read, and changes nothing about what the agent runs.
 
 **Instead.** The notes and the skill say to run `go tool tifa gen` once after a batch of Go changes. The `typecheck` script of an app runs it before `tsc`, `go tool tifa check` writes `.tifa/` again before it runs `tsc`, and each `route.gen.ts` names the files it comes from: [`tifa gen`](../build-and-deploy/build.md#tifa-gen).
+
+### Summaries of the docs in the AGENTS.md of an app
+
+**Turned down (2026-11-25).** The docs index of the `AGENTS.md` that `tifa new` writes holding a line per doc with its whole summary, as it did for a day.
+
+**Why not.** An agent reads the whole file at the start of every session, and the file was 3,780 tokens, of which the index was 1,150. The budget for the whole file is 4,000 tokens, and most sessions need two or three docs.
+
+**Instead.** The index names the files, one line per section folder, and `go tool tifa docs` prints the summary of each doc. An agent runs that command anyway to learn where the folder is. A test keeps the whole file at 12,000 bytes, about 3,250 tokens: when a new note does not fit, another one is shortened or moved to the docs.
+
+**Reopen when** agents that start from `tifa new` are seen to skip the docs they needed because the file names did not tell them.

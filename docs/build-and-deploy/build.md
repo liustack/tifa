@@ -225,7 +225,7 @@ The `typecheck` script of the same file is `go tool tifa gen && tsc --noEmit`. T
 tifa docs [--dir app-root] [--all] [--when] [--lang zh-CN]
 ```
 
-Prints where the docs of the Tifa version the app uses are, then an index of them. By default it lists the docs for writing an app, one line each, the path and the first clause of the summary, about 2 KB in all. `--lang zh-CN` lists the Chinese docs instead of the English ones. `--when` adds the `read_when` lines, and `--all` also lists the docs about developing Tifa itself (releasing, commits, testing, how Tifa works inside, the studies) under their own heading. The `AGENTS.md` that `tifa new` writes holds the same list for the docs for apps and tells a coding agent where the folder is, so the agent reads the docs of the version the app builds with, not those of the main branch on GitHub.
+Prints where the docs of the Tifa version the app uses are, then an index of them. By default it lists the docs for writing an app, one line each, the path and the summary, which says what the doc is and names the settings, commands and functions it covers, about 5 KB in all. `--lang zh-CN` lists the Chinese docs instead of the English ones. `--when` adds the `read_when` lines, and `--all` also lists the docs about developing Tifa itself (releasing, commits, testing, how Tifa works inside, the studies) under their own heading. The `AGENTS.md` that `tifa new` writes holds the file names of the docs for apps and tells a coding agent to run this command, so the agent reads the docs of the version the app builds with, not those of the main branch on GitHub.
 
 Tifa asks the go command (`go list -m -json github.com/liustack/tifa`) in the app root, so the folder is the one `go.mod` resolves: the module cache for a released version, and the folder of a `replace` directive. A module that is not downloaded yet fails with `go mod download github.com/liustack/tifa` as the step to run.
 
@@ -234,8 +234,8 @@ github.com/liustack/tifa v0.0.0 (replaced by ../..)
 Docs: /home/me/tifa/docs
 The paths below are relative to /home/me/tifa.
 
-docs/start/app.md - How to write a Tifa app
-docs/build-and-deploy/build.md - How `tifa new` starts an app, what `tifa build` does, what `tifa check` runs, what `tifa gen` writes
+docs/build-and-deploy/build.md - Create, build, check and upgrade an app: `tifa new`, `build`, `check`, `gen`, `upgrade`, .tifa/, go.mod
+docs/build-and-deploy/config.md - Every setting and where to set it: tifa.yaml, flags, environment, .env, server.csp, HTTPS, cross-origin writes
 ```
 
 With `--all --when` the index has the format of `scripts/docs-list.sh` in the Tifa repository: one line per doc with its summary, then a line with the `read_when` entries of its front matter joined with ` | `. Docs are sorted by path. A doc says who it is for in its front matter, `audience: app` or `audience: dev`, and `scripts/docs-list.sh --check` fails for a doc without one. A Tifa version from before the field lists every doc as one for apps. `docs/research/` is left out, and a doc without a summary is left out with a warning on stderr.
@@ -330,7 +330,7 @@ The part of `AGENTS.md` that Tifa writes sits between two marker lines:
 ## This app
 ```
 
-Each marker is alone on its line, appears once, and `tifa:begin` comes before `tifa:end`. Everything between them is Tifa's: the commands, the conventions, and an index of the docs for apps of that Tifa version, one line per doc with its path and its whole summary, grouped by section folder. The index comes from the docs the command carries inside it, so it always matches the version. `tifa agents` replaces that part with the one of the Tifa version in use and leaves every other byte of the file as it was. Put the notes about the app itself outside the markers (`tifa new` starts them with `## This app`).
+Each marker is alone on its line, appears once, and `tifa:begin` comes before `tifa:end`. Everything between them is Tifa's: the commands, the conventions, and an index of the docs for apps of that Tifa version: one line per section folder with the file names of its docs. What each doc covers is not in it, since an agent reads the whole file at the start of every session: `tifa docs` prints that. The index comes from the docs the command carries inside it, so it always matches the version. `tifa agents` replaces that part with the one of the Tifa version in use and leaves every other byte of the file as it was. Put the notes about the app itself outside the markers (`tifa new` starts them with `## This app`).
 
 - With no `AGENTS.md`, it writes one with a title and the block.
 - With an `AGENTS.md` that has no markers, it appends the block at the end and says so. Put the markers around the block to have it refreshed in place later.
