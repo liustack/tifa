@@ -196,6 +196,14 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Reopen when** real apps need more than that.
 
+### A refresh option on a write
+
+**Turned down (2026-11-03, confirmed 2026-11-25).** `refresh: true` on a call of a handler, so one answer carries the result and the new data of the page and its Layouts.
+
+**Why not.** It was built and taken out. Loading the routes inside the request of the write means doing again everything a navigation request does: the middleware, the paths of cookies, the session, the order of answers. Each fix showed a new corner. It saves one round trip, and the `Load` functions do the same work either way.
+
+**Instead.** The page calls `router.invalidate()`, which is an ordinary navigation request and right for that reason.
+
 ## Head, setup and page exports
 
 ### The title and meta tags as elements in a component
@@ -561,6 +569,14 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Reopen when** a real app has a list that can only be written in settings.
 
+### Leaving unknown keys of tifa.yaml alone
+
+**Turned down (2026-11-25).** Reading only the keys Tifa knows from `tifa.yaml` and saying nothing about the others.
+
+**Why not.** `tifa.yaml` holds the settings of the framework and nothing else, so a key Tifa does not know there is a spelling mistake. The app has its own place, `options.go`, and its own ways.
+
+**Instead.** A key in `tifa.yaml` that is no setting of Tifa fails `tifa check` and `tifa build`, and a flag nobody defined stops the program. A setting Tifa retired is a warning. Other environment variables, and other keys in the file of `-c`, are left alone: [Configuration](../build-and-deploy/config.md).
+
 ## Languages
 
 ### Choosing the language from the request
@@ -586,6 +602,14 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 **Why not.** HTML made at build time costs a render nothing: with 1000 entries (10 MB) the bundles for the server and the browser are the same byte for byte as with none, and turning them into HTML takes about 2 seconds.
 
 **Instead.** The build turns Markdown into HTML with unified, `Load` returns it as `tifa.HTML` and the page shows it with `<HTML value={...} />`: [Content](../pages-and-data/content.md). Content that lives in a database is read by the app's own `Load`.
+
+### Collections for many thousands of entries
+
+**Not a goal (2026-11-23, 2026-11-25).** Saying that collections are for sites of any size.
+
+**Why not.** They were measured at 1,000 entries of about 10 KB: the program grows by about 10 MB and the build takes about 2 seconds more. 2,000 or more work too, with a slower build and a bigger program, but 1,000 is already a lot: a personal blog does not get there in ten years, and it covers the articles of a small product site.
+
+**Instead.** The docs say "up to about 1,000 entries". Beyond that, or for writing that people edit while the site runs, the content goes in a database and the app is its CMS.
 
 ## Search engines and language models
 
