@@ -130,9 +130,23 @@ func structNames(found map[string]*types.Named, own string, exempt map[string]st
 	for _, name := range final {
 		count[name]++
 	}
-	for key, name := range final {
-		if count[name] > 1 {
-			delete(final, key)
+	// A name taken twice goes to the type of this folder's package that is called so by its own
+	// name (a prefixed name of another package may equal it), and the others are written inline.
+	for name, n := range count {
+		if n < 2 {
+			continue
+		}
+		keep := ""
+		for key, kn := range final {
+			obj := found[key].Obj()
+			if kn == name && obj.Name() == name && obj.Pkg() != nil && obj.Pkg().Path() == own {
+				keep = key
+			}
+		}
+		for key, kn := range final {
+			if kn == name && key != keep {
+				delete(final, key)
+			}
 		}
 	}
 	return final

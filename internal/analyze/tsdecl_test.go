@@ -133,6 +133,23 @@ func TestTSShapeResolvesEqualNames(t *testing.T) {
 	})
 }
 
+// A name another package gets by its prefix can be the name of a type of this folder's package.
+// The own type keeps it and only the struct of the other package is written inline.
+func TestTSShapeOwnTypeKeepsNameThatAPrefixedNameTakes(t *testing.T) {
+	own := types.NewPackage("example.com/app/shop", "shop")
+	cart := types.NewPackage("example.com/app/cart", "cart")
+	ownOrder := named(own, "Order", "ID", `json:"id"`, types.Typ[types.Int])
+	ownCartOrder := named(own, "CartOrder", "Total", `json:"total"`, types.Typ[types.Int])
+	cartOrder := named(cart, "Order", "SKU", `json:"sku"`, types.Typ[types.String])
+	data := named(own, "Data", "A", `json:"a"`, ownOrder, "B", `json:"b"`, cartOrder, "C", `json:"c"`, ownCartOrder)
+	_, decls := shapesOf(t, data, own.Path(), "PageData")
+	sameLines(t, "decls", decls, []string{
+		"export type Data = {\n  a: Order\n  b: { sku: string }\n  c: CartOrder\n}",
+		"export type Order = {\n  id: number\n}",
+		"export type CartOrder = {\n  total: number\n}",
+	})
+}
+
 // The names do not depend on the order the types are met in.
 func TestTSShapeNamesDoNotDependOnOrder(t *testing.T) {
 	own := types.NewPackage("example.com/app/shop", "shop")
