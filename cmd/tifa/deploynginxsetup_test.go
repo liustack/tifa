@@ -16,7 +16,7 @@ import (
 // nginx holds.
 func nginxFacts(certbot bool, certs []string, sites ...nginxSiteInfo) string {
 	var b strings.Builder
-	b.WriteString("apt yes\npkg nginx\npkg nginx-common\nbin /usr/sbin/nginx\ntifa yes\ntifa-nginx nginx\ntifa-nginx nginx-common\nactive yes\n")
+	b.WriteString("apt yes\nipv6 yes\npkg nginx ii\npkg nginx-common ii\nbin /usr/sbin/nginx\ntifa yes\ntifa-nginx nginx\ntifa-nginx nginx-common\nactive yes\n")
 	if certbot {
 		b.WriteString("tifa-certbot certbot\ntifa-certbot python3-certbot-nginx\ncertbot /usr/bin/certbot\nplugin yes\n")
 	}
@@ -48,7 +48,7 @@ func nginxUserFacts(port int, sites ...string) string {
 }
 
 func siteOf(app, host string, port int, tls bool) nginxSiteInfo {
-	return nginxSiteInfo{App: app, Sum: sha(nginxSiteFile(app, host, port, tls)), Host: pick(host == "", "-", host)}
+	return nginxSiteInfo{App: app, Sum: sha(nginxSiteFile(app, host, port, tls, true)), Host: pick(host == "", "-", host)}
 }
 
 // A fresh server, an app without a domain: setup makes the user and the app on a loopback port,
@@ -95,7 +95,8 @@ func TestSetupNginxWithoutDomain(t *testing.T) {
 			t.Errorf("the scripts lack %q", want)
 		}
 	}
-	if strings.Contains(argv, "ListenStream=80") || strings.Contains(argv, "certonly") {
+	// The server of the fresh facts has no IPv6, which nginx cannot listen on.
+	if strings.Contains(argv, "ListenStream=80") || strings.Contains(argv, "certonly") || strings.Contains(argv, "[::]") {
 		t.Errorf("the app serves itself, or a certificate was asked for:\n%s", argv)
 	}
 	if !strings.Contains(out, "shop is served by nginx on port 80 of the server. If the firewall or a security group of your provider blocks it, open it there: Tifa does not change those.") {
@@ -186,6 +187,18 @@ func TestSetupNginxCertificateStates(t *testing.T) {
 	}
 }
 
+// A nginx package that did not finish installing, which a failed start leaves, is installed again by
+// the next setup: the marker says it is Tifa's.
+func TestSetupNginxFinishesABrokenInstall(t *testing.T) {
+	root := setupApp(t, "deploy:\n  front: nginx\n", nil)
+	srv := newSetupServer(t, "", nginxUserFacts(9527))
+	srv.nginx(t, "apt yes\npkg nginx iF\npkg nginx-common ii\nbin /usr/sbin/nginx\ntifa yes\ntifa-nginx nginx\n")
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil || !strings.Contains(out, "add     server: install nginx with apt") || !strings.Contains(srv.calls(), "nginxinstall root\nnginxsite root") {
+		t.Errorf("%v\n%s", err, out)
+	}
+}
+
 // An nginx that setup did not install, or another program on port 80 or 443, stops setup before
 // it changes anything, and names what is in the way.
 func TestSetupNginxStopsForOthers(t *testing.T) {
@@ -194,11 +207,11 @@ func TestSetupNginxStopsForOthers(t *testing.T) {
 		want  []string
 	}{
 		"hand-installed nginx": {
-			"apt yes\npkg nginx\npkg nginx-common\nbin /usr/sbin/nginx\nactive yes\nlisten LISTEN 0 511 0.0.0.0:80 0.0.0.0:* users:((\"nginx\",pid=812,fd=6))\n",
+			"apt yes\npkg nginx ii\npkg nginx-common ii\nbin /usr/sbin/nginx\nactive yes\nlisten LISTEN 0 511 0.0.0.0:80 0.0.0.0:* users:((\"nginx\",pid=812,fd=6))\n",
 			[]string{"vps has an nginx that Tifa did not install (nginx, nginx-common). Tifa never changes the nginx of someone else", "Nothing was changed"},
 		},
 		"an nginx that is off": {
-			"apt yes\npkg nginx\nbin /usr/sbin/nginx\n",
+			"apt yes\npkg nginx ii\nbin /usr/sbin/nginx\n",
 			[]string{"an nginx that Tifa did not install (nginx)"},
 		},
 		"another program": {

@@ -19,6 +19,10 @@ import (
 	"strings"
 )
 
+// policyFile is where a program of the system says which services may start while apt installs.
+// Tests point it at a file of their own.
+var policyFile = "/usr/sbin/policy-rc.d"
+
 // etcDir is /etc on the server. The scripts take it as a variable so a test runs them in a folder.
 var etcDir = "/etc"
 
@@ -67,8 +71,18 @@ func nginxUpstream(app string) string { return "tifa-" + app }
 // which makes it the default server of port 80), the loopback port of the app, and with tls the
 // HTTPS server for host, whose certificate certbot made as tifa-<app>. Without tls a domain is
 // served over plain HTTP, which is what certbot needs to get the certificate.
-func nginxSiteFile(app, host string, port int, tls bool) string {
+//
+// ipv6 says the server has IPv6: without it nginx cannot open a socket for [::] and refuses to start,
+// so the listen lines for it are left out.
+func nginxSiteFile(app, host string, port int, tls, ipv6 bool) string {
 	up := nginxUpstream(app)
+	listen := func(rest string) string {
+		l := "\tlisten " + rest + ";\n"
+		if ipv6 {
+			l += "\tlisten [::]:" + rest + ";\n"
+		}
+		return l
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Written by tifa deploy setup for the app %s, which writes it again when it differs.\n", app)
 	fmt.Fprintf(&b, "%s%s\n", nginxHostMarker, pick(host == "", "-", host))
@@ -76,16 +90,16 @@ func nginxSiteFile(app, host string, port int, tls bool) string {
 	location := fmt.Sprintf(nginxLocation, up)
 	switch {
 	case host == "":
-		fmt.Fprintf(&b, "server {\n\tlisten 80 default_server;\n\tlisten [::]:80 default_server;\n\tserver_name _;\n%s}\n", location)
+		fmt.Fprintf(&b, "server {\n%s\tserver_name _;\n%s}\n", listen("80 default_server"), location)
 	case !tls:
-		fmt.Fprintf(&b, "server {\n\tlisten 80;\n\tlisten [::]:80;\n\tserver_name %s;\n%s}\n", host, location)
+		fmt.Fprintf(&b, "server {\n%s\tserver_name %s;\n%s}\n", listen("80"), host, location)
 	default:
 		// The redirect sits in a location, so the more exact location certbot adds for its
 		// challenge on renewal wins over it.
-		fmt.Fprintf(&b, "server {\n\tlisten 80;\n\tlisten [::]:80;\n\tserver_name %s;\n\tlocation / {\n\t\treturn 308 https://$host$request_uri;\n\t}\n}\n", host)
-		fmt.Fprintf(&b, "server {\n\tlisten 443 ssl http2;\n\tlisten [::]:443 ssl http2;\n\tserver_name %s;\n"+
+		fmt.Fprintf(&b, "server {\n%s\tserver_name %s;\n\tlocation / {\n\t\treturn 308 https://$host$request_uri;\n\t}\n}\n", listen("80"), host)
+		fmt.Fprintf(&b, "server {\n%s\tserver_name %s;\n"+
 			"\tssl_certificate %s/letsencrypt/live/tifa-%s/fullchain.pem;\n\tssl_certificate_key %s/letsencrypt/live/tifa-%s/privkey.pem;\n"+
-			"\tssl_protocols TLSv1.2 TLSv1.3;\n%s}\n", host, etcDir, app, etcDir, app, location)
+			"\tssl_protocols TLSv1.2 TLSv1.3;\n%s}\n", listen("443 ssl http2"), host, etcDir, app, etcDir, app, location)
 	}
 	return b.String()
 }
@@ -96,7 +110,11 @@ type nginxState struct {
 	// their configuration left), Bin where an nginx program is.
 	Apt  bool
 	Pkgs []string
-	Bin  string
+	// Broken are the packages of Pkgs that are not installed cleanly, such as one whose start failed.
+	Broken []string
+	Bin    string
+	// IPv6 says the server has IPv6.
+	IPv6 bool
 	// Tifa says the marker is there: setup installed this nginx. TifaPkgs and TifaCertbot are the
 	// packages apt added for nginx and for certbot, as the marker records them.
 	Tifa                bool
@@ -175,7 +193,13 @@ func parseNginxState(out string) (nginxState, error) {
 		case "apt":
 			s.Apt = true
 		case "pkg":
-			s.Pkgs = append(s.Pkgs, value)
+			name, status, _ := strings.Cut(value, " ")
+			s.Pkgs = append(s.Pkgs, name)
+			if status != "ii" {
+				s.Broken = append(s.Broken, name)
+			}
+		case "ipv6":
+			s.IPv6 = true
 		case "bin":
 			s.Bin = value
 		case "tifa":
@@ -224,9 +248,10 @@ if command -v apt-get >/dev/null 2>&1; then echo "apt yes"; fi
 if command -v dpkg-query >/dev/null 2>&1; then
 	dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'nginx' 'nginx-*' 2>/dev/null | while read -r st rest; do
 		case "$st" in ii|rc|hi|iU|iF|iH|iW|it|ip) ;; *) continue ;; esac
-		echo "pkg $rest"
+		echo "pkg $rest $st"
 	done
 fi
+if [ -e "$inet6_file" ]; then echo "ipv6 yes"; fi
 if b=$(command -v nginx); then echo "bin $b"; fi
 m="$etc/tifa/nginx"
 if [ -f "$m" ]; then
@@ -258,7 +283,10 @@ ss -Hltnp 2>/dev/null | sed 's/^/listen /'
 exit 0
 `
 
-func nginxProbeScript() string { return script(nginxProbeBody, "etc", etcDir) }
+// inet6File exists when the server has IPv6. Tests point it at a file of their own.
+var inet6File = "/proc/net/if_inet6"
+
+func nginxProbeScript() string { return script(nginxProbeBody, "etc", etcDir, "inet6_file", inet6File) }
 
 // nginxInstallBody runs as root. It writes the marker first, so a run that stops halfway still
 // knows this nginx is Tifa's, then records the packages apt would add for $nginx_pkgs and
@@ -274,7 +302,11 @@ if [ ! -f "$marker" ]; then
 		"# The sites in $etc/nginx/conf.d/tifa-*.conf are its only configuration. Without this file" \
 		"# setup takes nginx for one of yours and stops. tifa deploy remove of the last app deletes it." > "$marker"
 fi
-apt-get update -q </dev/null >/dev/null
+# apt-get runs quietly, and what it said comes back when it fails.
+log=$(mktemp)
+policy_made=""
+trap 'rm -f "$log" "$policy_made"' EXIT
+apt-get update -q </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; exit 1; }
 # mark records what apt would add, so remove purges those packages and nothing else.
 mark() {
 	kind=$1
@@ -286,14 +318,21 @@ mark() {
 }
 mark nginx $nginx_pkgs
 mark certbot $certbot_pkgs
-apt-get install -y -q $nginx_pkgs $certbot_pkgs </dev/null >/dev/null
-rm -f "$etc/nginx/sites-enabled/default"
+# The package starts nginx with its welcome site, which fails on a server without IPv6 and holds
+# port 80 for a moment on any other. Until the site of an app is in, nginx is not started.
+if [ ! -e "$policy_file" ]; then
+	printf '#!/bin/sh\nexit 101\n' > "$policy_file"
+	chmod 755 "$policy_file"
+	policy_made=$policy_file
+fi
+apt-get install -y -q $nginx_pkgs $certbot_pkgs </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; exit 1; }
+rm -f "$policy_made" "$etc/nginx/sites-enabled/default"
 if [ -n "$nginx_pkgs" ]; then systemctl enable --quiet nginx; fi
 echo "installed $nginx_pkgs $certbot_pkgs"
 `
 
 func nginxInstallScript(nginxPkgs, certbotPkgs []string) string {
-	return script(nginxInstallBody, "etc", etcDir, "nginx_pkgs", strings.Join(nginxPkgs, " "), "certbot_pkgs", strings.Join(certbotPkgs, " "))
+	return script(nginxInstallBody, "etc", etcDir, "policy_file", policyFile, "nginx_pkgs", strings.Join(nginxPkgs, " "), "certbot_pkgs", strings.Join(certbotPkgs, " "))
 }
 
 // nginxReload is the shell that makes nginx read its configuration: a reload keeps every
@@ -391,7 +430,11 @@ nginx_pkgs=$(awk '$1 == "installed" && $2 == "nginx" { print $3 }' "$marker")
 certbot_pkgs=$(awk '$1 == "installed" && $2 == "certbot" { print $3 }' "$marker")
 if [ -n "$nginx_pkgs" ]; then systemctl disable --now nginx 2>/dev/null || true; fi
 if [ -n "$certbot_pkgs" ]; then systemctl disable --now certbot.timer 2>/dev/null || true; fi
-if [ -n "$nginx_pkgs$certbot_pkgs" ]; then apt-get purge -y -q $nginx_pkgs $certbot_pkgs </dev/null >/dev/null; fi
+if [ -n "$nginx_pkgs$certbot_pkgs" ]; then
+	log=$(mktemp)
+	apt-get purge -y -q $nginx_pkgs $certbot_pkgs </dev/null >"$log" 2>&1 || { tail -n 15 "$log" >&2; rm -f "$log"; exit 1; }
+	rm -f "$log"
+fi
 if [ -n "$nginx_pkgs" ]; then rm -rf "$etc/nginx"; fi
 if [ -n "$certbot_pkgs" ]; then rm -rf "$etc/letsencrypt" /var/lib/letsencrypt /var/log/letsencrypt; fi
 rm -f "$marker"
@@ -449,7 +492,7 @@ var errNoAptForNginx = errors.New("the server has no apt: install nginx from the
 // nginxPackages are the packages setup installs: nginx when it is not there, and for an app with a
 // domain certbot and its nginx plugin, each only when missing.
 func nginxPackages(ns nginxState, domain bool) (nginxPkgs, certbotPkgs []string) {
-	if !slices.Contains(ns.Pkgs, "nginx") || !ns.Tifa {
+	if !slices.Contains(ns.Pkgs, "nginx") || slices.Contains(ns.Broken, "nginx") || !ns.Tifa {
 		nginxPkgs = []string{"nginx"}
 	}
 	if domain {

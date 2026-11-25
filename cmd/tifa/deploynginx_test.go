@@ -30,9 +30,9 @@ func newNginxBox(t *testing.T) *nginxBox {
 	}
 	b := &nginxBox{t: t, etc: t.TempDir(), bin: t.TempDir(), live: t.TempDir()}
 	b.logf = filepath.Join(t.TempDir(), "calls")
-	old := etcDir
-	etcDir = b.etc
-	t.Cleanup(func() { etcDir = old })
+	old, oldPolicy, oldInet6 := etcDir, policyFile, inet6File
+	etcDir, policyFile, inet6File = b.etc, filepath.Join(b.etc, "policy-rc.d"), filepath.Join(b.etc, "if_inet6")
+	t.Cleanup(func() { etcDir, policyFile, inet6File = old, oldPolicy, oldInet6 })
 	log := shellQuote(b.logf)
 	tool := func(name, body string) {
 		writeFile(t, filepath.Join(b.bin, name), "#!/bin/sh\n"+body+"\n")
@@ -58,6 +58,8 @@ case " $* " in
 *" -s "*)
 	for p in "$@"; do case "$p" in -*|install) ;; *) echo "Inst $p (1.0 Ubuntu:24.04/noble [amd64])"; [ "$p" = nginx ] && echo "Inst nginx-common (1.0 Ubuntu:24.04/noble [all])"; [ "$p" = certbot ] && echo "Inst python3-certbot (1.0 Ubuntu:24.04/noble [all])" ;; esac; done ;;
 *" install "*)
+	[ -f `+etc+`/apt-fail ] && { echo "E: Sub-process /usr/bin/dpkg returned an error code (1)"; exit 100; }
+	if [ -f `+etc+`/policy-rc.d ]; then echo "start blocked" >> `+log+`; fi
 	for p in "$@"; do case "$p" in -*|install) ;; *) grep -qx "$p" `+etc+`/dpkg-installed 2>/dev/null || echo "$p" >> `+etc+`/dpkg-installed; [ "$p" = nginx ] && { cp `+shellQuote(filepath.Join(b.bin, "nginx.fake"))+` `+shellQuote(filepath.Join(b.live, "nginx"))+`; mkdir -p `+etc+`/nginx/conf.d `+etc+`/nginx/sites-enabled; touch `+etc+`/nginx/sites-enabled/default `+etc+`/active-nginx; }; [ "$p" = certbot ] && { cp `+shellQuote(filepath.Join(b.bin, "certbot.fake"))+` `+shellQuote(filepath.Join(b.live, "certbot"))+`; touch `+etc+`/certbot-installed; }; [ "$p" = python3-certbot-nginx ] && touch `+etc+`/plugin ;; esac; done ;;
 *" purge "*)
 	for p in "$@"; do case "$p" in -*|purge) ;; *) grep -vx "$p" `+etc+`/dpkg-installed > `+etc+`/dpkg.new 2>/dev/null; mv `+etc+`/dpkg.new `+etc+`/dpkg-installed ;; esac; done
@@ -65,7 +67,7 @@ case " $* " in
 esac
 exit 0`)
 	tool("dpkg-query", `[ -f `+etc+`/dpkg-installed ] || exit 0
-for p in $(cat `+etc+`/dpkg-installed); do case "$p" in nginx*) printf 'ii  %s\n' "$p" ;; esac; done`)
+for p in $(cat `+etc+`/dpkg-installed); do case "$p" in nginx*) st=ii; grep -qx "$p" `+etc+`/dpkg-broken 2>/dev/null && st=iF; printf '%s  %s\n' "$st" "$p" ;; esac; done`)
 	tool("certbot.fake", `echo "certbot $*" >> `+log+`
 case "$1" in
 plugins) [ -f `+etc+`/plugin ] && echo "* nginx" ;;
@@ -157,7 +159,7 @@ func TestNginxSiteFile(t *testing.T) {
 			}
 		}
 	}
-	none := nginxSiteFile("shop", "", 9527, false)
+	none := nginxSiteFile("shop", "", 9527, false, true)
 	has("no domain", none, "# tifa:host -\n", "upstream tifa-shop {\n\tserver 127.0.0.1:9527;\n\tkeepalive 16;\n\tkeepalive_timeout 50s;\n}\n",
 		"listen 80 default_server;", "listen [::]:80 default_server;", "proxy_pass http://tifa-shop;", "proxy_http_version 1.1;",
 		`proxy_set_header Connection "";`, "proxy_set_header Host $http_host;", "proxy_set_header X-Forwarded-For $remote_addr;",
@@ -172,18 +174,33 @@ func TestNginxSiteFile(t *testing.T) {
 		}
 	}
 
-	http := nginxSiteFile("shop", "shop.example.com", 9527, false)
+	http := nginxSiteFile("shop", "shop.example.com", 9527, false, true)
 	has("domain without certificate", http, "# tifa:host shop.example.com\n", "listen 80;", "server_name shop.example.com;", "proxy_pass http://tifa-shop;")
 	if strings.Contains(http, "default_server") || strings.Contains(http, "443") {
 		t.Errorf("domain without certificate:\n%s", http)
 	}
 
 	etcDir = "/etc"
-	tls := nginxSiteFile("shop", "shop.example.com", 9527, true)
+	tls := nginxSiteFile("shop", "shop.example.com", 9527, true, true)
 	has("domain with certificate", tls, "location / {\n\t\treturn 308 https://$host$request_uri;", "listen 443 ssl http2;", "listen [::]:443 ssl http2;",
 		"ssl_certificate /etc/letsencrypt/live/tifa-shop/fullchain.pem;", "ssl_certificate_key /etc/letsencrypt/live/tifa-shop/privkey.pem;", "ssl_protocols TLSv1.2 TLSv1.3;")
 	if strings.Count(tls, "proxy_pass") != 1 || strings.Contains(tls, "default_server") || strings.Contains(tls, "Strict-Transport") {
 		t.Errorf("domain with certificate:\n%s", tls)
+	}
+}
+
+// A server without IPv6 gets no listen line for [::]: nginx cannot open that socket and would not start.
+func TestNginxSiteWithoutIPv6(t *testing.T) {
+	for _, tls := range []bool{false, true} {
+		for _, host := range []string{"", "shop.example.com"} {
+			site := nginxSiteFile("shop", host, 9527, tls && host != "", false)
+			if strings.Contains(site, "[::]") || !strings.Contains(site, "listen 80") {
+				t.Errorf("host %q tls %v:\n%s", host, tls, site)
+			}
+		}
+	}
+	if strings.Count(nginxSiteFile("shop", "shop.example.com", 9527, true, true), "[::]") != 2 {
+		t.Error("with IPv6 each server listens on both")
 	}
 }
 
@@ -204,19 +221,20 @@ func TestNginxProbe(t *testing.T) {
 
 	// The marker makes it Tifa's, and says which packages apt added.
 	writeFile(t, filepath.Join(b.etc, "tifa", "nginx"), "# header\ninstalled nginx nginx\ninstalled nginx nginx-common\ninstalled certbot certbot\n")
-	writeFile(t, filepath.Join(b.etc, "nginx", "conf.d", "tifa-shop.conf"), nginxSiteFile("shop", "shop.example.com", 9527, false))
-	writeFile(t, filepath.Join(b.etc, "nginx", "conf.d", "tifa-blog.conf"), nginxSiteFile("blog", "", 9528, false))
+	writeFile(t, filepath.Join(b.etc, "nginx", "conf.d", "tifa-shop.conf"), nginxSiteFile("shop", "shop.example.com", 9527, false, true))
+	writeFile(t, filepath.Join(b.etc, "nginx", "conf.d", "tifa-blog.conf"), nginxSiteFile("blog", "", 9528, false, true))
 	writeFile(t, filepath.Join(b.etc, "nginx", "conf.d", "mine.conf"), "server {}\n")
 	writeFile(t, filepath.Join(b.etc, "letsencrypt", "live", "tifa-shop", "cert.pem"), "DNS:shop.example.com\n")
 	writeFile(t, filepath.Join(b.etc, "letsencrypt", "renewal", "tifa-shop.conf"), "")
 	writeFile(t, filepath.Join(b.etc, "active-nginx"), "")
+	writeFile(t, filepath.Join(b.etc, "if_inet6"), "")
 	writeFile(t, filepath.Join(b.etc, "ss"), "LISTEN 0 511 0.0.0.0:80 0.0.0.0:* users:((\"nginx\",pid=812,fd=6))\n")
 	ns = b.state()
 	if ns.foreign() || !ns.Tifa || len(ns.TifaPkgs) != 2 || len(ns.TifaCerts) != 1 || !ns.Active || !ns.nginxPrograms(80) || ns.nginxPrograms(443) {
 		t.Errorf("Tifa's nginx: %+v", ns)
 	}
 	shop, ok := ns.site("shop")
-	if !ok || shop.Host != "shop.example.com" || shop.Sum != sha(nginxSiteFile("shop", "shop.example.com", 9527, false)) {
+	if !ok || shop.Host != "shop.example.com" || shop.Sum != sha(nginxSiteFile("shop", "shop.example.com", 9527, false, true)) {
 		t.Errorf("shop: %+v", shop)
 	}
 	if blog, _ := ns.site("blog"); blog.Host != "-" || len(ns.Sites) != 2 {
@@ -225,6 +243,16 @@ func TestNginxProbe(t *testing.T) {
 	if c, ok := ns.cert("shop"); !ok || c.Host != "shop.example.com" {
 		t.Errorf("certs: %+v", ns.Certs)
 	}
+
+	if !ns.IPv6 || len(ns.Broken) != 0 {
+		t.Errorf("ipv6 %v, broken %v", ns.IPv6, ns.Broken)
+	}
+	// A package that is not installed cleanly, such as one whose start failed, is listed as broken.
+	writeFile(t, filepath.Join(b.etc, "dpkg-broken"), "nginx\n")
+	if ns = b.state(); len(ns.Broken) != 1 || ns.Broken[0] != "nginx" {
+		t.Errorf("broken %v", ns.Broken)
+	}
+	os.Remove(filepath.Join(b.etc, "dpkg-broken"))
 
 	// Still Tifa's after the package changes: the marker is a file, not a version.
 	writeFile(t, filepath.Join(b.etc, "dpkg-installed"), "nginx\nnginx-common\nnginx-extra\n")
@@ -253,6 +281,10 @@ func TestNginxInstallMarksWhatItInstalls(t *testing.T) {
 	if exists(filepath.Join(b.etc, "nginx", "sites-enabled", "default")) {
 		t.Error("the welcome site is still on")
 	}
+	// nginx may not start while apt installs it, and the block is gone after.
+	if !strings.Contains(b.calls(), "start blocked") || exists(filepath.Join(b.etc, "policy-rc.d")) {
+		t.Errorf("start blocking: %q, file there %v", b.calls(), exists(filepath.Join(b.etc, "policy-rc.d")))
+	}
 	if !strings.Contains(b.calls(), "systemctl enable --quiet nginx") {
 		t.Errorf("calls:\n%s", b.calls())
 	}
@@ -272,12 +304,35 @@ func TestNginxInstallMarksWhatItInstalls(t *testing.T) {
 	}
 }
 
+// An install that fails says what apt said, leaves no block on the services of the server, and the
+// marker stays so that a run again goes on.
+func TestNginxInstallFailure(t *testing.T) {
+	b := newNginxBox(t)
+	writeFile(t, filepath.Join(b.etc, "apt-fail"), "")
+	writeFile(t, filepath.Join(b.etc, "policy-rc.d"), "mine\n")
+	_, errOut, err := b.run(nginxInstallScript([]string{"nginx"}, nil))
+	if err == nil || !strings.Contains(errOut, "Sub-process /usr/bin/dpkg returned an error code") {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if b.read("policy-rc.d") != "mine\n" || !exists(filepath.Join(b.etc, "tifa", "nginx")) {
+		t.Error("the policy file of someone else, or the marker, is gone")
+	}
+	os.Remove(filepath.Join(b.etc, "policy-rc.d"))
+	os.Remove(filepath.Join(b.etc, "apt-fail"))
+	if _, _, err := b.run(nginxInstallScript([]string{"nginx"}, nil)); err != nil {
+		t.Errorf("run again: %v", err)
+	}
+	if exists(filepath.Join(b.etc, "policy-rc.d")) {
+		t.Error("the block stays")
+	}
+}
+
 // A site goes in only when nginx -t takes it. The file before it comes back otherwise, nginx says
 // why, and no reload happens: the other apps never see the bad file. A new site that fails leaves no file.
 func TestNginxSiteChecksBeforeItReloads(t *testing.T) {
 	b := newNginxBox(t)
 	b.mustRun(nginxInstallScript([]string{"nginx"}, nil))
-	good := nginxSiteFile("shop", "", 9527, false)
+	good := nginxSiteFile("shop", "", 9527, false, true)
 	out := b.mustRun(nginxSiteScript("shop", good))
 	if b.read("nginx/conf.d/tifa-shop.conf") != good || !strings.Contains(out, "nginx reloaded") {
 		t.Fatalf("first site: %q\n%s", out, b.read("nginx/conf.d/tifa-shop.conf"))
@@ -313,7 +368,7 @@ func TestNginxSiteStartsAStoppedNginx(t *testing.T) {
 	if err := os.Remove(filepath.Join(b.etc, "active-nginx")); err != nil {
 		t.Fatal(err)
 	}
-	b.mustRun(nginxSiteScript("shop", nginxSiteFile("shop", "", 9527, false)))
+	b.mustRun(nginxSiteScript("shop", nginxSiteFile("shop", "", 9527, false, true)))
 	if !strings.Contains(b.calls(), "systemctl start nginx") || strings.Contains(b.calls(), "systemctl reload nginx") {
 		t.Errorf("calls:\n%s", b.calls())
 	}
@@ -355,8 +410,8 @@ func TestNginxRemove(t *testing.T) {
 	b := newNginxBox(t)
 	b.mustRun(nginxInstallScript([]string{"nginx"}, nil))
 	b.have("certbot")
-	b.mustRun(nginxSiteScript("shop", nginxSiteFile("shop", "", 9527, false)))
-	b.mustRun(nginxSiteScript("blog", nginxSiteFile("blog", "blog.example.com", 9528, false)))
+	b.mustRun(nginxSiteScript("shop", nginxSiteFile("shop", "", 9527, false, true)))
+	b.mustRun(nginxSiteScript("blog", nginxSiteFile("blog", "blog.example.com", 9528, false, true)))
 	b.mustRun(nginxCertScript("blog", "blog.example.com", false))
 
 	// A bad configuration without the site keeps the site.

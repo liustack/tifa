@@ -79,7 +79,7 @@ func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
 	cert, hasCert := ns.cert(app)
 	certHost := hasCert && (cert.Host == host || cert.Host == "?")
 	tlsNow := host != "" && certHost
-	want := nginxSiteFile(app, host, r.port, tlsNow)
+	want := nginxSiteFile(app, host, r.port, tlsNow, ns.IPv6)
 	text := nginxSiteText(app, host, r.port)
 	apply := func(ctx context.Context) (string, error) {
 		return r.rootScript(nginxSiteScript(app, want))(ctx)
@@ -109,7 +109,7 @@ func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
 				if _, err := r.rootScript(nginxCertScript(app, host, replace))(ctx); err != nil {
 					return "", err
 				}
-				return r.rootScript(nginxSiteScript(app, nginxSiteFile(app, host, r.port, true)))(ctx)
+				return r.rootScript(nginxSiteScript(app, nginxSiteFile(app, host, r.port, true, ns.IPv6)))(ctx)
 			})
 		}
 	}
