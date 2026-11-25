@@ -2,7 +2,7 @@
 summary: '怎样用 Tifa 会话让用户登录和登出：argon2id、SetSession、保护页面、登出'
 audience: app
 order: 3
-translatedFrom: cf75c5f2349d
+translatedFrom: 20c0a2a32f0a
 read_when:
   - '给应用加登录和登出，或者把一些页面放在登录之后'
   - '选择怎样保存和检查密码'
@@ -339,7 +339,8 @@ func OnStart(context.Context) error {
 // page, which sends them back afterwards. It runs for page loads and for the data requests of
 // link clicks alike.
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-	if path := c.Path(); (path == "/account" || strings.HasPrefix(path, "/account/")) && tifa.Session[Session](c) == nil {
+	if route := c.Pattern(); (route == "/account" || strings.HasPrefix(route, "/account/")) && tifa.Session[Session](c) == nil {
+		path := c.Path()
 		if query := c.Request().URL.RawQuery; query != "" {
 			path += "?" + query
 		}
@@ -348,6 +349,8 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	return next(c)
 }
 ```
+
+守卫用 `c.Pattern()` 问的是匹配到了哪条路由，比如 `/account` 或 `/account/orders/{order}`。不要拿 URL 的文字（`c.Path()` 或 `c.Request().URL.Path`）来决定谁能进。同一条路由有很多种写法：`/%61ccount` 就是 `/account`，有多种语言的页面在 `/en-US/account` 也会应答。比文字的守卫会放过这些写法，而路由照样运行。`c.Path()` 只用来写 `next` 地址。
 
 没有人登录时，`tifa.Session[Session](c)` 是 nil。服务器在 `OnRequest` 之前就读取了会话，所以每个 hook、`Load` 和处理函数都可以去问。
 
