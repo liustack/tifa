@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
 audience: app
 order: 3
-translatedFrom: c8b135603e27
+translatedFrom: c12dbaf34521
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -93,6 +93,7 @@ func Load(c *tifa.Ctx, q Filter) (products.List, error) {
 
 - 值不是以上任何一种时，在 `Load` 运行之前就返回 400，内容是 `invalid query parameter "page"`。导航的数据请求拿到的是该页面的 400。查询串本身解析不了，返回 400 和 `invalid query string`。不是切片的字段，同名参数出现两次也不合法。有两个值不合法时，消息里写的是按名字排在前面的那个。
 - 浏览器按同样的规则读地址，所以 Go 拒绝的值，浏览器也拒绝，页面的 `ErrorBoundary` 拿到同一个 `TifaError`，状态是 400，消息也一样，不管是整页、导航的数据请求还是浏览器里的路由器发现的。一张用例表同时测试 Go 和浏览器。
+- 不合法的值就是写错的地址，和没有页面的路径一样。访客看到什么由页面的 `ErrorBoundary` 决定，比如一句简短的提示，加一个去掉这个筛选的链接。不要为了躲开 400 把字段声明成 `string`：那样页面就丢了类型、最短的地址和链接的当前状态，每个值还得自己检查。
 - 页面拿到的值带着字段的类型：`useSearch()` 和 `PageSearch` 里，整数和浮点数是 `number`，`bool` 是 `boolean`，字符串是 `string`，切片是它们的数组（见[导航](navigation.zh-CN.md#query-parameters-in-link-and-navigate)）。浏览器只按声明的类型转换，不按别的，所以 `string` 字段里的 `?q=1.0` 和 `?q=007` 还是文本 `1.0` 和 `007`。
 - 不是字符串的字段，值为空（`?page=`）算没传，字段保持零值，所以会发送空字段的表单也能用。数字或 bool 列表里的空元素会被跳过。对字符串来说，空串就是一个值。服务端渲染时当作没有这个空值，返回 200，不重定向。页面加载之后，地址栏会去掉它（`?page=&q=x` 变成 `?q=x`），不请求数据，不重新加载，也没有水合警告。在浏览器里它的值是 `undefined`，零值只是 Go 字段里放的东西。
 - 没有字段对应的参数会被忽略。

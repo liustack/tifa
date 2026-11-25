@@ -247,6 +247,16 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Reopen when** a spelling that people really write (a space around the number, a thousands separator, `on` for a bool) shows up in the logs of an app.
 
+### Reading a query value that is not valid as not passed
+
+**Turned down (2026-11-26).** Reading `?page=abc` for a whole number as if `page` were not there, and dropping it from the address, as TanStack suggests with `.catch()` or `fallback()` on each field. It came up when an agent that had not seen Tifa built a filtered list, read that such a value answers 400, and declared every field a `string` to check by hand.
+
+**Why not.** A typed field is there to be checked: a value of the wrong type is a wrong address, as a path with no page is, and the page should say so rather than show something the visitor did not ask for. Read as not passed, a typo in a link or a form goes unseen.
+
+**Instead.** It stays a 400 before `Load` runs, in Go and in the browser alike, and the `ErrorBoundary` of the page decides what the visitor sees. The docs on query parameters say not to declare the field a `string` to get around it.
+
+**Reopen when** apps are seen working around the 400 even with those docs, or a field needs a default for values that are not valid.
+
 ### A float32 field in a query struct
 
 **Turned down (2026-11-26).** Accepting a `float32` field, or a slice of them, in the struct a `Load` or `Layout` takes as its second parameter, as other Go frameworks do. gin, echo, gorilla/schema, go-playground/form and grpc-gateway parse such a field with `strconv.ParseFloat(value, 32)` and keep the rounded value, huma marks it `format: float` in OpenAPI, and tools that write TypeScript from Go map `float32` and `float64` both to `number`, so with them Go and the browser can hold different numbers for the same address.
