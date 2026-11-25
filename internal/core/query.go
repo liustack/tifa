@@ -18,6 +18,9 @@ import (
 // beyond it, whatever the width of the field.
 const maxExact = 1<<53 - 1
 
+// maxNumberText is the longest text of a number, in bytes (see readNumber).
+const maxNumberText = 64
+
 // decodePageQuery decodes the query string of the request into the struct v, the second parameter
 // of Load and Layout. A query string that does not parse, or a value that is not valid, comes back as
 // Error with status 400 (see decodeQuery for the rules). Every exported field of v must be one the
@@ -42,7 +45,7 @@ func decodePageQuery(c *Ctx, v any) error {
 // .5, 5., 1e3), and is 0 or between 1e-6 and 1e21 in size. A number written another way than the
 // shortest one is the same number, and the page is rendered for the shortest text (see
 // CanonicalNumber). Anything else is not valid, such as 10.50 for a whole number, a space, 0x10 or
-// NaN. A slice holds the values of the parameters of one name, in order.
+// NaN, or a text of more than 64 bytes. A slice holds the values of the parameters of one name, in order.
 //
 // An empty value of a field that is not a string, or of a list of numbers or bools, is a
 // parameter that was not passed (the browser sends it for a form field left empty). A field that
@@ -171,7 +174,9 @@ var (
 // and 1e21 in size, a whole number is at most 2^53-1 in size, and -0 is 0. ok is false for a text that
 // is no such number.
 func readNumber(s string, whole bool) (n float64, ok bool) {
-	if whole && !wholeText.MatchString(s) || !whole && !floatText.MatchString(s) {
+	// A very long decimal is rounded differently by Go and by a browser, so no text is longer than
+	// maxNumberText, which no number a person types or a form sends reaches.
+	if len(s) > maxNumberText || whole && !wholeText.MatchString(s) || !whole && !floatText.MatchString(s) {
 		return 0, false
 	}
 	n, err := strconv.ParseFloat(s, 64)
