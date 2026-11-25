@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -143,7 +144,12 @@ func evalResultWith(t *testing.T, code string, setup func(*beastjs.VM)) string {
 // Sources and other long texts go this way and not as an argument: Linux refuses an argument of
 // more than 128 KiB and macOS arguments of more than 1 MiB together ("argument list too long").
 func nodeWithInput(dir, script string, input []byte, args ...string) *exec.Cmd {
-	cmd := exec.Command("node", append([]string{"--input-type=module", "-e", script}, args...)...)
+	return nodeWithInputContext(context.Background(), dir, script, input, args...)
+}
+
+// nodeWithInputContext is nodeWithInput for a script that ctx may stop.
+func nodeWithInputContext(ctx context.Context, dir, script string, input []byte, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "node", append([]string{"--input-type=module", "-e", script}, args...)...)
 	cmd.Dir = dir
 	cmd.Stdin = bytes.NewReader(input)
 	return cmd
