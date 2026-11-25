@@ -78,22 +78,24 @@ A `Load` that reads none takes only the Ctx. The second parameter is a struct va
 | a slice of one of them | an array of that type |
 
 - A field may not be a `float32`, and the build fails if it is. A query value must be the same number in Go and in the browser, and the browser has only 64-bit numbers. A `float32` would round the value: `?price=1234567.89` is 1234567.9 in a float32, while the page in the browser would show 1234567.89. Declare the field as `float64`. This is a rule for the query struct of a `Load` or `Layout` only: the input of a method handler still takes `float32`.
-- A value is valid only in the one way to write it, so that reading it and writing it again gives the same text:
+- A value is read as the field's type, and a number may be written the way a person types it. `?page=007` is page 7, `?rating=1.0` is 1, `?min=%2B10.50` is 10.5 and a number input that sends `1e3` gives 1000:
 
-| Type | Valid | Not valid |
+| Type | Accepted | Answers 400 |
 | --- | --- | --- |
-| `string` | any text, empty too | |
-| whole numbers | `0`, or digits with no leading zero and an optional `-`, in the range of the type and at most 2^53-1 | `+1`, `01`, `-0`, `1.0`, `1e3`, a space |
-| `bool` | `true` and `false` | `1`, `TRUE`, `yes` |
-| floats | digits with an optional point, no `0` at the end of the fraction, at most 15 digits, and `0` or between 1e-6 and 1e21 in size | `.5`, `1.0`, `0.50`, `-0`, `1e3` |
-| a slice | one element for each parameter of that name, in order, each valid for the element type | |
+| `string` | any text, empty too, never changed (`?q=007` stays `007`) | |
+| whole numbers | digits with an optional `+` or `-` and, after the digits, an optional point with only zeros (`7`, `007`, `+7`, `-0`, `7.`, `7.00`), in the range of the type and at most 2^53-1 | `7.5`, `1e3`, `0x10`, `abc`, a space, a value out of range |
+| `float64` | digits with an optional `+` or `-`, an optional fraction, and an optional exponent (`10.50`, `.5`, `5.`, `1e3`, `-0`), and `0` or between 1e-6 and 1e21 in size | `1e400`, `NaN`, `Infinity`, `0x1p3`, `1,5`, `abc`, a space, a value out of range |
+| `bool` | `true` and `false`, nothing else | `1`, `TRUE`, `on`, `yes` |
+| a slice | one element for each parameter of that name, in order, each as the element type | |
 
-- A value that is not valid answers 400 with `invalid query parameter "page"`, before `Load` runs. The data request of a navigation gets the 400 for that page. A query string that does not parse answers 400 with `invalid query string`. A name that comes twice for a field that is not a slice is not valid either. When two values are not valid, the message names the first by name.
+- Another spelling of a number is the same number everywhere: the server renders the page for the shortest text (`?page=7`), so `?page=007` and `?page=7` are one page with one render, one cache entry and one canonical link, and after the page loads the address bar quietly becomes `?page=7`, with no request for data, no reload and no hydration warning. `-0` is `0`. A float that has more digits than a float64 holds reads as the nearest float64 and is written as that one.
+
+- A value that is none of the above answers 400 with `invalid query parameter "page"`, before `Load` runs. The data request of a navigation gets the 400 for that page. A query string that does not parse answers 400 with `invalid query string`. A name that comes twice for a field that is not a slice is not valid either. When two values are not valid, the message names the first by name.
 - The browser reads the address by the same rules, so a value that Go refuses, the browser refuses too, and the `ErrorBoundary` of the page gets the same `TifaError` with status 400 and the same message, whether the full page, the data request of a navigation or the router in the browser found it. A table of cases tests Go and the browser alike.
 - The page gets the values with the types of the fields: `useSearch()` and `PageSearch` give a `number` for a whole number or a float, a `boolean` for a `bool`, a `string`, and an array of them for a slice (see [Navigation](navigation.md#query-parameters-in-link-and-navigate)). The browser converts by the declared type and by nothing else, so `?q=1.0` and `?q=007` stay the texts `1.0` and `007` for a `string` field.
 - An empty value (`?page=`) of a field that is not a string counts as not passed, and the field keeps its zero value, so a form that sends its empty fields works. An empty element of a list of numbers or bools is skipped. For a string, empty is a value. The server renders the page as if the empty value were not there and answers 200 with no redirect. After the page loads, the address bar drops it (`?page=&q=x` becomes `?q=x`) with no request for data, no reload and no hydration warning. In the browser the value is `undefined`, and the zero value is only what Go's field holds.
 - A parameter that no field names is ignored.
-- A visitor who types a number into a plain `<form method="get">`, with no JavaScript, can send `10.50` or `007`, and the page answers 400 with `invalid query parameter "price"`, as it does for a link someone wrote by hand. Declare a field for such an input as a `string` and parse it in `Load`. These rules are for the query string of a page only: the input of a `GET` or `DELETE` handler is decoded as before, by `c.BindQuery`.
+- A visitor who edits the address bar, or fills a plain `<form method="get">` with no JavaScript, can write `007`, `1.0` or `.5` and the page takes it. These rules are for the query string of a page only: the input of a `GET` or `DELETE` handler is decoded as before, by `c.BindQuery`.
 - The struct has no `Validate`: the build fails for a struct that has one. Check the values in `Load` and return `tifa.Error{Status: 400, Message: "page must be at least 1"}` or `tifa.ErrNotFound`.
 - A test calls the function with the struct: `Load(c, Filter{Sort: "price"})` (see [Testing the app](testing-apps.md)).
 

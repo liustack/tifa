@@ -140,7 +140,7 @@ func Load(c *tifa.Ctx, q Filter) (Page, error) { return page(c, q.Tab, q.Page) }
 ```
 
 - Fields are strings, bools, whole numbers, `float64` (a `float32` fails the build, declare it `float64`) and slices of them, named by the `json` tag or the Go name, with no embedded fields. The struct has no `Validate`: check in `Load` and return `tifa.Error{Status: 400, Message: "..."}`.
-- A value is valid in one way of writing only. `?page=02`, `?page=+2`, `?on=1` (a `bool` takes `true` or `false`), `?price=1.0` and a scalar name given twice answer 400 before `Load` runs. `?page=` counts as not passed: the server renders without it and the address bar drops it after the page loads. A parameter no field names is ignored.
+- A number may be written as a person types it: `?page=007`, `?page=1.0` and `?price=.5` are accepted, the server renders for the shortest text and the address bar is rewritten to it after the page loads. A whole number takes no fraction but zeros and no exponent. `?page=2.5`, `?page=1e3`, `?on=1` (a `bool` takes `true` or `false`), a text that is no number for a number field, and a scalar name given twice answer 400 before `Load` runs. `?page=` counts as not passed: the server renders without it and the address bar drops it. A parameter no field names is ignored.
 - A name that a Layout and a page below it both declare has one type in both.
 - A test calls `Load(c, Filter{Tab: "a"})`.
 - `c.Query` and `c.QueryValues` in `Load`, `Layout` or a function they call fail the build.
