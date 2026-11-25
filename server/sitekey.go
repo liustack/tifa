@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"hash"
 	"strconv"
+	"strings"
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/content"
@@ -26,6 +27,16 @@ import (
 // site. A page key does not hold them either.
 func siteKey(build, file, language string, sm tifa.Sitemap) string {
 	return siteFileKey(siteListKey(build, language, sm), file)
+}
+
+// etagListed is etagMatches without *, which only stands for a file that exists.
+func etagListed(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		if strings.TrimSpace(candidate) != "*" && etagMatches(candidate, etag) {
+			return true
+		}
+	}
+	return false
 }
 
 // siteFileKey is the key of the file at the escaped path file for the list that listKey stands for.

@@ -500,3 +500,22 @@ func TestRewrittenPathDoesNotChangeTheFile(t *testing.T) {
 		t.Errorf("GET /sitemap.xml after it: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// If-None-Match is for an answer that is a 200. A file that does not exist stays a 404 without an
+// ETag, whatever the request holds, and * matches a file that does.
+func TestPreconditionNeverTurnsA404Into304(t *testing.T) {
+	s, _, _, _ := noteSite(t, nil)
+	for _, p := range []string{"/sitemap-2.xml", "/store/journal/zzz.md", "/en-US/store/journal/a.md"} {
+		for _, inm := range []string{"*", `W/"anything"`, `"x", *`} {
+			if w := get(s, p, "If-None-Match", inm); w.Code != 404 || w.Header().Get("ETag") != "" {
+				t.Errorf("GET %s with If-None-Match %s: %d %v", p, inm, w.Code, w.Header())
+			}
+		}
+	}
+	for _, p := range []string{"/sitemap.xml", "/llms.txt", "/llms-full.txt", "/store/journal/a.md"} {
+		w := get(s, p, "If-None-Match", "*")
+		if w.Code != 304 || w.Header().Get("ETag") == "" || w.Body.Len() != 0 {
+			t.Errorf("GET %s with If-None-Match *: %d %v", p, w.Code, w.Header())
+		}
+	}
+}

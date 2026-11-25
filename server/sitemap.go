@@ -194,9 +194,9 @@ func (s *server) siteAnswer(c *tifa.Ctx, file, language string, build func(sm ti
 	if s.cfg.Compress {
 		etag = "W/" + key
 	}
-	// The answer is a function of the key, so a client that holds the ETag holds this answer, and it
-	// is a 200: no other answer has one.
-	if !core.NoStore(c) && etagMatches(c.Header("If-None-Match"), key) {
+	// The answer is a function of the key, so a client that holds this ETag holds this answer, and it
+	// is a 200: no other answer has one. A 304 for * waits until the file is known to exist.
+	if !core.NoStore(c) && etagListed(c.Header("If-None-Match"), key) {
 		c.SetHeader("ETag", etag)
 		return c.NoContent(http.StatusNotModified)
 	}
@@ -223,6 +223,9 @@ func (s *server) siteAnswer(c *tifa.Ctx, file, language string, build func(sm ti
 		return err
 	}
 	c.SetHeader("ETag", etag)
+	if !core.NoStore(c) && etagMatches(c.Header("If-None-Match"), key) {
+		return c.NoContent(http.StatusNotModified)
+	}
 	if got.page.link != "" {
 		c.SetHeader("Link", got.page.link)
 	}
