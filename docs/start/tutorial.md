@@ -287,7 +287,7 @@ function RenameForm() {
 
 On `/todos/1`, clear the box and press Save: "Write what needs doing." shows under it. Type "Buy oat milk" and press Save: the heading changes. The browser shows the 422 in its console, which is the answer working as designed.
 
-A `tifa.Fields` reaches the browser as a `TifaError` whose `fields` hold the messages. Any other error from `Validate` is a 400 with its text in `message`. See [Method handlers with input and result](../pages-and-data/handlers.md#method-handlers-with-input-and-result).
+A `tifa.Fields` reaches the browser as a `TifaError` whose `fields` hold the messages. Any other error from `Validate` is an error of the app, like one the handler returns: a 500, and its text stays in the log. See [Method handlers with input and result](../pages-and-data/handlers.md#method-handlers-with-input-and-result).
 
 ## 5. Data in the Layout
 

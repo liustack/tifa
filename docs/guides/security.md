@@ -51,7 +51,7 @@ A page with `const Cache` may be kept by a CDN and shown to everyone. Tifa remov
 
 ### Error details stay in the log
 
-An error that `Load` or a handler returns, other than `tifa.Error`, `tifa.Fields` and `tifa.ErrNotFound`, is logged and answered with a 500 and the plain status text. The visitor never sees its text. What `OnError` returns is what visitors see. The text of a `tifa.Error` is public, so put nothing internal in it. A built app does not show the error behind a failed page either, and only `tifa dev` does. See [Errors and 404](../pages-and-data/errors.md#errors-from-load-and-handlers).
+An error that `Load`, a handler or a `Validate` method returns, other than `tifa.Error`, `tifa.Fields` and `tifa.ErrNotFound`, is logged and answered with a 500 and the plain status text. The visitor never sees its text. What `OnError` returns is what visitors see. The text of a `tifa.Error` is public, so put nothing internal in it. A built app does not show the error behind a failed page either, and only `tifa dev` does. See [Errors and 404](../pages-and-data/errors.md#errors-from-load-and-handlers).
 
 ### Every way in is a folder
 
@@ -105,7 +105,6 @@ Tifa has no database layer. Your app uses `database/sql`, so pass values as argu
 
 - `tifa.SetHTTPHandler` wraps everything, the cross-site check too. A path your wrapper answers itself, such as `/debug/pprof/`, has no `OnRequest` and no check. Put it behind your own check or on another listener. See [Setting up in OnStart](../pages-and-data/hooks.md#setting-up-in-onstart).
 - Cookies you set with `c.SetCookie` go out as you write them. Set `HttpOnly`, `Secure` and `SameSite` yourself.
-- A plain error from a `Validate` method is answered with 400 and its own text, which the user sees. Return a `tifa.Fields` or a `tifa.Error` with a message written for visitors. See [Handlers](../pages-and-data/handlers.md#method-handlers-with-input-and-result).
 - Compression can leak a secret over HTTPS when an answer repeats something from the request and also holds a secret. See [Compression](../build-and-deploy/build.md#compression).
 - `tifa dev` shows internal errors and listens on `127.0.0.1`. Do not open it to a network you do not trust. See [When a page fails to render](../build-and-deploy/dev.md#when-a-page-fails-to-render).
 

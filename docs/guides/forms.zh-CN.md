@@ -2,7 +2,7 @@
 summary: '怎样在 Tifa 应用里做一个表单：方法处理函数、tifa.Fields 错误、useActionState、useOptimistic'
 audience: app
 order: 1
-translatedFrom: 7a4271549880
+translatedFrom: 9a7f7f35fccb
 read_when:
   - '添加一个创建或修改数据的表单，想要从输入框到屏幕上错误信息的完整路径'
   - '表单不显示字段错误、按钮可以点两次，或者表单发送后列表没有变化'
@@ -83,7 +83,7 @@ func POST(c *tifa.Ctx, in SignInput) (Message, error) {
 }
 ```
 
-- `Validate` 是规则唯一放的地方。它对每个调用者都运行，不只是你的页面。`tifa.Fields` 以 422 响应，带 `{"error": ..., "fields": {"name": "..."}}`，键是输入的 json 名字。`Validate` 返回的任何其他错误以 400 响应，把它的文字作为消息，所以当某条消息属于某个输入时，请用 `tifa.Fields`。
+- `Validate` 是规则唯一放的地方。它对每个调用者都运行，不只是你的页面。`tifa.Fields` 以 422 响应，带 `{"error": ..., "fields": {"name": "..."}}`，键是输入的 json 名字。`Validate` 返回的任何其他错误算应用自己出的错，以 500 响应，不带它的文字。所以属于某个输入的消息用 `tifa.Fields`，其他要给访客看的消息用 `tifa.Error`。
 - 先收集所有的消息，最后用 `fields.Err()` 结束。这样访客能一次看到每个错误。你什么都没加的时候，`Err` 是 nil。
 - 在浏览器里也检查（`required` 属性、一个 schema）只能省一次往返。不要因此跳过 Go 里的检查。
 

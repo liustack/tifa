@@ -2,7 +2,7 @@
 summary: 'Tifa 默认替你防住了什么（跨站写入、会话 cookie、上限、响应头），以及你必须自己做的事'
 audience: app
 order: 12
-translatedFrom: c060ad5fa52e
+translatedFrom: 35fcb248cbbb
 read_when:
   - '准备上线，想知道 Tifa 已经防了什么、还有什么留给你'
   - '检查一个应用，或者 coding agent 写的代码，看有没有安全漏洞'
@@ -52,7 +52,7 @@ Tifa 默认打开的，是它不用懂你的业务就能做的检查，其余的
 
 ### 错误细节留在日志里 {#error-details-stay-in-the-log}
 
-`Load` 或处理函数返回的错误，除了 `tifa.Error`、`tifa.Fields` 和 `tifa.ErrNotFound`，都会记进日志，并答 500 加普通的状态文字。访客看不到它的文本。`OnError` 返回什么，访客就看到什么。`tifa.Error` 的文本是公开的，所以别在里面放内部信息。构建出的应用也不会显示页面失败背后的错误，只有 `tifa dev` 会。详见[错误和 404](../pages-and-data/errors.zh-CN.md#errors-from-load-and-handlers)。
+`Load`、处理函数或 `Validate` 方法返回的错误，除了 `tifa.Error`、`tifa.Fields` 和 `tifa.ErrNotFound`，都会记进日志，并答 500 加普通的状态文字。访客看不到它的文本。`OnError` 返回什么，访客就看到什么。`tifa.Error` 的文本是公开的，所以别在里面放内部信息。构建出的应用也不会显示页面失败背后的错误，只有 `tifa dev` 会。详见[错误和 404](../pages-and-data/errors.zh-CN.md#errors-from-load-and-handlers)。
 
 ### 每个入口都是一个文件夹 {#every-way-in-is-a-folder}
 
@@ -106,7 +106,6 @@ Tifa 没有数据库层。你的应用用 `database/sql`，所以把值作为参
 
 - `tifa.SetHTTPHandler` 包在所有东西外面，跨站检查也在里面。你的包装器自己回答的路径，比如 `/debug/pprof/`，没有 `OnRequest`，也没有检查。把它放在你自己的检查后面，或者放到另一个监听器上。详见[在 OnStart 里做设置](../pages-and-data/hooks.zh-CN.md#setting-up-in-onstart)。
 - 用 `c.SetCookie` 设置的 cookie 按你写的原样发出。`HttpOnly`、`Secure` 和 `SameSite` 要自己设。
-- `Validate` 方法返回的普通错误会被答 400，并带着它自己的文本，用户能看到。返回 `tifa.Fields`，或者带着写给访客看的消息的 `tifa.Error`。详见[处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result)。
 - 通过 HTTPS 时，如果一个响应既重复了请求里的内容，又包含机密，压缩可能泄漏那个机密。详见[压缩](../build-and-deploy/build.zh-CN.md#compression)。
 - `tifa dev` 会显示内部错误，并监听 `127.0.0.1`。不要把它开放给你不信任的网络。详见[页面渲染失败时](../build-and-deploy/dev.zh-CN.md#when-a-page-fails-to-render)。
 
