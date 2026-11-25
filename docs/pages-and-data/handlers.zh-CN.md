@@ -2,7 +2,7 @@
 summary: 'POST 等方法处理函数：带类型的输入、文件、请求体上限、从页面调用'
 audience: app
 order: 4
-translatedFrom: 842d5949bf88
+translatedFrom: d8d5059da3c4
 read_when:
   - '在 route.go 里编写 API 路由或方法处理函数'
   - '在方法处理函数里接收文件，或者用 `c.SetBodyLimit` 和 `c.SetReadTimeout` 给某条路由单独设置请求体上限或读取时间'
@@ -95,6 +95,40 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - `c.SetBodyLimit(n)` 的 `n` 是字节数。超过它的请求体，会在处理函数运行之前以 413 响应。这个上限统计整个请求体：文件、其他字段和 multipart 的分隔结构。如果想不重新构建就能改，数字可以取自[应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app)：`c.SetBodyLimit(int64(UploadLimit))`，其中 `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`。
 - `c.SetReadTimeout(d)` 让请求体从现在起有 `d` 的时间到达，之后响应再得到 `server.write_timeout`，因为响应是在请求体收完之后才写的。时间到了请求体还在传，就以 408 响应。没有请求体的请求，比如 GET，保持它的期限，这个调用什么都不做。
 - 读取请求体开始之后，两者都会返回错误，`SetReadTimeout` 在 `d` 不大于 0 时，或响应到不了连接时（比如在一个不会解开包装的 `tifa.SetHTTPHandler` 中间件后面）也会返回错误。检查这个错误并返回它。
+
+## 一次写入放在哪 {#where-a-write-goes}
+
+一个文件夹里每种方法只有一个处理函数，所以一次写入就是一个方法加一个文件夹。应用需要的写入有三种形状：
+
+| 这次写入 | 放在哪 | 比如 |
+| --- | --- | --- |
+| 改某个东西的字段 | 这个东西所在文件夹的 `PATCH` | `PATCH /orders/42`，带上要改的字段 |
+| 在某个东西下面新建一项 | 放这类子项的文件夹的 `POST` | `POST /orders/42/notes` |
+| 有自己名字的操作 | 以这个名字命名的文件夹，和它的 `POST` | `POST /orders/42/ship` |
+
+- **一个 `PATCH` 可以改任意几个字段。** 输入里带 `omitempty` 或 `omitzero` 的字段在 TypeScript 里是可选的，指针字段能分清「没传」（`nil`）和「传了空值」。
+- **一个操作有自己的规则时，就给它一个文件夹：** 谁能做，什么时候能做，或者它还会引起什么。给订单发货只能做一次，会改订单的状态，还可能发一封邮件，所以它是 `ship/`，不是 `PATCH` 里多出来的一个字段。
+- **这个文件夹很小。** 它是一个 Go 包，里面一个几行的 `route.go`，调用业务域的代码：
+
+  ```go
+  // app/orders/order+/ship/route.go
+  package ship
+
+  type Input struct {
+  	Carrier    string `json:"carrier"`
+  	TrackingNo string `json:"trackingNo"`
+  }
+
+  func POST(c *tifa.Ctx, in Input) (orders.Order, error) {
+  	return orders.Ship(c.Context(), c.Param("order"), in.Carrier, in.TrackingNo)
+  }
+  ```
+
+  页面导入它的函数时，起一个说明用途的名字：`import { POST as shipOrder } from './ship/route.gen'`。
+
+这样每次写入都有自己的地址、输入类型和结果类型。`OnRequest` 可以根据方法和 `c.Pattern()` 决定谁能做，代理、限流和日志只看方法和路径就能把各种写入分开。
+
+这些 Tifa 都不检查。处理函数也可以读 `c.Query("action")`，然后在几件事里做一件，但那几件事就共用一个地址、一个输入类型和一个结果类型。Tifa 为什么没有让浏览器按名字调用的函数，见[设计理念](../start/philosophy.zh-CN.md#one-address-for-each-write)。
 
 ## 从浏览器调用方法处理函数 {#calling-method-handlers-from-the-browser}
 

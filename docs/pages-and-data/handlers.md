@@ -95,6 +95,40 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - `c.SetReadTimeout(d)` gives the body `d` from now to arrive, and the answer `server.write_timeout` after it, since it is written once the body is in. A body still coming when the time is over is answered with 408. A request with no body, such as a GET, keeps its deadlines and the call does nothing.
 - Both return an error once the body is being read, and `SetReadTimeout` also when `d` is not over 0 or when the response cannot reach the connection, such as behind a middleware of `tifa.SetHTTPHandler` that does not unwrap it. Check the error and return it.
 
+## Where a write goes
+
+A folder has one handler for each method, so a write is a method and a folder. Three shapes cover what apps need:
+
+| The write | Where it goes | Such as |
+| --- | --- | --- |
+| Changes fields of a thing | The `PATCH` of the folder of the thing | `PATCH /orders/42` with the fields to change |
+| Makes a new thing below another | The `POST` of a folder for those things | `POST /orders/42/notes` |
+| An operation with a name of its own | A folder with that name, and its `POST` | `POST /orders/42/ship` |
+
+- **One `PATCH` changes any of the fields.** A field of the input with `omitempty` or `omitzero` is optional in TypeScript, and a pointer field tells a field that was left out (`nil`) from an empty one.
+- **An operation gets a folder when it has rules of its own:** who may do it, when it is allowed, or what else it sets off. Shipping an order is allowed once, changes the status of the order and may send a mail, so it is `ship/`, not one more field of the `PATCH`.
+- **The folder is small.** It is a Go package with a `route.go` of a few lines that calls the domain:
+
+  ```go
+  // app/orders/order+/ship/route.go
+  package ship
+
+  type Input struct {
+  	Carrier    string `json:"carrier"`
+  	TrackingNo string `json:"trackingNo"`
+  }
+
+  func POST(c *tifa.Ctx, in Input) (orders.Order, error) {
+  	return orders.Ship(c.Context(), c.Param("order"), in.Carrier, in.TrackingNo)
+  }
+  ```
+
+  The page imports its function under a name that says what it does: `import { POST as shipOrder } from './ship/route.gen'`.
+
+Each write then has an address, an input type and a result type of its own. `OnRequest` can decide who may do it from the method and `c.Pattern()`, and a proxy, a rate limit and the log tell the writes apart by method and path alone.
+
+Tifa does not check any of this. A handler may also read `c.Query("action")` and do one of several things, but those then share one address, one input type and one result type. Why Tifa has no functions that the browser calls by name is in [Philosophy](../start/philosophy.md#one-address-for-each-write).
+
 ## Calling method handlers from the browser
 
 The `route.gen` module of a folder with method handlers exports one function per handler, named after its method. API routes get a `route.gen` module too, so a page can import the handlers of any folder:
