@@ -2,7 +2,7 @@
 summary: 'POST 等方法处理函数：带类型的输入、文件、请求体上限、从页面调用'
 audience: app
 order: 4
-translatedFrom: 9e8dde04a761
+translatedFrom: 67e6e76aad0b
 read_when:
   - '在 route.go 里编写 API 路由或方法处理函数'
   - '在方法处理函数里接收文件，或者用 `c.SetBodyLimit` 和 `c.SetReadTimeout` 给某条路由单独设置请求体上限或读取时间'
@@ -92,7 +92,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 }
 ```
 
-- `c.SetBodyLimit(n)` 的 `n` 是字节数。超过它的请求体，会在处理函数运行之前以 413 响应。这个上限统计整个请求体：文件、其他字段和 multipart 的分隔结构。如果想不重新构建就能改，数字可以取自[应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app)：`c.SetBodyLimit(int64(UploadLimit))`，其中 `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`。
+- `c.SetBodyLimit(n)` 的 `n` 是字节数。超过它的请求体，会在处理函数运行之前以 413 响应。没有输入参数、自己读 `c.Request().Body` 的处理函数，读的时候拿到的是一个 `*http.MaxBytesError`：用 `tifa.Error{Status: 413, Message: "The file is too large."}` 回答它，不然它就是意外错误，交给 `OnError`。这个上限统计整个请求体：文件、其他字段和 multipart 的分隔结构。如果想不重新构建就能改，数字可以取自[应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app)：`c.SetBodyLimit(int64(UploadLimit))`，其中 `UploadLimit = tifa.Size("upload.limit", 4<<20, "Largest upload")`。
 - `c.SetReadTimeout(d)` 让请求体从现在起有 `d` 的时间到达，之后响应再得到 `server.write_timeout`，因为响应是在请求体收完之后才写的。时间到了请求体还在传，就以 408 响应。没有请求体的请求，比如 GET，保持它的期限，这个调用什么都不做。
 - 读取请求体开始之后，两者都会返回错误，`SetReadTimeout` 在 `d` 不大于 0 时，或响应到不了连接时（比如在一个不会解开包装的 `tifa.SetHTTPHandler` 中间件后面）也会返回错误。检查这个错误并返回它。
 
