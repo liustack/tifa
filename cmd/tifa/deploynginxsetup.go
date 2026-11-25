@@ -1,0 +1,202 @@
+package main
+
+// The plan of setup and remove for deploy.front nginx. See deploynginx.go for what is on the server.
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+)
+
+// readNginx asks the server as root about nginx, certbot and the sites of Tifa. Inside a plan it asks
+// once.
+func (r *setupRun) readNginx(ctx context.Context) (nginxState, error) {
+	return memoRead(ctx, "ssh-nginx", func() (nginxState, error) {
+		var out strings.Builder
+		if err := r.t.ssh(ctx, "root", nginxProbeScript(), nil, &out, r.stderr); err != nil {
+			return nginxState{}, err
+		}
+		return parseNginxState(out.String())
+	})
+}
+
+// rootScript is a step that runs script as root and says what it printed. A script that fails
+// says why on stderr, such as what nginx said of a site: that is the error.
+func (r *setupRun) rootScript(script string) func(context.Context) (string, error) {
+	return func(ctx context.Context) (string, error) {
+		var out, said strings.Builder
+		if err := r.t.ssh(ctx, "root", script, nil, &out, &said); err != nil {
+			if text := strings.TrimSpace(said.String()); text != "" {
+				var login *sshLoginError
+				if !errors.As(err, &login) {
+					return "", errors.New(text)
+				}
+			}
+			return "", err
+		}
+		return strings.TrimSpace(strings.ReplaceAll(strings.TrimSpace(out.String()), "\n", ", ")), nil
+	}
+}
+
+func nginxSiteText(app, host string, port int) string {
+	who := pick(host == "", "the visitors that name no domain", host)
+	return fmt.Sprintf("nginx: the site of %s -> 127.0.0.1:%d in /etc/nginx/conf.d/tifa-%s.conf, which nginx checks with nginx -t before it reloads", who, port, app)
+}
+
+// nginxSteps plans nginx for an app with deploy.front nginx: the nginx and certbot of Tifa, the site
+// of the app, its certificate, and the ports in ufw. It stops, before anything changes, for an nginx
+// that is not Tifa's or a program on the ports. The app is planned before it: its loopback port is
+// what the site points at.
+func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
+	t := r.t
+	ns, err := r.readNginx(ctx)
+	if err != nil {
+		return fmt.Errorf("deploy.front: nginx installs and changes nginx as root, and %s cannot be reached as root: %w", t.host, err)
+	}
+	if err := nginxGuard(t, ns, r.st.UserSockets); err != nil {
+		return err
+	}
+	host, app := t.own, t.app
+	nginxPkgs, certbotPkgs := nginxPackages(ns, host != "")
+	if (len(nginxPkgs) > 0 || len(certbotPkgs) > 0) && !ns.Apt {
+		p.cannot("server: install nginx"+pick(host != "", " and certbot", ""), errNoAptForNginx.Error())
+		return nil
+	}
+	if len(nginxPkgs) > 0 {
+		p.add(opAdd, "server: install nginx with apt, which routes the visitors of the apps of this server, and write /etc/tifa/nginx to mark it as Tifa's, as root",
+			r.rootScript(nginxInstallScript(nginxPkgs, nil)))
+	} else {
+		p.ok("nginx: installed by tifa")
+	}
+	if len(certbotPkgs) > 0 {
+		p.add(opAdd, "server: install certbot and its nginx plugin with apt, which gets the certificates and renews them with its own timer, as root",
+			r.rootScript(nginxInstallScript(nil, certbotPkgs)))
+	}
+
+	cert, hasCert := ns.cert(app)
+	certHost := hasCert && (cert.Host == host || cert.Host == "?")
+	tlsNow := host != "" && certHost
+	want := nginxSiteFile(app, host, r.port, tlsNow)
+	text := nginxSiteText(app, host, r.port)
+	apply := func(ctx context.Context) (string, error) {
+		return r.rootScript(nginxSiteScript(app, want))(ctx)
+	}
+	cur, has := ns.site(app)
+	switch {
+	case !has:
+		p.add(opAdd, text, apply)
+	case cur.Sum != sha(want) || ns.Default:
+		p.add(opChange, text+pick(ns.Default, ", and the welcome site of nginx goes", ""), apply)
+	default:
+		p.ok(text)
+	}
+
+	if host != "" {
+		certText := fmt.Sprintf("server: the certificate of %s from Let's Encrypt with certbot, which renews it with its own timer, and HTTPS in the site of %s", host, app)
+		switch {
+		case certHost:
+			p.ok(fmt.Sprintf("server: the certificate of %s from Let's Encrypt, renewed by certbot", host))
+		default:
+			replace := hasCert
+			op := opAdd
+			if replace {
+				op = opChange
+			}
+			p.add(op, certText, func(ctx context.Context) (string, error) {
+				if _, err := r.rootScript(nginxCertScript(app, host, replace))(ctx); err != nil {
+					return "", err
+				}
+				return r.rootScript(nginxSiteScript(app, nginxSiteFile(app, host, r.port, true)))(ctx)
+			})
+		}
+	}
+
+	if after := r.firewallFor(ctx, p, "nginx", nginxPorts, nil); after != nil {
+		after()
+	}
+	p.firewall = "Visitors need ports 80 and 443 of the server open. Tifa does not change your provider's firewall or security groups: if they block them, open them there."
+	return nil
+}
+
+// nginxGoneSteps plans, for an app whose deploy.front is not nginx, the removal of what an earlier
+// nginx front left: its site and certificate, and nginx once no app uses it. They come before the
+// app moves, since nginx may hold ports 80 and 443 that the app needs.
+func (r *setupRun) nginxGoneSteps(ctx context.Context, p *setupPlan) error {
+	if !r.haveServer || !r.st.NginxTifa {
+		return nil
+	}
+	return r.nginxRemovalSteps(ctx, p, ", since deploy.front is not nginx any more")
+}
+
+// nginxRemovalSteps plans the removal of the site and certificate of the app, and of nginx and
+// certbot, the ufw rules and the marker when no other app has a site. It reads nginx as root. The
+// steps run in the order nginx needs: the site first, so nginx no longer asks for the certificate.
+func (r *setupRun) nginxRemovalSteps(ctx context.Context, p *setupPlan, why string) error {
+	app := r.t.app
+	ns, err := r.readNginx(ctx)
+	if err != nil {
+		p.cannot("nginx: the site and certificate of "+app+", and nginx once no app uses it",
+			fmt.Sprintf("only root can change nginx, but %s cannot be reached as root: %v", r.t.host, err))
+		return nil
+	}
+	if !ns.Tifa {
+		return nil
+	}
+	if _, ok := ns.site(app); ok {
+		p.add(opRemove, fmt.Sprintf("nginx: the site of %s in /etc/nginx/conf.d/tifa-%s.conf, which tifa wrote%s, and nginx reloads after nginx -t", app, app, why),
+			r.rootScript(nginxRemoveSiteScript(app)))
+	}
+	if c, ok := ns.cert(app); ok {
+		p.add(opRemove, fmt.Sprintf("server: the certificate tifa-%s of %s, made by certbot%s", app, pick(c.Host == "?", "the site", c.Host), why),
+			r.rootScript(nginxRemoveCertScript(app)))
+	}
+	if len(ns.otherSites(app)) > 0 {
+		return nil
+	}
+	what := "nginx"
+	if len(ns.TifaCerts) > 0 {
+		what = "nginx and certbot"
+	}
+	p.add(opRemove, fmt.Sprintf("server: uninstall %s, which setup installed, with their configuration, and delete /etc/tifa/nginx, as root, since no other app uses nginx", what),
+		r.rootScript(nginxUninstallScript()))
+	if after := r.firewallFor(ctx, p, "nginx", nil, nginxPorts); after != nil {
+		after()
+	}
+	return nil
+}
+
+// printNginxVisitors ends a setup of an app behind nginx: which ports visitors need, and that Tifa
+// does not open them at the provider. Once a release runs, this machine asks each port.
+func (r *setupRun) printNginxVisitors(ctx context.Context, w io.Writer) {
+	if !r.haveServer {
+		return
+	}
+	ports := []int{httpPort}
+	if r.t.own != "" {
+		ports = nginxPorts
+	}
+	them := pick(len(ports) > 1, "them", "it")
+	line := fmt.Sprintf("%s is served by nginx on %s of the server. If the firewall or a security group of your provider blocks %s, open %s there: Tifa does not change those.",
+		r.t.app, portList(ports), them, them)
+	if r.st.Current != "" {
+		host := r.t.serverAddress(ctx)
+		if r.t.own != "" {
+			host = r.t.own
+		}
+		var closed []string
+		for _, q := range ports {
+			if !portAnswers(ctx, host, q) {
+				closed = append(closed, strconv.Itoa(q))
+			}
+		}
+		if len(closed) == 0 {
+			line += " " + pick(len(ports) > 1, "Both answer", "It answers") + " from this machine."
+		} else {
+			line += fmt.Sprintf(" %s %s did not answer from this machine within 3 seconds.", pick(len(closed) > 1, "Ports", "Port"), strings.Join(closed, " and "))
+		}
+	}
+	fmt.Fprintln(w, line)
+}

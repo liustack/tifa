@@ -185,6 +185,10 @@ type serverState struct {
 	// systemd of the deploy user holds, with the service each one starts.
 	Listen      []listener
 	UserSockets []userSocket
+	// NginxTifa says the marker /etc/tifa/nginx is there: setup installed the nginx of the server.
+	// NginxSites are the apps that have a site in it. Both are readable by every user.
+	NginxTifa  bool
+	NginxSites []string
 }
 
 // listener is a port something listens on, and the programs ss names for it, such as "nginx (pid 812)".
@@ -344,6 +348,10 @@ func parseServerState(out string) (serverState, error) {
 			s.Others = append(s.Others, strings.TrimSpace(value))
 		case "cloudflared-tifa":
 			s.CloudflaredByTifa = true
+		case "nginx-tifa":
+			s.NginxTifa = true
+		case "nginx-site":
+			s.NginxSites = append(s.NginxSites, strings.TrimSpace(value))
 		case "unit-active":
 			s.Active = strings.TrimSpace(value)
 		case "unit-since":
@@ -762,6 +770,10 @@ if [ -f "$HOME/.ssh/authorized_keys" ]; then
 	sed -n 's/.* tifa-github \([^ ]*\)$/ghkey \1/p' "$HOME/.ssh/authorized_keys"
 fi
 if [ -f /etc/apt/apt.conf.d/52tifa-cloudflared ]; then echo "cloudflared-tifa yes"; fi
+if [ -f /etc/tifa/nginx ]; then echo "nginx-tifa yes"; fi
+for f in /etc/nginx/conf.d/tifa-*.conf; do
+	if [ -f "$f" ]; then a=$(basename "$f" .conf); echo "nginx-site ${a#tifa-}"; fi
+done
 # The zones of the purge tokens, never a token: only what comes before the first tab of a line.
 f="$HOME/` + purgeFile + `"
 if [ -d "$HOME/` + purgeDir + `" ]; then echo "purge-file yes"; fi

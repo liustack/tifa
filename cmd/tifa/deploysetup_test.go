@@ -133,6 +133,13 @@ while [ "$1" != "--" ]; do shift; done
 script=$3
 case "$script" in
 true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF\nConnection closed by UNKNOWN port 65535\n' >&2; exit 255; }; [ -f "$d/checkfail" ] && { echo "Permission denied (publickey)." >&2; exit 255; }; true ;;
+*"tifa: read nginx"*) echo "nginxread $user" >> "$d/calls"; cat "$d/nginxfacts" 2>/dev/null; true ;;
+*"tifa: install nginx"*) echo "nginxinstall $user" >> "$d/calls"; echo "installed" ;;
+*"tifa: nginx site"*) echo "nginxsite $user" >> "$d/calls"; [ -f "$d/nginxfail" ] && { echo "tifa: nginx did not accept the site of shop, so the file before it is back. nginx said:" >&2; echo "nginx: [emerg] unknown directive" >&2; exit 1; }; echo "wrote the site, and nginx reloaded" ;;
+*"tifa: nginx certificate"*) echo "nginxcert $user" >> "$d/calls"; echo "certificate" ;;
+*"tifa: nginx remove site"*) echo "nginxremovesite $user" >> "$d/calls"; echo "deleted the site" ;;
+*"tifa: nginx remove certificate"*) echo "nginxremovecert $user" >> "$d/calls"; echo "deleted the certificate" ;;
+*"tifa: nginx uninstall"*) echo "nginxuninstall $user" >> "$d/calls"; echo "uninstalled nginx" ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
 *"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\nmachine vps-1234\n'; cat "$d/rootfacts" 2>/dev/null; true ;;
 *"tifa: who listens"*) echo "listeners $user" >> "$d/calls"; [ "$user" = root ] && [ -f "$d/rootdenied" ] && { echo "root@vps: Permission denied (publickey)." >&2; exit 255; }; cat "$d/rootfacts" 2>/dev/null; true ;;

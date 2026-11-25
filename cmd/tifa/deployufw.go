@@ -219,7 +219,6 @@ func (r *setupRun) ufwRun(body string) func(context.Context) (string, error) {
 // until Let's Encrypt reaches it, and its health check fails until then. The rules of the ports
 // the app gives up go after the move, in the step that the returned function adds, nil when none.
 func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (after func()) {
-	app := r.t.app
 	need := visitorPorts(port)
 	var gone []int
 	for _, q := range visitorPorts(r.st.Port) {
@@ -227,6 +226,15 @@ func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (a
 			gone = append(gone, q)
 		}
 	}
+	return r.firewallFor(ctx, p, r.t.app, need, gone)
+}
+
+// nginxPorts are the ports the nginx of Tifa needs open: 80, and 443 for the apps with a domain.
+var nginxPorts = []int{httpPort, httpsPort}
+
+// firewallFor is firewallSteps for who, the app or "nginx", whose rules carry the comment tifa <who>:
+// need are the ports it needs open, and gone the ports it served on that it gives up.
+func (r *setupRun) firewallFor(ctx context.Context, p *setupPlan, app string, need, gone []int) (after func()) {
 	if !(len(need) > 0 && r.st.UFW == "on") && !(len(gone) > 0 && r.st.UFW != "") {
 		return
 	}
@@ -250,6 +258,11 @@ func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (a
 	var denying []string
 	for _, q := range need {
 		rule, found := u.rule(q)
+		// A rule of another owner of Tifa, such as an app that gave up the port, goes when its
+		// owner no longer needs it: it is no rule for visitors of this one.
+		if found && strings.HasPrefix(rule.comment, "tifa ") && rule.comment != ufwComment(app) {
+			found = false
+		}
 		switch {
 		case !u.active:
 		case found && (rule.action == "allow" || rule.action == "limit"):
