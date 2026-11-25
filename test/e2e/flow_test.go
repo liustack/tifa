@@ -168,7 +168,8 @@ func TestErrorFlowInTheVM(t *testing.T) {
 			t.Errorf("OnError ran %d times:\n%s", got, output)
 		}
 		// React leaves the route's Suspense boundary to the browser, the server still learns why.
-		if !regexp.MustCompile(`Error: PAGE_THROWS +at \w+ \(app/throws/page\.tsx:2:`).MatchString(output.String()) {
+		// The bundle names the component as the minifier likes, $ included.
+		if !regexp.MustCompile(`Error: PAGE_THROWS +at [\w$]+ \(app/throws/page\.tsx:2:`).MatchString(output.String()) {
 			t.Errorf("OnError did not see the error and its place:\n%s", output)
 		}
 	})
