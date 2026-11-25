@@ -338,7 +338,8 @@ func OnStart(context.Context) error {
 // page, which sends them back afterwards. It runs for page loads and for the data requests of
 // link clicks alike.
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
-	if path := c.Path(); (path == "/account" || strings.HasPrefix(path, "/account/")) && tifa.Session[Session](c) == nil {
+	if route := c.Pattern(); (route == "/account" || strings.HasPrefix(route, "/account/")) && tifa.Session[Session](c) == nil {
+		path := c.Path()
 		if query := c.Request().URL.RawQuery; query != "" {
 			path += "?" + query
 		}
@@ -347,6 +348,8 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	return next(c)
 }
 ```
+
+The guard asks which route matched, with `c.Pattern()`, such as `/account` or `/account/orders/{order}`. Do not compare the text of the URL (`c.Path()` or `c.Request().URL.Path`) to decide who gets in. One route has many spellings: `/%61ccount` is `/account`, and a page in several languages also answers at `/en-US/account`. A guard that compares the text lets those through, and the route still runs. `c.Path()` is only for the `next` address.
 
 `tifa.Session[Session](c)` is nil when nobody is signed in. The server reads the session before `OnRequest`, so every hook, `Load` and handler can ask.
 
