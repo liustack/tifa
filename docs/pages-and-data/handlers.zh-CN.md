@@ -2,7 +2,7 @@
 summary: 'POST 等方法处理函数：带类型的输入、文件、请求体上限、从页面调用'
 audience: app
 order: 4
-translatedFrom: 395f3915ae2a
+translatedFrom: d6eee3c05753
 read_when:
   - '在 route.go 里编写 API 路由或方法处理函数'
   - '在方法处理函数里接收文件，或者用 `c.SetBodyLimit` 和 `c.SetReadTimeout` 给某条路由单独设置请求体上限或读取时间'
@@ -128,7 +128,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 这样每次写入都有自己的地址、输入类型和结果类型。`OnRequest` 可以根据方法和 `c.Pattern()` 决定谁能做，代理、限流和日志只看方法和路径就能把各种写入分开。
 
-这些 Tifa 都不检查。处理函数也可以读 `c.Query("action")`，然后在几件事里做一件，但那几件事就共用一个地址、一个输入类型和一个结果类型。Tifa 为什么没有让浏览器按名字调用的函数，见[设计理念](../start/philosophy.zh-CN.md#one-address-for-each-write)。
+这些 Tifa 都不检查。处理函数也可以在输入里放一个 `action` 字段，然后在几件事里做一件，但那几件事就共用一个地址、一个输入类型和一个结果类型。Tifa 为什么没有让浏览器按名字调用的函数，见[设计理念](../start/philosophy.zh-CN.md#one-address-for-each-write)。
 
 ## 从浏览器调用方法处理函数 {#calling-method-handlers-from-the-browser}
 

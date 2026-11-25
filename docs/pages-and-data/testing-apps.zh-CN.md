@@ -2,7 +2,7 @@
 summary: '怎样用 go test 测试应用：tifatest.NewCtx、tifatest.Start、Load、OnRequest、时钟'
 audience: app
 order: 14
-translatedFrom: 2ef1dd4ed293
+translatedFrom: 068c1ec26ff0
 read_when:
   - '为 Load、布局函数、方法处理函数或 OnRequest 写 Go 测试'
   - '在 go test 里用 tifatest.Start 或 tifatest.StartPages 测试一次完整的请求，比如登录后跟随重定向'
@@ -34,7 +34,8 @@ func TestLoad(t *testing.T) {
 这测的是函数本身，不是 HTTP 响应。检查函数的返回值：值和错误。只有服务器会解码输入、运行 `Validate`、把结果变成 JSON 或 204、把错误变成 404、422、重定向或对 `OnError` 的调用，并响应导航数据请求。返回的值或错误不会写进 recorder：函数自己什么都没写时，recorder 保持为空的 200。要检查 HTTP 响应，请 [测试整个请求](#testing-a-whole-request)。
 
 - 路径参数就是 `c.Param` 读到的内容：用 `r.SetPathValue` 设置解码后的值。`c.Pattern()` 是调用 `NewCtx` 时的 `r.Pattern`，`c.Path()` 是请求 URL 转义后的路径，所以要测试语言前缀，就把它写进请求的路径里（`/en-US/store`）。在 `tifatest.Start` 下，Ctx 由服务器构建，`c.Path()` 和真实请求里一样。
-- 用 `tifa.Use(c, Load)` 运行 `Load` 和 `Layout`。它按服务器的规则运行它们：每个请求一次，写响应体会失败。在 `Load` 里对某个布局调用 `tifa.Use`，会为同一个请求运行那个布局。只有函数用 `tifa.Use` 要求的布局才会运行。
+- 只接收 Ctx 的 `Load` 或 `Layout`，用 `tifa.Use(c, Load)` 运行。它按服务器的规则运行它们：每个请求一次，写响应体会失败。在 `Load` 里对某个布局调用 `tifa.Use`，会为同一个请求运行那个布局。只有函数用 `tifa.Use` 要求的布局才会运行。
+- 接收查询参数的 `Load`，`func Load(c *tifa.Ctx, q Filter) (T, error)`，直接用结构体调用：`Load(c, Filter{Sort: "price", Page: 2})`。结构体就是你传进去的值，所以不会解码任何东西，也不会读查询字符串。不合法的值会不会得到 400，要用整个请求的测试来看，比如 `GET /products?page=02`。
 - 直接调用方法处理函数：`POST(c)`，或带类型输入的 `POST(c, in)`。输入就是你传的那个值，所以要单独测试 `Validate`，如果 `Validate` 会改动输入，就传改动之后的输入。
 - 直接调用 `OnRequest`，给 `next` 传一个闭包：`OnRequest(c, func(c *tifa.Ctx) error { got = c.Context(); return nil })`。闭包代替路由，所以它既不会恢复 panic，也不会写结果。
 - 请求体上限是默认的 `server.body_limit`，1 MiB，除非 `c.SetBodyLimit` 改了它。`c.SetReadTimeout` 什么都不做，因为测试没有连接。测试结束时会删除请求的 multipart 文件。

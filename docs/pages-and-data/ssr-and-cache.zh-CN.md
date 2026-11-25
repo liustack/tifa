@@ -2,7 +2,7 @@
 summary: '页面怎样渲染和保存：SSR、Memo、Cache、Cache-Control、CDN、私有页面'
 audience: app
 order: 13
-translatedFrom: 95be4f6bdc9d
+translatedFrom: b2892347894c
 read_when:
   - '用 `SSR`、`Memo` 或 `Cache` 给某个页面打开或关闭服务端渲染、渲染记忆或 `Cache`'
   - '用 `const Cache` 让 CDN 保存一个公开页面几分钟，了解哪些内容会变成匿名，或者遇到在这种页面里读取 Cookie 或会话的构建错误'
@@ -47,7 +47,7 @@ const Cache = true             // the page, the same for everyone, a CDN may kee
 
 ### 服务端渲染里的查询参数 {#query-parameters-in-the-server-render}
 
-服务器渲染页面时只用路径，以及它的 `Load` 和上面的布局用 `c.Query` 或 `c.QueryValues` 读取的查询参数，不用别的。跟踪参数（如 `?utm_source=mail`）不会给 memo 增加键，也不会触发服务端渲染。怎样在组件里读参数，以及 `tifa build` 对读取后水合结果不同的警告，见 [查询参数](../reference/memo.zh-CN.md#query-parameters)。
+服务器渲染页面时只用路径，以及它的 `Load` 和上面的布局作为第二个参数接收的查询参数，不用别的。跟踪参数（如 `?utm_source=mail`）不会给 memo 增加键，也不会触发服务端渲染。怎样在组件里读参数，以及 `tifa build` 对读取后水合结果不同的警告，见 [查询参数](../reference/memo.zh-CN.md#query-parameters)。
 
 ### 给 CDN 用的缓存 {#cache-for-cdns}
 

@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
 audience: app
 order: 3
-translatedFrom: 2c73e2640f1d
+translatedFrom: 15faba667287
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -46,6 +46,44 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 在 `Load` 里只能设置响应头和 cookie。调用 `c.JSON`、`c.Text` 或 `c.NoContent` 会返回错误。
 
 `Load` 失败时返回什么，见[Load 和处理函数返回的错误](errors.zh-CN.md#errors-from-load-and-handlers)。
+
+## 查询参数 {#query-parameters}
+
+读取查询串的 `Load` 或 `Layout`，把一个结构体作为第二个参数，每个查询参数对应结构体的一个字段：
+
+```go
+type Filter struct {
+	Sort  string   `json:"sort"`
+	Color []string `json:"color"`
+	Page  int      `json:"page"`
+}
+
+func Load(c *tifa.Ctx, q Filter) (products.List, error) {
+	return products.Find(q.Sort, q.Color, q.Page)
+}
+```
+
+不读查询参数的 `Load` 只接收 Ctx。第二个参数是结构体的值，不是指针，类型可以有名字，也可以直接写在参数里。
+
+- 字段名取 `json` 标签，没有标签就取 Go 字段名。带 `json:"-"` 的字段和未导出的字段不算。任何字段都不能叫 `_tifa`，Tifa 把它留给导航使用。
+- 构建时 Tifa 从这个结构体读出参数名。其中一个变化时页面会重新加载，服务端渲染页面时只带这些参数，不带别的（比如 `?utm_source=` 会被去掉），`Link`、`navigate` 和 `useSearch` 也知道这些名字（见[导航](navigation.zh-CN.md#query-parameters-in-link-and-navigate)）。
+- 字段可以是字符串、`bool`、整数、浮点数，或者它们的切片。嵌入字段、指针、map，以及带 `MarshalText` 或 `UnmarshalText` 的类型会让构建失败，报错里会指出是哪个字段。几个页面共用的参数，在每个结构体里各写一遍。
+- 值只有一种合法写法，这样读进来再写出去，得到的文本和原来一样：
+
+| 类型 | 合法 | 不合法 |
+| --- | --- | --- |
+| `string` | 任何文本，空串也行 | |
+| 整数 | `0`，或者没有前导零、可带 `-` 的数字，不超出该类型的范围，也不超过 2^53-1 | `+1`、`01`、`-0`、`1.0`、`1e3`、空格 |
+| `bool` | `true` 和 `false` | `1`、`TRUE`、`yes` |
+| 浮点数 | 可带小数点的数字，小数部分末尾没有 `0`，最多 15 位数字，值是 `0` 或绝对值在 1e-6 到 1e21 之间 | `.5`、`1.0`、`0.50`、`-0`、`1e3` |
+| 切片 | 同名参数每出现一次就是一个元素，每个元素按元素类型的规则 | |
+
+- 值不合法时，在 `Load` 运行之前就返回 400，内容是 `invalid query parameter "page"`。导航的数据请求拿到的是该页面的 400。查询串本身解析不了，返回 400 和 `invalid query string`。不是切片的字段，同名参数出现两次也不合法。
+- 不是字符串的字段，值为空（`?page=`）算没传，字段保持零值，所以会发送空字段的表单也能用。数字或 bool 列表里的空元素会被跳过。对字符串来说，空串就是一个值。
+- 没有字段对应的参数会被忽略。
+- 访客在不用 JavaScript 的普通 `<form method="get">` 里手输数字，可能发出 `10.50` 或 `007`，页面会返回 400。这样的输入，字段声明成 `string`，在 `Load` 里自己解析。这些规则只管页面的查询字符串：`GET` 或 `DELETE` 处理函数的输入照旧，由 `c.BindQuery` 解码。
+- 这个结构体不带 `Validate`，带了构建就失败。请在 `Load` 里检查值，返回 `tifa.Error{Status: 400, Message: "page must be at least 1"}` 或 `tifa.ErrNotFound`。
+- 测试直接用结构体调用函数：`Load(c, Filter{Sort: "price"})`（见[测试应用](testing-apps.zh-CN.md)）。
 
 ## page.tsx {#pagetsx}
 
@@ -120,15 +158,15 @@ export default function PostPage() {
 
 ## Load 如何使用 Ctx {#how-load-may-use-ctx}
 
-这一节讲 `Load`、`Layout` 和它们调用的函数。构建时，Tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读取的路由参数（`c.Param`）、查询参数（`c.Query` 和 `c.QueryValues`）和布局（`tifa.Use`）。当 `Load` 把 `*tifa.Ctx` 传给本模块里的函数时，Tifa 会一层一层地跟进这个调用，跨包也一样，并把找到的每个参数都算到这个 `Load` 头上。被多个 `Load` 函数调用的辅助函数，会算到它们每一个头上。Tifa 不会跟进它自己的函数。
+这一节讲 `Load`、`Layout` 和它们调用的函数。构建时，Tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读取的路由参数（`c.Param`）和布局（`tifa.Use`）。查询参数来自第二个参数（见[查询参数](#query-parameters)）。当 `Load` 把 `*tifa.Ctx` 传给本模块里的函数时，Tifa 会一层一层地跟进这个调用，跨包也一样，并把找到的每个参数都算到这个 `Load` 头上。被多个 `Load` 函数调用的辅助函数，会算到它们每一个头上。Tifa 不会跟进它自己的函数。
 
-为了让 Tifa 能找全，Ctx 只能用在 Tifa 看得见的地方。给 `c.Param`、`c.Query` 和 `c.QueryValues` 传一个常量字符串，比如 `c.Param("order")`，并且直接调用它们和 `tifa.Use`：把其中一个存进变量，或当成值传递，都会让构建失败。
+为了让 Tifa 能找全，Ctx 只能用在 Tifa 看得见的地方。给 `c.Param` 传一个常量字符串，比如 `c.Param("order")`，并且直接调用它和 `tifa.Use`：把其中一个存进变量，或当成值传递，都会让构建失败。
 
 能持有 Ctx 的类型只有这些：`*tifa.Ctx`、`tifa.Ctx`、本模块里声明的非泛型结构体（它的字段只通过这些类型持有 Ctx，直接、嵌入或间接都可以），以及指向这类结构体的指针。
 
 持有 Ctx 的值，只能出现在这五个地方：
 
-1. 作为直接方法调用的接收者，比如 `c.Query("tab")` 或 `req.Page()`。
+1. 作为直接方法调用的接收者，比如 `c.Param("order")` 或 `req.Page()`。
 2. 作为参数传给本模块或 Tifa 里的非泛型函数，且该参数的类型完全相同。就地调用的函数字面量也算。
 3. 在持有 Ctx 的结构体的复合字面量里，赋给完全相同类型的字段。
 4. 用 `:=` 或 `var x T = ...` 赋给一个完全相同类型的新局部变量。这个变量遵循同样的规则。
@@ -136,11 +174,11 @@ export default function PostPage() {
 
 任何其他用法都会让构建失败，并指出文件和行号。比如：把它转换成另一个类型或接口，赋给已有的变量，一次赋多个值，`return` 它，放进切片、map、数组或 channel，`range`，包级变量，`defer`，`go` 语句，或把它传给泛型函数、接口方法、函数变量，或模块之外的函数（标准库和第三方库）。
 
-`Load`、`Layout` 和它们调用的函数，不能调用 `c.Request()` 或 `c.Writer()`。Tifa 看不见通过原始请求读取的参数。请改用 `c.Param`、`c.Query`、`c.QueryValues`、`c.Header`、`c.Cookie` 或 `c.Context()`。`c.Request()` 和 `c.Writer()` 只给方法处理函数和 `OnRequest` 用。
+`Load`、`Layout` 和它们调用的函数，不能调用 `c.Request()` 或 `c.Writer()`。Tifa 看不见通过原始请求读取的参数。请改用 `c.Param`、`c.Header`、`c.Cookie` 或 `c.Context()`，查询参数则作为第二个参数接收。`c.Request()` 和 `c.Writer()` 只给方法处理函数和 `OnRequest` 用。
 
-在 `Load` 里要取页面的路径，用 `c.Path()`，比如在重定向到登录页的 `next` 地址里。它是访问者请求的路径，带语言前缀，不带查询，页面加载和导航的数据请求得到的都一样，所以不必为此去调用 `c.Request()`。需要把某个查询参数也放进这个地址的 `Load`，用 `c.Query("name")` 读取它。`Layout` 和它调用的函数不能调用 `c.Path()`：布局的数据由它下面的每个页面共享，访问者在这些页面之间跳转时不会重新加载，所以它会一直保留第一次加载它的那个页面的路径。请在页面的 `Load`、`OnRequest` 或方法处理函数里调用它。
+在 `Load` 里要取页面的路径，用 `c.Path()`，比如在重定向到登录页的 `next` 地址里。它是访问者请求的路径，带语言前缀，不带查询，页面加载和导航的数据请求得到的都一样，所以不必为此去调用 `c.Request()`。需要把某个查询参数也放进这个地址的 `Load`，从它的第二个参数里取这个参数。`Layout` 和它调用的函数不能调用 `c.Path()`：布局的数据由它下面的每个页面共享，访问者在这些页面之间跳转时不会重新加载，所以它会一直保留第一次加载它的那个页面的路径。请在页面的 `Load`、`OnRequest` 或方法处理函数里调用它。
 
-它们也不能调用 `c.BindQuery` 或 `c.Bind`。Tifa 说不出一个结构体解码了哪些查询参数，所以这些参数变化时页面不会重新加载，而且页面加载或导航的数据请求没有请求体。请用 `c.Query("name")` 读取每个查询参数，重复出现的参数用 `c.QueryValues("name")`。
+它们也不能调用 `c.Query`、`c.QueryValues`、`c.Bind` 或 `c.BindQuery`：查询参数是第二个参数的字段，这样 Tifa 和浏览器不用读代码就知道它，而且页面加载没有请求体可绑定。构建会让看得见的调用失败。对 `c.Query`、`c.QueryValues` 和 `c.BindQuery` 来说，看不见的调用，比如把 Ctx 存在全局变量里再取出来，会在运行时 panic，错误像 `Load` 的其他错误一样交给 `OnError`。这些方法留给方法处理函数（`c.Query` 和 `c.QueryValues` 也留给 `Validate` 和 `OnRequest`）。
 
 遇到这些错误时，请直接调用 Ctx 的方法，或把它传给一个普通函数。如果只需要请求的 context，就传 `c.Context()`。只调用 `c.Context()` 的辅助函数（比如 `auth.User(c)`），Tifa 跟进它时什么也收集不到。
 
