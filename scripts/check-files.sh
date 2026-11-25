@@ -22,8 +22,12 @@ fi
 if [ "$mode" = staged ]; then
 	base=$(git rev-parse -q --verify HEAD || git hash-object -t tree /dev/null)
 	binaries=$(git diff --cached --numstat --diff-filter=AM "$base" | awk '$1 == "-" { print $3 }')
-	big=$(git diff --cached --name-only --diff-filter=AM -z "$base" |
-		xargs -0 -I{} sh -c 's=$(git cat-file -s ":{}"); [ "$s" -gt '"$limit"' ] && echo "$s {}" || true')
+	# A loop, not xargs -I: BSD xargs gives up when the command with the path in it passes 255 bytes.
+	big=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=AM "$base" |
+		while IFS= read -r f; do
+			s=$(git cat-file -s ":$f")
+			if [ "$s" -gt "$limit" ]; then echo "$s $f"; fi
+		done)
 else
 	empty=$(git hash-object -t tree /dev/null)
 	binaries=$(git diff --numstat "$empty" HEAD | awk '$1 == "-" { print $3 }')
