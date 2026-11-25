@@ -1092,11 +1092,17 @@ func sourcesComment(g *routeGen) string {
 	if g.page != nil {
 		files = append(files, g.dir+"/page.tsx")
 	}
-	verb := "it changed"
-	if len(files) > 1 {
-		verb = "they changed"
+	// What else changes the module (other Go files of the package, types of other packages, a
+	// layout.tsx above, the locales) is not listed: the comment only says to run gen after a change.
+	from := strings.Join(files, " and ")
+	if hasGo {
+		uses := "they use"
+		if len(files) == 1 {
+			uses = "it uses"
+		}
+		from += " and the Go types " + uses
 	}
-	return "// Generated from " + strings.Join(files, " and ") + ". If " + verb + ", run `go tool tifa gen`.\n"
+	return "// Generated from " + from + ". After a change, run `go tool tifa gen`.\n"
 }
 
 // routeModule writes the route.gen module of a directory: page and layout for the hooks of its
@@ -1293,7 +1299,7 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 	if s != nil {
 		from = "the session type " + s.Type
 	}
-	b.WriteString(tsHeader + "// Generated from " + from + ". If it changed, run `go tool tifa gen`.\n\n")
+	b.WriteString(tsHeader + "// Generated from " + from + ". After a change, run `go tool tifa gen`.\n\n")
 	b.WriteString("// SessionEnabled is true when the app calls tifa.SetSession.\n")
 	fmt.Fprintf(&b, "export type SessionEnabled = %t\n\n", s != nil)
 	if s == nil || !s.Exposed {
