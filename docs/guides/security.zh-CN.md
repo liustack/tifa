@@ -2,7 +2,7 @@
 summary: 'Tifa 默认替你防住了什么（跨站写入、会话 cookie、上限、响应头），以及你必须自己做的事'
 audience: app
 order: 12
-translatedFrom: db4979667db5
+translatedFrom: 93e546867e19
 read_when:
   - '准备上线，想知道 Tifa 已经防了什么、还有什么留给你'
   - '检查一个应用，或者 coding agent 写的代码，看有没有安全漏洞'
@@ -60,7 +60,7 @@ Tifa 默认打开的，是它不用懂你的业务就能做的检查，其余的
 
 ### 构建不需要密钥 {#building-needs-no-secrets}
 
-`tifa build` 只读你的代码，从不运行它，所以构建（包括在 CI 里）不需要数据库，也不需要任何密钥。`.env` 不会被放进程序，`public/` 里名字以点开头的文件和文件夹（如 `.DS_Store`）也不会，`.well-known` 除外。`tifa.Secret` 选项不能用命令行参数设置，因为参数会出现在进程列表里，`./bin/app config` 也不会输出它的值。详见[应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app)。
+`tifa build` 只读你的代码，从不运行它，所以构建（包括在 CI 里）不需要数据库，也不需要任何密钥。`.env` 不会被放进程序，`public/` 里名字以点开头的文件和文件夹（如 `.DS_Store`）也不会，`.well-known` 除外。想放行某一个，就写进 `build.public_dotfiles`。`tifa.Secret` 选项不能用命令行参数设置，因为参数会出现在进程列表里，`./bin/app config` 也不会输出它的值。详见[应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app)。
 
 ## 你要做的 {#what-you-do}
 

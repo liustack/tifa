@@ -577,6 +577,14 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Instead.** A key in `tifa.yaml` that is no setting of Tifa fails `tifa check` and `tifa build`, and a flag nobody defined stops the program. A setting Tifa retired is a warning. Other environment variables, and other keys in the file of `-c`, are left alone: [Configuration](../build-and-deploy/config.md).
 
+### Copying every dot file of public/
+
+**Turned down (2026-11-25).** A switch that copies every dot file of `public/`.
+
+**Why not.** A `.env` or a `.git` that was left there by mistake would be published with it.
+
+**Instead.** `build.public_dotfiles` names the dot files and folders to copy, and `tifa build` says which ones it left out: [Configuration](../build-and-deploy/config.md).
+
 ## Languages
 
 ### Choosing the language from the request

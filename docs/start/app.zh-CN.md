@@ -2,7 +2,7 @@
 summary: '怎样开始写一个 Tifa 应用：route.go、page.tsx、layout.tsx、URL、`public/`、Next.js 或 Remix 代码'
 audience: app
 order: 2
-translatedFrom: 07188a6379fe
+translatedFrom: 1ab05150584d
 read_when:
   - '新建 Tifa 应用，或给应用加页面、布局或 API 路由'
   - '往应用里放图片、字体或图标，或者在导入和 `public/` 里的文件之间做选择'
@@ -62,7 +62,7 @@ myapp/
 文件分两类，用一个问题来决定属于哪一类：内容变了，URL 会变吗？
 
 - **导入它。文件进入 `/assets/` 下的包。** Vite 给它一个带内容哈希的名字，Tifa 用 `Cache-Control: public, max-age=31536000, immutable` 提供它。浏览器永久保存，新版本有新的 URL，所以它永远不会过期。页面用到的图片、字体和图标都属于这一类。
-- **放进 `public/`。** 文件保持它的名字，Tifa 用 `Cache-Control: no-cache` 和 ETag 提供它，所以每次使用都会问服务器，没变化时得到 304。名字固定时，任何缓存时间 N 都意味着最多有 N 那么久的旧内容，所以每次都要检查。名字以点开头的文件和文件夹，如 `.DS_Store` 和 `.env`，不会被复制进程序，`.well-known` 除外。
+- **放进 `public/`。** 文件保持它的名字，Tifa 用 `Cache-Control: no-cache` 和 ETag 提供它，所以每次使用都会问服务器，没变化时得到 304。名字固定时，任何缓存时间 N 都意味着最多有 N 那么久的旧内容，所以每次都要检查。名字以点开头的文件和文件夹，如 `.DS_Store` 和 `.env`，不会被复制进程序，`.well-known` 除外。想复制某一个，比如 `.nojekyll`，就把它写进 `build.public_dotfiles`（[配置](../build-and-deploy/config.zh-CN.md)）。`tifa build` 会说它没有复制哪些。
 
 页面用到的东西，要导入：
 
