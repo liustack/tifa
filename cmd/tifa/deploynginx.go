@@ -385,13 +385,22 @@ if [ -f "$f" ]; then cp -p "$f" "$f.last"; had=1; fi
 printf '%s' "$conf" > "$f.new"
 mv "$f.new" "$f"
 rm -f "$etc/nginx/sites-enabled/default"
+# nginx -t can pass and the reload or the start still fail, such as for a port that is taken: the
+# file before comes back then too, so the next start of nginx does not meet a site it cannot run.
+ok=""
+tested=""
 if out=$(nginx -t 2>&1); then
-	` + nginxReload + `
+	tested=1
+	if out=$( { ` + nginxReload + `; } 2>&1 ); then ok=1; fi
+fi
+if [ -n "$ok" ]; then
 	rm -f "$f.last"
 	echo "wrote $f, and nginx reloaded"
 else
 	if [ -n "$had" ]; then mv "$f.last" "$f"; else rm -f "$f"; fi
-	echo "tifa: nginx did not accept the site of $app, so the file before it is back. nginx said:" >&2
+	# Bring nginx back to what it was, when the reload is what failed.
+	if [ -n "$tested" ]; then { nginx -t && { ` + nginxReload + `; }; } >/dev/null 2>&1 || true; fi
+	echo "tifa: nginx did not take the site of $app (nginx -t or the reload failed), so the file before it is back. nginx said:" >&2
 	printf '%s\n' "$out" >&2
 	exit 1
 fi
@@ -427,13 +436,19 @@ const nginxRemoveSiteBody = `set -eu
 ` + nginxLock + `f="$etc/nginx/conf.d/tifa-$app.conf"
 if [ ! -f "$f" ]; then exit 0; fi
 mv "$f" "$f.removed"
+ok=""
+tested=""
 if out=$(nginx -t 2>&1); then
-	` + nginxReload + `
+	tested=1
+	if out=$( { ` + nginxReload + `; } 2>&1 ); then ok=1; fi
+fi
+if [ -n "$ok" ]; then
 	rm -f "$f.removed"
 	echo "deleted $f, and nginx reloaded"
 else
 	mv "$f.removed" "$f"
-	echo "tifa: nginx did not accept the configuration without the site of $app, so the site is back. nginx said:" >&2
+	if [ -n "$tested" ]; then { nginx -t && { ` + nginxReload + `; }; } >/dev/null 2>&1 || true; fi
+	echo "tifa: nginx did not take the configuration without the site of $app (nginx -t or the reload failed), so the site is back. nginx said:" >&2
 	printf '%s\n' "$out" >&2
 	exit 1
 fi
@@ -442,6 +457,19 @@ fi
 func nginxRemoveSiteScript(app string) string {
 	return script(nginxRemoveSiteBody, "etc", etcDir, "app", app)
 }
+
+// nginxStartBody runs as root and starts nginx that is installed and not running, after nginx -t.
+const nginxStartBody = `set -eu
+# tifa: nginx start
+` + nginxLock + `if ! out=$( { nginx -t && systemctl start nginx; } 2>&1 ); then
+	echo "tifa: nginx does not start. nginx said:" >&2
+	printf '%s\n' "$out" >&2
+	exit 1
+fi
+echo "nginx started"
+`
+
+func nginxStartScript() string { return script(nginxStartBody, "etc", etcDir) }
 
 // nginxRemoveCertBody runs as root and deletes the certificate tifa-$app with certbot.
 const nginxRemoveCertBody = `set -eu

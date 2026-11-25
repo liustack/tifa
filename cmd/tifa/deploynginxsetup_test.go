@@ -166,6 +166,22 @@ func TestSetupNginxSecondRunChangesNothing(t *testing.T) {
 	}
 }
 
+// A site that is in place, with nginx not running, is not "right": setup starts nginx after nginx -t.
+func TestSetupNginxStartsAStoppedNginx(t *testing.T) {
+	root := setupApp(t, "deploy:\n  front: nginx\n", nil)
+	srv := newSetupServer(t, "", nginxUserFacts(9527, "shop"))
+	srv.nginx(t, strings.Replace(nginxFacts(false, nil, siteOf("shop", "", 9527, false)), "active yes\n", "", 1))
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil || !strings.Contains(out, "change  nginx: start nginx, which is installed and not running") || !strings.Contains(srv.calls(), "nginxstart root") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	srv.nginx(t, nginxFacts(false, nil, siteOf("shop", "", 9527, false)))
+	out, err = runSetup(t, root, false, "")
+	if err != nil || !strings.Contains(out, "matches tifa.yaml") {
+		t.Errorf("running: %v\n%s", err, out)
+	}
+}
+
 // A certificate that exists, with a site that has no HTTPS yet, is a site to write, not a certificate
 // to ask for. A certificate for another host is replaced.
 func TestSetupNginxCertificateStates(t *testing.T) {

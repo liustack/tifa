@@ -49,7 +49,8 @@ echo "nginx: configuration file test is successful" >&2`)
 	tool("systemctl", `echo "systemctl $*" >> `+log+`
 case "$1 $2" in
 "is-active --quiet") [ -f `+etc+`/active-$3 ] ;;
-"start nginx") touch `+etc+`/active-nginx ;;
+"reload nginx") if [ -f `+etc+`/reload-fail ]; then echo "Job for nginx.service failed because the control process exited with error code." >&2; exit 1; fi ;;
+"start nginx") if [ -f `+etc+`/start-fail ]; then echo "Job for nginx.service failed: start" >&2; exit 1; fi; touch `+etc+`/active-nginx ;;
 esac`)
 	// apt-get: -s prints an Inst line for each package and its dependency, and install makes the
 	// packages exist for dpkg-query.
@@ -537,6 +538,34 @@ func TestNginxChangesTakeTheLock(t *testing.T) {
 	}
 	if !exists(filepath.Join(b.etc, "tifa", "nginx")) || strings.Contains(b.calls(), "apt-get purge") {
 		t.Errorf("uninstalled with a site there:\n%s", b.calls())
+	}
+}
+
+// nginx -t can pass and the reload or the start still fail, such as for a port that is taken. The file
+// before comes back then too, so the next start of nginx, a reboot for one, does not meet a site
+// that nginx cannot run. What systemctl said is the error.
+func TestNginxSiteRestoresWhenTheReloadFails(t *testing.T) {
+	b := newNginxBox(t)
+	b.mustRun(nginxInstallScript([]string{"nginx"}, nil))
+	good := nginxSiteFile("shop", "", 9527, false, true)
+	b.mustRun(nginxSiteScript("shop", good))
+	writeFile(t, filepath.Join(b.etc, "reload-fail"), "")
+	_, errOut, err := b.run(nginxSiteScript("shop", nginxSiteFile("shop", "", 9999, false, true)))
+	if err == nil || !strings.Contains(errOut, "Job for nginx.service failed") || !strings.Contains(errOut, "the file before it is back") {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if b.read("nginx/conf.d/tifa-shop.conf") != good || exists(filepath.Join(b.etc, "nginx", "conf.d", "tifa-shop.conf.last")) {
+		t.Errorf("the file is not the good one:\n%s", b.read("nginx/conf.d/tifa-shop.conf"))
+	}
+	// A new site that cannot be started leaves no file either.
+	_, _, err = b.run(nginxSiteScript("blog", nginxSiteFile("blog", "blog.example.com", 9528, false, true)))
+	if err == nil || exists(filepath.Join(b.etc, "nginx", "conf.d", "tifa-blog.conf")) {
+		t.Errorf("a new site: %v", err)
+	}
+	// And the removal of a site, when the reload fails, puts it back.
+	_, errOut, err = b.run(nginxRemoveSiteScript("shop"))
+	if err == nil || !strings.Contains(errOut, "the site is back") || b.read("nginx/conf.d/tifa-shop.conf") != good {
+		t.Errorf("removal: %v\n%s", err, errOut)
 	}
 }
 

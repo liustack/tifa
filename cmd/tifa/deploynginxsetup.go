@@ -99,6 +99,10 @@ func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
 		p.add(opAdd, text, apply)
 	case cur.Sum != sha(want) || ns.Default:
 		p.add(opChange, text+pick(ns.Default, ", and the welcome site of nginx goes", ""), apply)
+	case ns.installed() && !ns.Active && len(nginxPkgs) == 0:
+		// The site is as it should be, but nginx does not run: a start that failed before, or a
+		// stop by hand.
+		p.add(opChange, "nginx: start nginx, which is installed and not running, after nginx -t", r.rootScript(nginxStartScript()))
 	default:
 		p.ok(text)
 	}
