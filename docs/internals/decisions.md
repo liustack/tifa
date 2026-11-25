@@ -1,5 +1,5 @@
 ---
-summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports, folders that group pages without a URL segment, dropping a chosen number of Layouts, more convention files in a folder, generated types by a module name or a path string, another mark for a parameter folder, title and meta tags as elements, setup code in the root Layout, route constants for what a request can set, loading page data again after a write, agent hooks written by tifa new'
+summary: 'Ideas Tifa decided against, each with why, what Tifa does instead, and what would reopen it: keeping the assets of older builds, a reload that skips the CDN, a scheduled job API, Markdown to HTML in Go, a react-markdown parse cache, a cache version set by the app, changing behavior when an agent is detected, checks that only tifa dev runs, a switch that lets renders yield the CPU, a rule on what the root package imports, folders that group pages without a URL segment, dropping a chosen number of Layouts, more convention files in a folder, generated types by a module name or a path string, another mark for a parameter folder, title and meta tags as elements, setup code in the root Layout, route constants for what a request can set, loading page data again after a write, renaming the head export to metadata, agent hooks written by tifa new, other ways to keep the generated types fresh'
 audience: dev
 order: 3
 read_when:
@@ -103,15 +103,18 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 
 ## Folders that group pages without a URL segment
 
-**Turned down (2026-11-01).** A folder such as `(shop)` that gives the pages in it a Layout and adds nothing to the URL, as Next.js, SvelteKit, Nuxt, TanStack Router and React Router have.
+**Turned down (2026-11-01), and for good (2026-11-25).** A folder such as `(shop)` that gives the pages in it a Layout and adds nothing to the URL, as Next.js, SvelteKit, Nuxt, TanStack Router and React Router have.
 
-**Why not.** No app needed it yet. The one case in `examples/shop`, a storefront that must not show the workbench around it, is one part of the site leaving the Layouts above it, which `layout_.tsx` does.
+**Why not.**
+- A path under `app/` is the URL, and it is the Go import path too. A folder that is in one and not in the other ends that.
+- No app needed it. The one case in `examples/shop`, a storefront that must not show the workbench around it, is one part of the site leaving the Layouts above it, which `layout_.tsx` does.
+- The shape it alone can write, pages at the same URL level that share a Layout other pages at that level do not have, can be written today with a remount of the frame as its cost.
 
 **Instead.**
 - [`layout_.tsx`](../pages-and-data/pages.md#a-layout-without-the-layouts-above) for a part of the site with a frame of its own.
 - For folders at the same URL level that share a frame: a URL prefix (`/app/settings`), or a Layout in each folder that renders the same component. The second remounts the frame and loads its data again when the visitor moves between the folders.
 
-**Reopen when** an app needs pages at the same URL level to share a Layout that other pages at that level do not have, such as a landing page at `/` beside `/dashboard` and `/settings` in one frame.
+**Not to be reopened.** The docs for apps say that route groups are not planned, so apps are written on that.
 
 ## Dropping a chosen number of Layouts
 
@@ -156,6 +159,19 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 
 **Instead.** The `head` export and `documentHead` of the root Layout. The build warns about a `<title>` or `<meta>` written as JSX: [Title and meta tags](../pages-and-data/pages.md#title-and-meta-tags).
 
+## Renaming the head export to metadata
+
+**Turned down (2026-11-23, again 2026-11-25).** Calling the `head` export of `page.tsx` and `layout.tsx` `metadata`, as Next.js does.
+
+**Why not.**
+- The exports of a `page.tsx` are the options of its route. `head` is passed on as the route option `head` of TanStack Router, with the same name and the same shape.
+- `metadata` in Next.js is an object of meanings (`title`, `description`, `openGraph`) that Next.js turns into tags. `head` returns the tags themselves (`meta`, `links`, `styles`, `scripts`). Under the name `metadata`, people and agents would write the shape of Next.js.
+- The build warns about an exported `metadata` object and says to write `head`. With the same name for another shape it could not.
+
+**Instead.** [`head`](../pages-and-data/pages.md#title-and-meta-tags).
+
+**Reopen when** Tifa stops passing `head` to TanStack Router and takes an object of meanings.
+
 ## Setup code at the top of the root Layout
 
 **Turned down (2026-11-23).** Dropping `setup.ts` and putting what every page needs at the top of `app/layout.tsx`.
@@ -186,4 +202,15 @@ Ideas that were weighed and turned down. Before proposing one again, check that 
 
 **Why not.** How an agent is set up is its user's business. Tifa gives an agent notes and a skill to read, and changes nothing about what the agent runs.
 
-**Instead.** `go tool tifa check` writes `.tifa/` again before it runs `tsc`, and `go tool tifa gen` writes it alone: [`tifa gen`](../build-and-deploy/build.md#tifa-gen).
+**Instead.** The notes and the skill say to run `go tool tifa gen` once after a batch of Go changes. The `typecheck` script of an app runs it before `tsc`, `go tool tifa check` writes `.tifa/` again before it runs `tsc`, and each `route.gen.ts` names the files it comes from: [`tifa gen`](../build-and-deploy/build.md#tifa-gen).
+
+## Other ways to keep the generated types fresh
+
+**Turned down (2026-11-25).** Three ways to make sure `route.gen.ts` is never older than its `route.go` when `tifa dev` is not running: a TypeScript language service plugin that writes the types again, `tifa gen --watch`, and keeping `.tifa/` in git.
+
+**Why not.**
+- A language service plugin runs in an editor only. `tsc` does not load it, and an agent runs commands, not an editor.
+- `tifa gen --watch` is a second process to start and to forget. `tifa dev` already writes `.tifa/` again on every save.
+- Files kept in git are as old after a change to `route.go` as files that are not, until a command writes them again. They would also add a diff, and conflicts, to every change of a route.
+
+**Instead.** The same as for the entry above.
