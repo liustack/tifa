@@ -53,6 +53,9 @@ func runCheck(cmd *cobra.Command, root string) error {
 			if err := checkDeploySettings(root); err != nil {
 				return err
 			}
+			if err := checkPublic(root, nil); err != nil {
+				return err
+			}
 			manifest, err = analyzeApp(cmd, root)
 			return err
 		}},

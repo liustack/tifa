@@ -59,7 +59,7 @@ Code runs for a request only as the `Load`, `Layout` or method handler of a `rou
 
 ### Building needs no secrets
 
-`tifa build` reads your code and never runs it, so building, in CI too, needs no database and no secret. `.env` is not put into the program, and neither is any file or folder of `public/` whose name starts with a dot, such as `.DS_Store`. The exception is `.well-known`. A `tifa.Secret` option cannot be set with a flag, since a flag shows in the process list, and `./bin/app config` leaves its value out. See [Options of the app](../build-and-deploy/config.md#options-of-the-app).
+`tifa build` reads your code and never runs it, so building, in CI too, needs no database and no secret. `.env` is not put into the program, and neither is any file or folder of `public/` whose name starts with a dot, such as `.DS_Store`. The exception is `.well-known`. To copy one anyway, list it in `build.public_dotfiles`. A `tifa.Secret` option cannot be set with a flag, since a flag shows in the process list, and `./bin/app config` leaves its value out. See [Options of the app](../build-and-deploy/config.md#options-of-the-app).
 
 ## What you do
 

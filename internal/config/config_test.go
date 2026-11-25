@@ -294,7 +294,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.connect deploy.auto.branch deploy.auto.needs"
+	want := "build.target build.public build.public_dotfiles build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.connect deploy.auto.branch deploy.auto.needs"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -1010,5 +1010,36 @@ func TestUnknownKeyInTifaYamlFails(t *testing.T) {
 	// Every key Tifa knows, and the block deploy.auto, stay fine.
 	if _, _, err := Project([]byte("server:\n  addr: :8080\nssr:\n  vms: 2\ndeploy:\n  front: none\n  auto:\n    branch: main\n")); err != nil {
 		t.Errorf("known keys: %v", err)
+	}
+}
+
+// build.public_dotfiles names paths of public/ whose last name starts with a dot. It is a setting
+// of the project file only, and a path that cannot be one is refused with the key and the item.
+func TestPublicDotfilesAreRelativePathsEndingInADotName(t *testing.T) {
+	c, err := load(t, nil, nil, "tifa.yaml", "build:\n  public_dotfiles: \" .nojekyll, docs/.assets/ ,./.foo,.nojekyll\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{".nojekyll", "docs/.assets", ".foo"}; !reflect.DeepEqual(c.Build.PublicDotfiles, want) {
+		t.Fatalf("%q, want %q", c.Build.PublicDotfiles, want)
+	}
+	if c, err := load(t, nil, nil, "tifa.yaml", ""); err != nil || len(c.Build.PublicDotfiles) != 0 {
+		t.Errorf("default: %q, %v", c.Build.PublicDotfiles, err)
+	}
+	for _, tc := range []struct{ value, want string }{
+		{"README.md", "starts with a dot"},
+		{".config/site.json", "starts with a dot"},
+		{"/.foo", "relative to public/"},
+		{"C:/.foo", "relative to public/"},
+		{"docs\\.assets", "separate folders with /"},
+		{"../.foo", `no ".."`},
+		{"a/../.foo", `no ".."`},
+		{".foo,,.bar", "empty"},
+		{".", "starts with a dot"},
+	} {
+		_, err := load(t, nil, nil, "tifa.yaml", "build:\n  public_dotfiles: '"+tc.value+"'\n")
+		if err == nil || !strings.Contains(err.Error(), "build.public_dotfiles") || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: %v, want %q", tc.value, err, tc.want)
+		}
 	}
 }

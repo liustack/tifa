@@ -20,7 +20,7 @@ func TestDevListsThePluginWarnings(t *testing.T) {
 	defer d.Close()
 	build := func() []string {
 		t.Helper()
-		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+		if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 			t.Fatalf("Build: %v", err)
 		}
 		return d.Warnings()

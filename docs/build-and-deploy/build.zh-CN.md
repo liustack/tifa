@@ -2,7 +2,7 @@
 summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: cdb980f93235
+translatedFrom: 8bf9fbf3d316
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -355,12 +355,13 @@ BUILT IN                             WHEN
 /<path>.md                           site.url is set and tifa.SetSitemap lists a page with Content
 /__tifa/session                      the app calls tifa.SetSession
 /assets/<file>                       the app has a page
-/<file>                              public/ has 1 file
+/<file>                              public/ has 4 files (2 dot files left out)
 /.well-known/acme-challenge/<token>  server.tls_domains is set, on server.http_addr only
 ```
 
 - `site.url` 可以在程序启动时用选项或环境变量设置，`tifa routes` 看不到这一点。所以站点相关的行始终会列出来，`tifa.yaml` 里没有 `site.url` 时，`site.url is set` 后面会跟 `(not in tifa.yaml)`。
 - `public/` 里的文件，或应用在同一路径上的路由，会代替 Tifa 来响应，这一行会写明是哪一个。应用没有内容集合时，`.md` 那一行末尾是 `(no content collections)`。
+- `/<file>` 这一行会数出 `public/` 里被复制的文件有几个，以及有几个以点开头的文件或文件夹没有被复制（见 `build.public_dotfiles`）。文件夹里只有这类文件时也会有这一行，写成 `public/ has no files (1 dot file left out)`。
 - `/__tifa/session`、`/assets/<file>` 和 `/<file>` 只在成立时才列出：应用调用了 `tifa.SetSession`，有 `page.tsx`，或者 `public/`（由 `build.public` 指定的文件夹）里有文件。`/<file>` 代表该文件夹里的每个文件，在它自己的路径上。
 - `/.well-known/acme-challenge/<token>` 在程序自己申请证书时，由 `server.http_addr` 响应（见 [HTTPS](config.zh-CN.md#https)）。它取决于运行中程序的设置，所以 `tifa routes` 始终会列出它。
 
@@ -409,7 +410,7 @@ go tool tifa build
 | `dist/assets/` | Vite 构建的浏览器包，以 `client.ts` 为入口（`app-<hash>.js`），还有共享的代码块（`chunk-<hash>.js`），一个包含应用全部 CSS 的样式表（`style-<hash>.css`），以及这些 CSS 引用的字体和图片。Vite 会把小的内联成 data URL。内容集合的正文引用的图片和其他文件也在这里，名为 `<name>-<hash>.<ext>`，从不内联。语法目标来自配置项 `build.target`（默认 `es2020`：一个 ECMAScript 版本，加上任意多个带版本的浏览器，比如 `es2019,chrome90,safari14`）。按路由拆分：入口里有根布局和每个页面都要加载的其他所有代码，其他每个 `page.tsx` 和 `layout.tsx` 都是单独的一个代码块，在第一次需要它的路由时才加载，见[浏览器里的路由模块](#route-modules-in-the-browser)。每个 1024 字节或更大的 JavaScript、CSS、HTML、JSON、SVG、XML 和 WebAssembly 文件，还会得到一个 gzip 最高压缩级别的 `<name>.gz`，除非 gzip 不能让它变小。服务器会用它代替原文件发送，见[压缩](#compression) |
 | `dist/ssr.js` | SSR 包，以 `server.ts` 为入口：一个 ES 模块文件，每个 npm 包都在里面，没有剩下的 import 或 export。它不含 CSS：普通样式表，也就是只为副作用而导入的 `.css` 文件，在里面是一个空模块，Vite 的 CSS 步骤和 Tailwind 这类插件都不会去编译它。CSS module，以及用 `?inline`、`?url` 或 `?raw` 导入的样式表，和浏览器包里一样构建。每个 VM 把它当作模块来求值，所以它运行在严格模式下，并且可以使用顶层 `await`（见[顶层 await 和严格模式](../pages-and-data/server-render.zh-CN.md#top-level-await-and-strict-mode)）。构建随后会用引擎把它编译一次，和服务器启动时做的一样，但不运行它：服务器无法编译的代码，比如 rolldown 从 CommonJS 文件里保留下来的 `with` 语句，会让构建失败，并给出它在源文件里的位置。在 Apple M4 上，对 `examples/shop` 这大约要 0.12 秒。包解析到它们的主文件（先 `module`，再 `main`），带条件的 `exports` 解析到 `worker`、`import`、`module` 和 `default` 这些条件。它们的浏览器文件不会被使用：很多文件会用浏览器里有的东西，比如 `self` 或 `window`，而 beastjs 没有这些。要在服务器上使用某个包的浏览器构建，请按路径导入它的文件。语法目标固定为 ES2022（beastjs 原样运行的版本。降低它只会让渲染变慢，提高它则可能输出 beastjs 不支持的语法）。页面代码导入 Node 模块会让构建失败。对 npm 包，构建只给警告：它会列出包在运行时仍可能用 `require` 或 `import()` 加载模块的地方，给出源文件、行、列和包，因为服务端渲染一旦走到这样的地方，就会在 beastjs 里失败。为了找到它们，它会读取最终代码的一个压缩副本，在这个副本里，只要代码没有声明自己的 `require`，`typeof require` 就是 `"undefined"`。所以死代码里的 `require`，比如 `if (false)` 分支，或在 `typeof require` 测试后面的 `require`，如 `typeof require === 'function' ? require(name) : fallback`，不会得到警告：beastjs 没有 `require`，会走另一个分支。这个列表只是个提示。它可能点出没有渲染会走到的代码，比如包按 `typeof process` 选择的某个分支（debug 就这样做），`try`/`catch` 里的 `require`，或者代码给它赋了值的 `require`。它也可能漏掉 `eval` 字符串里的 `require`，设置了 `globalThis.require` 又把它删掉的代码里的 `require`，或之后某个插件加进去的代码里的 `require`。任何源映射都指不到的地方，比如 Node 模块的导入，会按它在 `ssr.js` 里的位置给出。`define` 会把浏览器包的 head 标签写进 `__TIFA_ASSETS__` |
 | `dist/ssr.js.map` | SSR 包的源映射，不带源码的副本。服务器加载这个包时读取这个文件，并在这个包第一次出错时（包括预热失败）解码它，让堆栈跟踪里的位置落在源文件里，路径相对于应用根目录。读不完整的映射不会被使用，位置会留在 `ssr.js` 里。它的大小因应用而异：`examples/shop` 的约为 1.9 MB，比 `ssr.js` 的两倍略少。它和 `dist/` 里的其余部分一起嵌入程序。要去掉它，在 `vite.config.ts` 里把 `environments.ssr.build.sourcemap` 设为 `false`：`examples/shop` 的程序会因此小约 1.9 MB，构建的警告和渲染错误会给出 `ssr.js` 里的位置。没有写出 `ssr.js.map` 的构建会删除之前某次构建留下的那个，因为它对应的是别的代码：`tifa dev` 会在两次构建之间保留 `.tifa/dist`。服务器只读这个文件，所以设为 `inline` 时，`ssr.js` 里的映射不会被使用 |
-| `dist/public/` | `build.public` 配置项（默认 `public`）所指文件夹的原样副本，给需要固定名字的文件使用（见[静态文件](../start/app.zh-CN.md#static-files)）。名字以点开头的文件和文件夹不会被复制，`.well-known` 除外。里面的符号链接，或文件夹本身是符号链接，都会被跟随：指向文件的链接会被复制成那个文件，指向文件夹的链接会连同里面的内容一起复制。指回正在复制的文件夹，或指向不存在的东西的链接，会让构建失败。那个文件夹不存在时就没有这一项。`build.json` 列出其中每个文件的内容哈希，它会成为该文件的 ETag |
+| `dist/public/` | `build.public` 配置项（默认 `public`）所指文件夹的原样副本，给需要固定名字的文件使用（见[静态文件](../start/app.zh-CN.md#static-files)）。名字以点开头的文件和文件夹不会被复制，`.well-known` 和写在 `build.public_dotfiles` 里的路径除外。`tifa build` 会打印它没有复制的名字。里面的符号链接，或文件夹本身是符号链接，都会被跟随：指向文件的链接会被复制成那个文件，指向文件夹的链接会连同里面的内容一起复制。指回正在复制的文件夹，或指向不存在的东西的链接，会让构建失败。那个文件夹不存在时就没有这一项。`build.json` 列出其中每个文件的内容哈希，它会成为该文件的 ETag |
 | `dist/content.json` | 给有内容集合的应用：每个集合里不是草稿的条目，包括 `content.Entry` 的字段、翻译键、正文文件和它的标题，以及 JSON 形式的 front matter。程序在 `OnStart` 之前读取它，见[内容](../pages-and-data/content.zh-CN.md) |
 | `dist/content/` | 每个条目的正文，以 HTML 形式存放，`<collection>/<language>/<ID>.html`（没有语言的集合则没有语言文件夹）。`entry.Body()` 读取这个文件。服务器不提供它，构建也不为它写 `.gz`。正文引用的文件在 `dist/assets/` 里 |
 | `dist/build.json` | `{buildId, head, preload, public}`。`head` 是加载浏览器包的 HTML，取自 Vite 的清单：样式表，入口导入的每个代码块各一个 `modulepreload` 链接，以及入口脚本。`preload` 列出每个路由模块在 `head` 之外还需要的文件，见[预加载页面的代码块](#preloading-the-chunks-of-a-page)。构建 ID 是 `dist/` 里除 `inputs.json` 之外所有其他文件的哈希（文件名也算在内）。文件名和内容各带一个长度前缀，所以不同的文件树不可能产生相同的字节。相同的输入给出相同的 ID。`public` 是 `dist/public/` 里每个文件的内容哈希，按它在那里的路径索引，取它的 SHA-256 的前 16 个字节，用十六进制表示，没有公开文件时以及在 `tifa dev` 下都没有这一项 |

@@ -189,6 +189,7 @@ func (d *Dev) Close() error { return d.node.Close() }
 // Build brings .tifa/dist up to date and returns the build ID. The first Build of an application
 // with pages starts Vite's dev server. pages is false for an application without page.tsx,
 // which gets no SSR bundle.
+// dotfiles is build.public_dotfiles, the dot names of the public folder that are copied.
 //
 // The head links the stylesheets the SSR bundle imports, before the tags of the dev server, like
 // the head of tifa build. Which stylesheets those are is known once the bundle is built, so a
@@ -202,7 +203,7 @@ func (d *Dev) Close() error { return d.node.Close() }
 //
 // When ctx ends, Build closes the Dev, which ends a build that never would, so that tifa dev can
 // stop.
-func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, error) {
+func (d *Dev) Build(ctx context.Context, public string, dotfiles []string, pages bool) (string, error) {
 	stop := context.AfterFunc(ctx, func() { d.Close() })
 	defer stop()
 	if err := os.MkdirAll(d.dist, 0o755); err != nil {
@@ -258,7 +259,7 @@ func (d *Dev) Build(ctx context.Context, public string, pages bool) (string, err
 	if err := os.Remove(filepath.Join(d.dist, "build.json")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
-	if err := syncDir(public, filepath.Join(d.dist, "public")); err != nil {
+	if err := syncDir(public, filepath.Join(d.dist, "public"), dotfiles); err != nil {
 		return "", err
 	}
 	// Only the public files count: the SSR bundle, the content and its files change under open pages.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -393,5 +394,29 @@ func TestDevStylesWarnsOfPublicFilesInStylesheets(t *testing.T) {
 		if warned() != tc.want {
 			t.Fatalf("with %q the warnings are %q", tc.css, p.Warnings())
 		}
+	}
+}
+
+// tifa dev saves and bundles again and again, so the line about the dot files left out is printed
+// when it is new and not on every save.
+func TestDevPublicHintIsPrintedOnce(t *testing.T) {
+	dir := apiApp(t)
+	writeFile(t, filepath.Join(dir, "public", ".foo"), "x")
+	var out bytes.Buffer
+	p := &devPipeline{root: dir, warn: &out}
+	for range 3 {
+		if err := p.publicHint(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Count(out.String(), "build.public_dotfiles"); got != 1 {
+		t.Errorf("printed %d times:\n%s", got, out.String())
+	}
+	if w := p.Warnings(); len(w) != 1 || !strings.Contains(w[0], ".foo") {
+		t.Errorf("warnings %q", w)
+	}
+	writeFile(t, filepath.Join(dir, "public", ".bar"), "x")
+	if err := p.publicHint(); err != nil || strings.Count(out.String(), "build.public_dotfiles") != 2 {
+		t.Errorf("a new name prints again: %v\n%s", err, out.String())
 	}
 }

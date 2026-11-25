@@ -23,7 +23,7 @@ func TestAppBuildPrintsNoPluginTimingsAndASaneChunkLimit(t *testing.T) {
 		var output strings.Builder
 		n := NewNode(root, &output)
 		defer n.Close()
-		if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
+		if _, err := App(n, root, filepath.Join(root, "public"), nil, true, nil); err != nil {
 			t.Fatalf("App: %v", err)
 		}
 		return output.String()
@@ -53,7 +53,7 @@ func TestAppBuildKeepsTheChunkLimitAndChecksOfTheApp(t *testing.T) {
 	var output strings.Builder
 	n := NewNode(root, &output)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, true, nil); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	if !strings.Contains(output.String(), "probe client limit=100 timings=true") || !strings.Contains(output.String(), "probe ssr limit=100 timings=true") || !strings.Contains(output.String(), "Some chunks are larger than") {

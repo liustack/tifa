@@ -174,6 +174,8 @@ type devPipeline struct {
 	warned map[string]bool
 	// deployWarned is the warning about the deploy settings that was printed last, if any.
 	deployWarned []string
+	// publicWarned is the line about the dot files of public/ left out that was printed last.
+	publicWarned string
 	// steps holds the current warnings of each step, for Warnings (tifa errors lists them).
 	stepsMu sync.Mutex
 	steps   map[string][]string
@@ -285,7 +287,7 @@ func contentWarnings(c *analyze.Content) []string {
 }
 
 // stepOrder is the order of Warnings.
-var stepOrder = []string{"foreign files", "analysis", "deploy", "foreign code", "build plugins", "content"}
+var stepOrder = []string{"foreign files", "analysis", "deploy", "public", "foreign code", "build plugins", "content"}
 
 // setWarnings replaces the warnings of a step.
 func (p *devPipeline) setWarnings(step string, lines []string) {
@@ -446,7 +448,10 @@ func (p *devPipeline) Bundle(ctx context.Context) (string, error) {
 	if err := checkReact(p.root, pages); err != nil {
 		return "", err
 	}
-	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), pages)
+	if err := p.publicHint(); err != nil {
+		return "", err
+	}
+	_, err = p.front.Build(ctx, filepath.Join(p.root, settings.Public), settings.PublicDotfiles, pages)
 	if err == nil {
 		p.setWarnings("build plugins", p.front.Warnings())
 	}
@@ -532,4 +537,26 @@ func (l *lineLogger) Write(p []byte) (int, error) {
 		}
 		l.rest = l.rest[i+1:]
 	}
+}
+
+// publicHint tells which dot names of public/ are left out, as tifa build does. Every save bundles
+// again, so the line is printed when it is new: at the start, and again only when the set of names
+// left out, or build.public_dotfiles, changes. It is also kept for Warnings. A name that
+// build.public_dotfiles lists and public/ lacks is an error, as it is for tifa build.
+func (p *devPipeline) publicHint() error {
+	public, left, err := publicLeftOut(p.root)
+	if err != nil {
+		return err
+	}
+	line := publicHint(public, left)
+	if line != "" && line != p.publicWarned && p.warn != nil {
+		fmt.Fprintln(p.warn, line)
+	}
+	p.publicWarned = line
+	if line == "" {
+		p.setWarnings("public", nil)
+	} else {
+		p.setWarnings("public", []string{line})
+	}
+	return nil
 }

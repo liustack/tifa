@@ -28,7 +28,7 @@ func buildFails(t *testing.T, page string, more ...string) error {
 	writeTree(t, root, files)
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	_, err := App(n, root, filepath.Join(root, "public"), true, nil)
+	_, err := App(n, root, filepath.Join(root, "public"), nil, true, nil)
 	return err
 }
 

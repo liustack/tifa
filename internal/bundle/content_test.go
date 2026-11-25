@@ -91,7 +91,7 @@ func TestAppConvertsTheContent(t *testing.T) {
 	c.Site = "https://blog.example.com"
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), true, c); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, true, c); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	a := readDist(t, root, "content/blog/a.html")
@@ -113,7 +113,7 @@ func TestAppConvertsTheContent(t *testing.T) {
 		t.Errorf("content.json:\n%s", got)
 	}
 	// Without collections the plugin has nothing to convert.
-	if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, true, nil); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	for _, name := range []string{".tifa/dist/content", ".tifa/dist/content.json", ".tifa/content"} {
@@ -128,12 +128,12 @@ func TestAppIDFollowsTheBody(t *testing.T) {
 	root, c := contentApp(t)
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	before, err := App(n, root, filepath.Join(root, "public"), true, c)
+	before, err := App(n, root, filepath.Join(root, "public"), nil, true, c)
 	if err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	c.Markdown[1].Text += "\nmore\n"
-	after, err := App(n, root, filepath.Join(root, "public"), true, c)
+	after, err := App(n, root, filepath.Join(root, "public"), nil, true, c)
 	if err != nil {
 		t.Fatalf("App: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestAppHasOneFileForAnImageOfABodyAndOfCSS(t *testing.T) {
 	})
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), true, c); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, true, c); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	files, err := filepath.Glob(filepath.Join(root, ".tifa", "dist", "assets", "x-*.png"))
@@ -185,7 +185,7 @@ func TestAppConvertsTheContentWithoutPages(t *testing.T) {
 	writeTree(t, root, map[string]string{"package.json": `{"type":"module"}`})
 	n := NewNode(root, io.Discard)
 	defer n.Close()
-	if _, err := App(n, root, filepath.Join(root, "public"), false, c); err != nil {
+	if _, err := App(n, root, filepath.Join(root, "public"), nil, false, c); err != nil {
 		t.Fatalf("App: %v", err)
 	}
 	a := readDist(t, root, "content/blog/a.html")
@@ -226,7 +226,7 @@ func TestDevConvertsTheContentWithoutPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	before, err := d.Build(context.Background(), filepath.Join(root, "public"), false)
+	before, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, false)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestDevConvertsTheContentWithoutPages(t *testing.T) {
 		t.Errorf("content.json lost the headings of b:\n%s", got)
 	}
 	// The body changes under open pages, which keep their build.
-	after, err := d.Build(context.Background(), filepath.Join(root, "public"), false)
+	after, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, false)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestDevConvertsTheContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if n, err := d.Content(context.Background(), true, c, false, nil); err != nil || n != 2 {
@@ -328,7 +328,7 @@ func TestDevKeepsTheBodiesTheAppLoaded(t *testing.T) {
 	}
 	defer d.Close()
 	ctx := context.Background()
-	if _, err := d.Build(ctx, filepath.Join(root, "public"), false); err != nil {
+	if _, err := d.Build(ctx, filepath.Join(root, "public"), nil, false); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if _, err := d.Content(ctx, false, c, false, nil); err != nil {

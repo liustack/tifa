@@ -225,7 +225,7 @@ func TestInputsMarkTheFilesIncompleteWithoutWatchFiles(t *testing.T) {
 			var output strings.Builder
 			n := NewNode(root, &output)
 			defer n.Close()
-			if _, err := App(n, root, filepath.Join(root, "public"), true, nil); err != nil {
+			if _, err := App(n, root, filepath.Join(root, "public"), nil, true, nil); err != nil {
 				t.Fatalf("App: %v", err)
 			}
 			dist := filepath.Join(root, ".tifa", "dist")
@@ -277,7 +277,7 @@ func TestDevInputsListTheWatchFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	var in inputs
@@ -329,7 +329,7 @@ func TestDevReadsTheFilesOfTheSSRBundle(t *testing.T) {
 	if d.Reads()("app/page/intro.md") {
 		t.Fatal("Reads names a file before the first build")
 	}
-	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), true); err != nil {
+	if _, err := d.Build(context.Background(), filepath.Join(root, "public"), nil, true); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	reads := d.Reads()
@@ -363,7 +363,7 @@ func TestPublicLinksAreFollowed(t *testing.T) {
 		}
 	}
 	dst := filepath.Join(root, "dist")
-	if err := syncDir(filepath.Join(root, "public"), dst); err != nil {
+	if err := syncDir(filepath.Join(root, "public"), dst, nil); err != nil {
 		t.Fatal(err)
 	}
 	for name, text := range map[string]string{"logo.svg": "<svg/>", "img/a.png": "a", "robots.txt": "r"} {
@@ -403,7 +403,7 @@ func TestPublicDotFilesAreNotCopied(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dst, ".env"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncDir(public, dst); err != nil {
+	if err := syncDir(public, dst, nil); err != nil {
 		t.Fatal(err)
 	}
 	var got []string
@@ -423,5 +423,97 @@ func TestPublicDotFilesAreNotCopied(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dst, ".hidden")); err == nil {
 		t.Error(".hidden folder was copied")
+	}
+}
+
+// publicTree writes the files of a public folder, each with its path from the folder.
+func publicTree(t *testing.T, names ...string) string {
+	t.Helper()
+	public := filepath.Join(t.TempDir(), "public")
+	for _, name := range names {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(public, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(public, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return public
+}
+
+// copiedFiles lists the files under dst, with / in their paths.
+func copiedFiles(t *testing.T, dst string) string {
+	t.Helper()
+	var got []string
+	err := filepath.WalkDir(dst, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(dst, path)
+			got = append(got, filepath.ToSlash(rel))
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	return strings.Join(got, " ")
+}
+
+// A dot file or folder that build.public_dotfiles names is copied. The files in a named folder are
+// copied as any file, and a dot name deeper in it is left out unless it is named too. .well-known
+// needs no name, and is not reported.
+func TestPublicDotfilesNamedAreCopied(t *testing.T) {
+	public := publicTree(t, ".nojekyll", ".foo", ".env", ".DS_Store", ".well-known/security.txt", "ok.txt",
+		"docs/.assets/a.txt", "docs/.assets/.secret", "docs/.assets/.keep/k.txt", "docs/.other/b.txt", ".config/.site.json")
+	dst := filepath.Join(t.TempDir(), "public")
+	if err := syncDir(public, dst, []string{".nojekyll", "docs/.assets", "docs/.assets/.keep"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := ".nojekyll .well-known/security.txt docs/.assets/.keep/k.txt docs/.assets/a.txt ok.txt"; copiedFiles(t, dst) != want {
+		t.Errorf("copied %q, want %q", copiedFiles(t, dst), want)
+	}
+	scan, err := ScanPublic(public, []string{".nojekyll", "docs/.assets", "docs/.assets/.keep"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := ".config/ .env .foo docs/.assets/.secret docs/.other/"; strings.Join(scan.LeftOut, " ") != want {
+		t.Errorf("left out %q, want %q", scan.LeftOut, want)
+	}
+	if len(scan.Files) != 5 {
+		t.Errorf("%d files count, want 5: %v", len(scan.Files), scan.Files)
+	}
+}
+
+// A dot file that a named path puts in is copied only when every dot name on its way is named.
+func TestPublicDotfilesInsideAnUnnamedDotFolderNeedBothNames(t *testing.T) {
+	public := publicTree(t, ".config/.site.json", ".config/other.json")
+	_, err := ScanPublic(public, []string{".config/.site.json"})
+	if err == nil || !strings.Contains(err.Error(), `build.public_dotfiles: ".config/.site.json"`) || !strings.Contains(err.Error(), `".config"`) {
+		t.Errorf("only the file: %v", err)
+	}
+	dst := filepath.Join(t.TempDir(), "public")
+	if err := syncDir(public, dst, []string{".config", ".config/.site.json"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := ".config/.site.json .config/other.json"; copiedFiles(t, dst) != want {
+		t.Errorf("copied %q, want %q", copiedFiles(t, dst), want)
+	}
+}
+
+// A name in build.public_dotfiles that is not in public/ is an error that says which.
+func TestPublicDotfilesMissingIsAnError(t *testing.T) {
+	public := publicTree(t, "ok.txt", ".there")
+	for _, name := range []string{".foo", "docs/.assets"} {
+		_, err := ScanPublic(public, []string{".there", name})
+		if err == nil || !strings.Contains(err.Error(), `build.public_dotfiles: "`+name+`"`) || !strings.Contains(err.Error(), "not in public/") {
+			t.Errorf("%s: %v", name, err)
+		}
+		if err := syncDir(public, filepath.Join(t.TempDir(), "x"), []string{name}); err == nil {
+			t.Errorf("%s: syncDir copied without an error", name)
+		}
+	}
+	// A missing public folder holds nothing to name.
+	if scan, err := ScanPublic(filepath.Join(t.TempDir(), "none"), nil); err != nil || len(scan.Files) != 0 || len(scan.LeftOut) != 0 {
+		t.Errorf("no folder: %v %v", scan, err)
 	}
 }

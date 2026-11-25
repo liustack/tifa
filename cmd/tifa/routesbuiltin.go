@@ -1,15 +1,13 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"path/filepath"
 	"strings"
 
 	"github.com/liustack/tifa/internal/analyze"
+	"github.com/liustack/tifa/internal/bundle"
 	"github.com/liustack/tifa/internal/codegen"
-	"github.com/liustack/tifa/internal/symwalk"
 )
 
 // builtInRow is an address the program answers that is not a folder of app/, and when it does.
@@ -26,10 +24,11 @@ func builtInRows(root string, m *analyze.Manifest) ([]builtInRow, error) {
 		return nil, err
 	}
 	public := filepath.ToSlash(filepath.Clean(settings.Public))
-	files, err := publicFiles(filepath.Join(root, settings.Public))
+	scan, err := bundle.ScanPublic(filepath.Join(root, settings.Public), settings.PublicDotfiles)
 	if err != nil {
 		return nil, err
 	}
+	files := scan.Files
 
 	site := "site.url is set"
 	if m.SiteURL == "" {
@@ -38,7 +37,7 @@ func builtInRows(root string, m *analyze.Manifest) ([]builtInRow, error) {
 	// A file of public/ answers first, then a route of the app, and the files of Tifa are left.
 	// A route answers at its exact path only.
 	taken := func(address string) string {
-		if files[strings.TrimPrefix(address, "/")] {
+		if files[strings.TrimPrefix(address, "/")] != nil {
 			return public + address
 		}
 		for _, r := range m.Routes {
@@ -76,43 +75,28 @@ func builtInRows(root string, m *analyze.Manifest) ([]builtInRow, error) {
 			break
 		}
 	}
-	if n := len(files); n > 0 {
-		word := "files"
-		if n == 1 {
-			word = "file"
-		}
-		rows = append(rows, builtInRow{"/<file>", fmt.Sprintf("%s/ has %d %s", public, n, word)})
-	}
+	rows = append(rows, publicRow(public, len(files), scan.LeftOut)...)
 	rows = append(rows, builtInRow{"/.well-known/acme-challenge/<token>", "server.tls_domains is set, on server.http_addr only"})
 	return rows, nil
 }
 
-// publicFiles returns the files the program serves from the public folder, by their paths in it.
-// They are the files tifa build copies: links are followed, and a name that starts with a dot is
-// left out, apart from .well-known. A folder that is not there holds none.
-func publicFiles(dir string) (map[string]bool, error) {
-	files := map[string]bool{}
-	err := symwalk.Walk(dir, func(path string, d fs.DirEntry, err error) error {
-		if errors.Is(err, fs.ErrNotExist) && path == dir {
-			return fs.SkipAll
-		}
-		if err != nil {
-			return err
-		}
-		if name := d.Name(); path != dir && strings.HasPrefix(name, ".") && name != ".well-known" {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if d.Type().IsRegular() {
-			rel, err := filepath.Rel(dir, path)
-			if err != nil {
-				return err
-			}
-			files[filepath.ToSlash(rel)] = true
-		}
+// publicRow is the row of the files of the public folder: how many there are, and how many dot
+// files are left out. There is none when the folder holds nothing at all.
+func publicRow(public string, n int, left []string) []builtInRow {
+	if n == 0 && len(left) == 0 {
 		return nil
-	})
-	return files, err
+	}
+	count := "no files"
+	switch n {
+	case 0:
+	case 1:
+		count = "1 file"
+	default:
+		count = fmt.Sprintf("%d files", n)
+	}
+	when := fmt.Sprintf("%s/ has %s", public, count)
+	if len(left) > 0 {
+		when += fmt.Sprintf(" (%s left out)", dotNames(left))
+	}
+	return []builtInRow{{"/<file>", when}}
 }
