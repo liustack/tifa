@@ -283,6 +283,29 @@ func POST(c *tifa.Ctx) error {
 - `c.Writer()` reaches the connection through the writers of Tifa and through compression.
 - A proxy in front has timeouts of its own, such as the 60 seconds of nginx's `proxy_read_timeout`. Raise them for the same paths.
 
+### Stopping slow work
+
+The two timeouts limit the connection, not your code. When the write timeout passes, the answer is cut off, but a `Load` or handler that waits on a slow database may keep running. Over HTTP/2, which HTTPS gives browsers, Go cancels the context of the request then. Over HTTP/1.1, which a proxy or tunnel in front speaks to the app, it cancels it only when the client goes away. This is how Go's server works, and Tifa leaves it as it is.
+
+To stop the work at a time of your choice, give the request a deadline in `OnRequest` and pass `c.Context()` to every call that can wait, such as `DB.QueryContext(c.Context(), ...)`:
+
+```go
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	// Streams and uploads set their own time.
+	if c.Pattern() == "/events" || c.Pattern() == "/photos" {
+		return next(c)
+	}
+	ctx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
+	defer cancel()
+	return next(c.WithContext(ctx))
+}
+```
+
+- Every `Load` and handler of the request gets this context from `c.Context()`.
+- A call that runs past the deadline returns `context.DeadlineExceeded`, which goes to `OnError` like any other error. A call that does not take the context is not stopped.
+- For one slow call only, wrap it the same way where you make it: `context.WithTimeout(c.Context(), 2*time.Second)`.
+- SQLite's `busy_timeout` (5 seconds by default) limits a wait for the write lock on its own, see [Keeping data in SQLite](../guides/database.md).
+
 ## HTTPS
 
 HTTPS is off by default, and the program serves plain HTTP on `server.addr` as it always did. Leave it off behind a CDN or a proxy that ends TLS, such as Cloudflare, nginx or Caddy: they already speak HTTPS and HTTP/2 to browsers, and they would be the only ones to see a certificate of the program.

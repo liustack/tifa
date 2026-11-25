@@ -2,7 +2,7 @@
 summary: '每一项设置的含义和设置位置：tifa.yaml、参数、环境变量、.env、server.csp、HTTPS、跨站写入'
 audience: app
 order: 4
-translatedFrom: 8fc3aeb328cf
+translatedFrom: 958c54945677
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -283,6 +283,29 @@ func POST(c *tifa.Ctx) error {
 - 带类型输入的处理函数，它的请求体在它运行之前就读完了，所以在处理函数里设置的截止时间对请求体来说太晚了。请改为在 `OnRequest` 里调用 `c.SetReadTimeout`，它在任何东西读取请求体之前放宽两个截止时间，见[路由的请求体限制和读取时间](../pages-and-data/handlers.zh-CN.md#body-limit-and-read-time-of-a-route)和[上传](../guides/uploads.zh-CN.md#the-settings-and-the-body-limit)。
 - `c.Writer()` 通过 Tifa 的 writer 和压缩层一路到达连接。
 - 前面的代理有它自己的超时，比如 nginx 的 `proxy_read_timeout` 的 60 秒。请为同样的路径把它们调高。
+
+### 停下慢的工作 {#stopping-slow-work}
+
+这两个超时管的是连接，不是你的代码。写超时到了，响应会被切断，但一个在等慢数据库的 `Load` 或处理函数可能还在跑。走 HTTP/2 时（浏览器通过 HTTPS 用的就是它），Go 会在这时取消请求的 context。走 HTTP/1.1 时（前面的代理或隧道和应用之间说的是它），只有客户端离开时才取消。这是 Go 服务器本来的做法，Tifa 不改它。
+
+要在你定的时间停下这些工作，在 `OnRequest` 里给请求一个截止时间，并把 `c.Context()` 传给每一个会等待的调用，比如 `DB.QueryContext(c.Context(), ...)`：
+
+```go
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	// Streams and uploads set their own time.
+	if c.Pattern() == "/events" || c.Pattern() == "/photos" {
+		return next(c)
+	}
+	ctx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
+	defer cancel()
+	return next(c.WithContext(ctx))
+}
+```
+
+- 这个请求的每个 `Load` 和处理函数，从 `c.Context()` 拿到的都是这个 context。
+- 跑过截止时间的调用返回 `context.DeadlineExceeded`，它和别的错误一样交给 `OnError`。不接收 context 的调用不会被停下。
+- 只想限制某一个慢调用，就在调用它的地方同样包一层：`context.WithTimeout(c.Context(), 2*time.Second)`。
+- SQLite 的 `busy_timeout`（默认 5 秒）自己就限制了等写锁的时间，见[在 SQLite 里保存数据](../guides/database.zh-CN.md)。
 
 ## HTTPS {#https}
 
