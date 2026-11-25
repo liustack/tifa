@@ -151,7 +151,7 @@ On a page with `Cache` the GET and HEAD requests are anonymous: `Session` is nil
 
 Tifa stores the session. Your app or a library checks who the user is: password hashes (bcrypt, argon2), the OAuth code flow and its `state` check (`golang.org/x/oauth2`), two-step verification. When that succeeds, call `tifa.SetSession`. The temporary state of such a library, an OAuth `state` for instance, goes in a short cookie of the library's own. Check access in Go by reading `tifa.Session`.
 
-Writes from other sites are refused before any of this runs (see [Cross-site writes](../build-and-deploy/config.md#cross-site-writes)), and the cookie is `SameSite=Lax`, so a form on another site cannot sign a user out or act for them. For that to hold, make sure GET, HEAD and OPTIONS never change anything: sign out with a POST.
+Writes from other sites are refused before any of this runs (see [Cross-site writes](../build-and-deploy/config.md#cross-site-writes)), and the cookie is `SameSite=Lax`, so a form on another site cannot sign a user out or act for them. For that to hold, make sure GET, HEAD and OPTIONS never change anything: sign out with a POST. What else Tifa guards and what is left to you is in [Security](../guides/security.md).
 
 ## Checks at build time
 

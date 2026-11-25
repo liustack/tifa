@@ -2,7 +2,7 @@
 summary: 'Tifa 应用里的会话怎样工作：cookie、内存存储、Redis 或 SQL 存储、`tifa.SetSessionStore`'
 audience: app
 order: 10
-translatedFrom: 657c993b8bd0
+translatedFrom: 60b83f406acb
 read_when:
   - '让用户登录和登出，或者读取谁已登录'
   - '把会话放在 Redis、SQL 或文件里，而不是进程的内存里，或者为 tifa.SetSessionStore 写一个存储'
@@ -152,7 +152,7 @@ func TestRedisStoreIsAValidStore(t *testing.T) {
 
 会话由 Tifa 存储。用户是谁，由你的应用或某个库来检查：密码哈希（bcrypt、argon2）、OAuth 授权码流程及其 `state` 检查（`golang.org/x/oauth2`）、两步验证。检查成功后，调用 `tifa.SetSession`。这类库的临时状态，比如 OAuth 的 `state`，放在库自己的一个短期 cookie 里。要在 Go 里检查访问权限，就读 `tifa.Session`。
 
-来自其他站点的写入，会在这一切运行之前就被拒绝（见[跨站写入](../build-and-deploy/config.zh-CN.md#cross-site-writes)），而且 cookie 是 `SameSite=Lax`，所以另一个站点上的表单无法让用户退出登录，也无法代表用户行事。要让这一点成立，请确保 GET、HEAD 和 OPTIONS 永远不改变任何东西：退出登录要用 POST。
+来自其他站点的写入，会在这一切运行之前就被拒绝（见[跨站写入](../build-and-deploy/config.zh-CN.md#cross-site-writes)），而且 cookie 是 `SameSite=Lax`，所以另一个站点上的表单无法让用户退出登录，也无法代表用户行事。要让这一点成立，请确保 GET、HEAD 和 OPTIONS 永远不改变任何东西：退出登录要用 POST。 Tifa 还防了什么、还有什么留给你，见[安全](../guides/security.zh-CN.md)。
 
 ## 构建时的检查 {#checks-at-build-time}
 
