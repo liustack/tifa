@@ -515,13 +515,28 @@ func TestNotesBlockIsSmall(t *testing.T) {
 		}
 	}
 	t.Logf("notes %d bytes, index %d bytes", len(block)-len(index), len(index))
+
+	// An agent reads the whole file at the start of every session, the part tifa new writes
+	// below the block too.
+	file, err := renderFile(newapp, "newapp/AGENTS.md.tmpl", testNotesApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(file) > fileLimit {
+		t.Errorf("the AGENTS.md of a new app is %d bytes, keep it at most %d: when a new doc or note does not fit, shorten or move another note, do not raise the limit", len(file), fileLimit)
+	}
+	t.Logf("file %d bytes", len(file))
 }
 
 // notesLimit is the size the managed block may have without the index of the docs, and
-// summaryLimit the size of the summary of one doc in that index.
+// summaryLimit the size of the summary of one doc in that index. fileLimit is the size of the
+// whole AGENTS.md of a new app: the budget is 4,000 tokens for what an agent reads at the start
+// of every session, and this text measures about 3.7 bytes a token (o200k_base), so 14,000 bytes
+// are about 3,800 tokens.
 const (
 	notesLimit   = 8500
 	summaryLimit = 125
+	fileLimit    = 14000
 )
 
 // The docs that tifa carries for the index are the English docs for apps, every one of them and
