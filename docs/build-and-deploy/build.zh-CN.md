@@ -2,7 +2,7 @@
 summary: '怎样用 `tifa` 命令创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、`agents`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: 8210882345e1
+translatedFrom: cfd1680e5876
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -217,6 +217,8 @@ tifa gen [--dir app-root]
 ```
 
 pnpm 和 npm 会在 `pnpm install` 和 `npm install` 之后运行项目的 `prepare` 脚本，所以安装一个克隆仓库的 npm 包时也会写出 `.tifa/`。请先运行 `go mod download`（或 `go mod tidy`），因为 `go tool tifa` 需要这些模块。带 `--ignore-scripts` 的安装会跳过 `prepare`，所以安装之后请运行 `go tool tifa gen`。
+
+同一个文件里的 `typecheck` 脚本是 `go tool tifa gen && tsc --noEmit`。`.tifa/` 里的类型来自 `route.go`，所以改了路由的返回类型，或者增删了页面和布局之后，它们就旧了。先运行 `gen`，`tsc` 读到的就是新类型，而且 Go 代码编译不过时它会停在这一步，并打印 Go 文件和行号。`tifa check` 在运行 `tsc` 之前已经会生成，所以不需要这个脚本。更早做出来的应用可以把自己的 `typecheck` 脚本改成同样的一行。
 
 ## Tifa docs {#tifa-docs}
 

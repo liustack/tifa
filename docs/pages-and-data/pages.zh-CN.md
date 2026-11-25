@@ -2,7 +2,7 @@
 summary: '怎样写路由的 React 部分：page.tsx、route.gen、Link 类型、head、404、ErrorBoundary'
 audience: app
 order: 2
-translatedFrom: ef9fe278dfb3
+translatedFrom: b4de6c5a72f8
 read_when:
   - '编写 page.tsx 或 layout.tsx，或者使用 `./route.gen` 导出的东西'
   - '给 `Link`、`navigate` 或 `useSearch` 传页面读取的查询参数，或者遇到关于 `search` 的类型错误'
@@ -46,6 +46,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   - 只有结构体有名字。`type Status string` 这样的类型、切片或 map 类型、`Page[Order]` 这样的泛型类型、在函数里声明的类型和匿名结构体，都仍然写在原处。
   - 每个文件夹有自己的一份类型，`route.gen` 之间不互相导入。要用哪个类型，就从你所在文件夹的 `route.gen` 导入。
   - 原来的写法 `PageData['orders'][number]` 仍然可用。
+- `route.gen` 是根据 `route.go`、`page.tsx` 和 `layout.tsx` 写出来的，它开头几行写明了来自哪些文件。Go 里改了返回类型或输入类型，或者增删了 `page.tsx` 或 `layout.tsx` 之后，运行一次 `go tool tifa gen`，再去写用到新类型的 TypeScript：一批 Go 改动运行一次就够。`go tool tifa check` 和 `pnpm typecheck` 会替你运行它，`tifa dev` 运行期间，每次保存改动后它也会重写类型（Go 构建失败时保留旧的）。
 - 默认导出是页面组件。可选的导出有 `head` 和 `ErrorBoundary`。404 也显示在 `ErrorBoundary` 里（见 [404](#404)），导出 `NotFound` 会让构建失败。
 - 在浏览器里，每个 `page.tsx`，以及除根布局外的每个 `layout.tsx` 或 `layout_.tsx`，都是自成一体的分块，带着它导入的所有东西，包括 `head`。它在第一次需要它的路由时加载，路由器会等它加载完，才显示页面或运行 `head`。页面的 HTML 会预加载它的布局和路由的分块，所以它们和入口脚本一起到达。文件顶层的代码（包括只为副作用的导入）在那时运行，而不是在应用启动时，所以每个页面都需要的初始化，要放进 [`setup.ts`](hooks.zh-CN.md#setupts)，它在任何路由模块之前运行。见[浏览器里的路由模块](../build-and-deploy/build.zh-CN.md#route-modules-in-the-browser)。
 - Go 的切片和 map 永远不会是 `null`：nil 切片到达时是 `[]`，nil map 是 `{}`，它们的 TypeScript 类型里没有 `| null`（见 [JSON 规则](routes.zh-CN.md#json-rules)）。

@@ -217,6 +217,8 @@ The `package.json` that `tifa new` writes runs it on install:
 
 pnpm and npm run the `prepare` script of the project after `pnpm install` and `npm install`, so installing the npm packages of a clone also writes `.tifa/`. Run `go mod download` (or `go mod tidy`) before, as `go tool tifa` needs the modules. An install with `--ignore-scripts` skips `prepare`, so run `go tool tifa gen` after it.
 
+The `typecheck` script of the same file is `go tool tifa gen && tsc --noEmit`. The types in `.tifa/` come from `route.go`, so they are old after a change to a route's return type or after a page or Layout is added or removed. Running `gen` first makes `tsc` read the new ones, and when the Go code does not compile it stops there and prints the Go file and line. `tifa check` already generates before it runs `tsc`, so it does not need the script. An app made before this can change its `typecheck` script to the same line.
+
 ## Tifa docs
 
 ```sh
