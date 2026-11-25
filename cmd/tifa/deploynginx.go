@@ -468,7 +468,17 @@ func nginxGuard(t deployTarget, ns nginxState, userSockets []userSocket) error {
 		if what == "" {
 			what = ns.Bin
 		}
-		return fmt.Errorf("%s has an nginx that Tifa did not install (%s). Tifa never changes the nginx of someone else, so deploy.front: nginx cannot use it. Remove that nginx, or set deploy.front to cloudflare in tifa.yaml. Nothing was changed", t.host, what)
+		var ports []int
+		for _, port := range []int{httpPort, httpsPort} {
+			if ns.nginxPrograms(port) {
+				ports = append(ports, port)
+			}
+		}
+		listens := ""
+		if len(ports) > 0 {
+			listens = ", which listens on " + portList(ports)
+		}
+		return fmt.Errorf("%s has an nginx that Tifa did not install (%s)%s. Tifa never changes the nginx of someone else, so deploy.front: nginx cannot use it. Remove that nginx, or set deploy.front to cloudflare in tifa.yaml. Nothing was changed", t.host, what, listens)
 	}
 	for _, port := range []int{httpPort, httpsPort} {
 		for _, u := range userSockets {

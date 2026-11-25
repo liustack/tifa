@@ -208,7 +208,7 @@ func TestSetupNginxStopsForOthers(t *testing.T) {
 	}{
 		"hand-installed nginx": {
 			"apt yes\npkg nginx ii\npkg nginx-common ii\nbin /usr/sbin/nginx\nactive yes\nlisten LISTEN 0 511 0.0.0.0:80 0.0.0.0:* users:((\"nginx\",pid=812,fd=6))\n",
-			[]string{"vps has an nginx that Tifa did not install (nginx, nginx-common). Tifa never changes the nginx of someone else", "Nothing was changed"},
+			[]string{"vps has an nginx that Tifa did not install (nginx, nginx-common), which listens on port 80. Tifa never changes the nginx of someone else", "Nothing was changed"},
 		},
 		"an nginx that is off": {
 			"apt yes\npkg nginx ii\nbin /usr/sbin/nginx\n",
