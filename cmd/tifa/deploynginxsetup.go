@@ -88,8 +88,10 @@ func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
 	tlsNow := host != "" && certHost
 	want := nginxSiteFile(app, host, r.port, tlsNow, ns.IPv6)
 	text := nginxSiteText(app, host, r.port)
+	// The port is read when the step runs: the app step before it may have taken another one than
+	// the plan guessed.
 	apply := func(ctx context.Context) (string, error) {
-		return r.rootScript(nginxSiteScript(app, want))(ctx)
+		return r.rootScript(nginxSiteScript(app, nginxSiteFile(app, host, r.port, tlsNow, ns.IPv6)))(ctx)
 	}
 	cur, has := ns.site(app)
 	switch {

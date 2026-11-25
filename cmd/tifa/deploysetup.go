@@ -476,7 +476,7 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 		}
 		// What the app needs to know of a server without the user: who listens on the ports of
 		// the visitors, and whether its user may open them.
-		r.st.LowPort, r.st.Listen, r.st.UFW = s.LowPort, s.Listen, s.UFW
+		r.st.LowPort, r.st.Listen, r.st.Used, r.st.UFW = s.LowPort, s.Listen, s.Used, s.UFW
 		p.add(opAdd, fmt.Sprintf("server: the user %s does not exist yet (ssh cannot log in as it), so setup creates it (home %s) with the keys of root, and starts its systemd at boot", deployUser, deployHome), r.serverApply)
 		return nil
 	default:

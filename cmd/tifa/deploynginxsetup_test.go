@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -184,6 +185,49 @@ func TestSetupNginxCertificateStates(t *testing.T) {
 	out, err = runSetup(t, root, false, "", "--yes")
 	if err != nil || !strings.Contains(out, "change  server: the certificate of shop.example.com") || !strings.Contains(srv2.unquoted(), "delete_old='1'") {
 		t.Errorf("another host: %v\n%s", err, out)
+	}
+}
+
+// On a server that has no deploy user yet, a port that something listens on is taken before the app
+// gets one: the app and the site that points at it both use 9528 when 9527 is busy. And a site
+// uses the port the app has once its step runs, not the one the plan guessed.
+func TestSetupNginxSiteUsesThePortTheAppGets(t *testing.T) {
+	root := setupApp(t, "deploy:\n  front: nginx\n", nil)
+	// Once the user exists, its own probe sees the listener too.
+	srv := newSetupServer(t, "", freshFacts+"listen LISTEN 0 4096 127.0.0.1:9527 0.0.0.0:*\n")
+	srv.deny(t)
+	srv.nginx(t, "apt yes\n")
+	writeFile(t, filepath.Join(srv.dir, "rootfacts"), "listen LISTEN 0 4096 127.0.0.1:9527 0.0.0.0:* users:((\"mydb\",pid=5,fd=3))\n")
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil || !strings.Contains(out, "port 9528, the systemd socket") || !strings.Contains(out, "127.0.0.1:9528 in /etc/nginx/conf.d/tifa-shop.conf") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	argv := srv.unquoted()
+	if !strings.Contains(argv, "ListenStream=127.0.0.1:9528") || !strings.Contains(argv, "server 127.0.0.1:9528;") || strings.Contains(argv, "9527;") {
+		t.Errorf("ports in the scripts:\n%s", argv)
+	}
+
+	// The plan said 9527, and the app got 9600 while the steps ran: the site follows.
+	srv = newSetupServer(t, "", nginxUserFacts(9527))
+	srv.nginx(t, nginxFacts(true, nil))
+	tg, err := loadDeployTarget(root, "", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, run, err := buildSetupPlan(t.Context(), tg, setupFlags{skipMachine: true}, false, strings.NewReader(""), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.port = 9600
+	for _, st := range plan.steps {
+		if st.do != nil && strings.Contains(st.text, "nginx: the site") {
+			if _, err := st.do(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if !strings.Contains(srv.unquoted(), "server 127.0.0.1:9600;") {
+		t.Errorf("the site has the port of the plan:\n%s", srv.unquoted())
 	}
 }
 
