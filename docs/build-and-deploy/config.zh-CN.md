@@ -2,7 +2,7 @@
 summary: '每一项设置的含义和设置位置：tifa.yaml、参数、环境变量、.env、server.csp、HTTPS、跨站写入'
 audience: app
 order: 4
-translatedFrom: 58f36229222a
+translatedFrom: e55c70464603
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -116,7 +116,7 @@ Cloud Run、Heroku、Render、Railway 和 Fly 这样的托管平台，通过 `PO
 | `build.i18next_cache` | `true` | 仅项目文件 | 服务端渲染会保留 i18next 翻译出来的字符串，同样的键和选项再来时直接给出，所以每次渲染都翻译同样文本的页面耗时更少：shop 的店面页面只要它的 0.778。`false` 会关掉它。应用的 formatter 和后处理器对同样的输入必须给出同样的文本。应用在第一次渲染之后不通过 i18next 的 API 改动 i18next 的资源或选项，或者给 i18next 传了读取请求内容的其他函数时，请关掉它，否则页面可能显示过期的翻译。见 [build.md](build.zh-CN.md#i18next-cache) |
 | `i18n.default` | 无 | 仅项目文件 | 带 `_locales/` 文件夹的应用的默认语言，是常见写法的 BCP 47 标签，比如 `zh-CN` 或 `en-US`。这种语言的 URL 没有前缀（除非 `i18n.prefix` 是 `always`），它在 `tifa.Languages()` 里排第一。只有一种语言的应用可以省略它。有多种语言时，没有它 `tifa build` 会失败，没有任何区域有它的文件时也会失败。每个区域都必须有默认语言。见[多语言站点](../guides/i18n.zh-CN.md) |
 | `i18n.prefix` | `off` | 仅项目文件 | `always` 会把语言放进每个有语言的路由的 URL，默认语言也不例外：`/store` 会以 308 跳转到 `/zh-CN/store`。`off` 让默认语言没有前缀。不在任何区域里的路由，两种模式下都没有前缀 |
-| `site.url` | 无 | 仅项目文件 | 站点对外提供服务的协议和主机，比如 `https://shop.example.com`，不带路径。有多种语言的站点需要它，没有它 `tifa build` 会失败。它把站点标记为公开：每个页面得到一个 canonical 链接和一个 `og:url` meta，程序提供 `/sitemap.xml`、默认的 `/robots.txt`、`/llms.txt`、`/llms-full.txt` 和内容页面的 Markdown 版本。没有它就没有这些。见[搜索引擎与语言模型](../guides/seo.zh-CN.md) |
+| `site.url` | 无 | 仅项目文件 | 站点对外提供服务的协议和主机，比如 `https://shop.example.com`，不带路径。主机是由字母、数字、连字符和点组成的名字，或者 IP 地址，或者 `localhost`：它会写进 `deploy.front: nginx` 的配置里。有多种语言的站点需要它，没有它 `tifa build` 会失败。它把站点标记为公开：每个页面得到一个 canonical 链接和一个 `og:url` meta，程序提供 `/sitemap.xml`、默认的 `/robots.txt`、`/llms.txt`、`/llms-full.txt` 和内容页面的 Markdown 版本。没有它就没有这些。见[搜索引擎与语言模型](../guides/seo.zh-CN.md) |
 | `server.addr` | `127.0.0.1:9527` | `--server-addr`、`SERVER_ADDR` | 监听的地址。在容器里用 `0.0.0.0:9527`。开启 [HTTPS](#https) 时，它提供的是 HTTPS，必须设置，通常是 `:443` |
 | `server.body_limit` | `1MiB` | `--server-body-limit`、`SERVER_BODY_LIMIT` | 请求体的最大大小。更大的会以 413 回答。`OnRequest` 里的 `c.SetBodyLimit` 可以为一个请求设置自己的，见 [handlers.md](../pages-and-data/handlers.zh-CN.md#body-limit-and-read-time-of-a-route) |
 | `server.read_timeout` | `10s` | `--server-read-timeout`、`SERVER_READ_TIMEOUT` | 读完整个请求（包括请求体）的时间，从连接被接受起算。超过之后仍在到来的请求体会读取失败，带输入的处理函数答 408。请求头必须在 5 秒内到齐，这个时间没有设置可改。见[长请求](#long-requests) |

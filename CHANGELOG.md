@@ -12,6 +12,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- `site.url` takes only a plain host: a name of letters, digits, hyphens and dots (punycode `xn--` included), an IP address or `localhost`, with or without a port. The host goes into the configuration of nginx for `deploy.front: nginx` and into the request for a certificate, so a character such as `;`, `*` or `_` is refused when the settings load. Upgrading: write the host of `site.url` as a DNS name or an IP address.
 - `/sitemap.xml`, its parts, `/llms.txt`, `/llms-full.txt` and the `.md` version of a page are kept in the render memo, by what the function of `tifa.SetSitemap` returned, with an `ETag` and 304. The function and `OnRequest` still run on every request, and a changed list shows on the next one. They were built from nothing each time: on a site with 600 entries, `/llms-full.txt` gave 95 answers a second and a client that looped on it slowed ordinary pages. The mistakes in what the function returned are logged when a list is checked, which is once per list and no longer on each request or file. The pages a list has are checked once for all its files, so the `.md` of each post does not check the whole list again. See [The render memo](docs/reference/memo.md#site-files).
 
 - The `ci.yml` that `tifa new` writes has `permissions: contents: read`, so the token of its jobs can only read the repository. A `ci.yml` that an app already has is not changed.

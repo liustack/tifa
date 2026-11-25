@@ -2,7 +2,7 @@
 summary: '怎样把 Tifa 应用放到服务器上：`tifa deploy`、ssh、systemd、GitHub Actions、Cloudflare、健康检查'
 audience: app
 order: 3
-translatedFrom: d6d5e3f0cb79
+translatedFrom: c1482bd372a9
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -141,7 +141,7 @@ Apply this plan? [y/N]
 
 当有留给你的事，或者某个可能失败的步骤失败了（比如 Cloudflare 拒绝了三次的缓存清除令牌）时，setup 在做完其余的一切之后，以错误退出。标着 `(optional)` 的事项（比如缓存清除令牌）不会让它失败。脚本可以依赖退出码：照列表做完之后，再运行一次 setup。`tifa.yaml` 每次变化后都再运行它：它只做有差别的事。
 
-setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你创建的 Cloudflare 令牌：方案会说明要在控制台里删掉它）：`authorized_keys` 里注释为 `tifa-github <owner>/<repo>` 的行，nginx 站点 `/etc/nginx/conf.d/tifa-<app>.conf` 和 certbot 的证书 `tifa-<app>`，注释为 `tifa <app>` 或 `tifa nginx` 的 ufw 规则，名字以 `tifa` 开头的 Cloudflare 对象（以及 Access 应用 `tifa deploy ssh <host>`），你的 `~/.ssh/config` 里以 `# tifa <app>:` 开头的那个块，它添加的域名的路由和 DNS 记录，仓库变量 `TIFA_DEPLOY_FINGERPRINT`、`TIFA_DEPLOY_TAILSCALE_ID` 和 `TIFA_DEPLOY_TAILSCALE_AUDIENCE`，以及随它们设置的 secret（`TIFA_DEPLOY_HOST`、`TIFA_DEPLOY_KNOWN_HOSTS` 和其他的），以及以 Tifa 那一行开头的工作流文件。设置 `front: none`，或者把 `auto` 块去掉后，方案会在动手之前列出这些删除。
+setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你创建的 Cloudflare 令牌：方案会说明要在控制台里删掉它）：`authorized_keys` 里注释为 `tifa-github <owner>/<repo>` 的行，nginx 站点 `/etc/nginx/conf.d/tifa-<app>.conf` 和 certbot 的证书 `tifa-<app>`，注释为 `tifa <app>` 或 `tifa nginx front` 的 ufw 规则，名字以 `tifa` 开头的 Cloudflare 对象（以及 Access 应用 `tifa deploy ssh <host>`），你的 `~/.ssh/config` 里以 `# tifa <app>:` 开头的那个块，它添加的域名的路由和 DNS 记录，仓库变量 `TIFA_DEPLOY_FINGERPRINT`、`TIFA_DEPLOY_TAILSCALE_ID` 和 `TIFA_DEPLOY_TAILSCALE_AUDIENCE`，以及随它们设置的 secret（`TIFA_DEPLOY_HOST`、`TIFA_DEPLOY_KNOWN_HOSTS` 和其他的），以及以 Tifa 那一行开头的工作流文件。设置 `front: none`，或者把 `auto` 块去掉后，方案会在动手之前列出这些删除。
 
 方案的各层：
 
@@ -197,12 +197,12 @@ setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你�
 
 用 `front: nginx` 时，由 Tifa 安装的一个 nginx 接待服务器上所有用这个 front 的应用的访客，所以它们不用 Cloudflare 就能共用 80 和 443 端口。每个应用监听回环地址上的一个端口，和在 Cloudflare Tunnel 后面一样，nginx 把请求送给它所点的主机对应的应用，也就是该应用 `site.url` 的主机。
 
-- **这个 nginx 是 Tifa 的。** setup 用 apt 安装它，作为你同意的方案里的一行，并写下 `/etc/tifa/nginx` 来标记它。这个文件列出 apt 装上的包，所以 remove 只删这些包，别的不动。从那以后，这个 nginx 的全部配置都由 Tifa 来写，每个应用一个文件（`/etc/nginx/conf.d/tifa-<app>.conf`），也没有别的东西用它。请不要改这些文件，它们不同时 setup 会重新写。请留着 `/etc/tifa/nginx`：没有它，setup 会把这个 nginx 当成你自己的而停下。
+- **这个 nginx 是 Tifa 的。** setup 用 apt 安装它，作为你同意的方案里的一行，并写下 `/etc/tifa/nginx` 来标记它。这个文件列出 apt 装上的、原来没有的包，所以 remove 只删这些包，别的不动：apt 只是升级了的包，或者服务器上本来就有的 certbot，都会留着。从那以后，这个 nginx 的全部配置都由 Tifa 来写，每个应用一个文件（`/etc/nginx/conf.d/tifa-<app>.conf`），也没有别的东西用它。请不要改这些文件，它们不同时 setup 会重新写。请留着 `/etc/tifa/nginx`：没有它，setup 会把这个 nginx 当成你自己的而停下。对于这个文件从没记过的 nginx 包，比如在一次中途停下的 setup 之后你自己装的，它也一样处理。
 - **你自己的 nginx 绝不会被动。** 服务器上有一个不是 Tifa 装的 nginx 时，setup 会停下，说出它和它监听的端口，什么也不改。别的程序，或者自己接待访客的 Tifa 应用，占着 80 或 443 端口时，它同样会停下。请移除那个 nginx，停掉那个程序，或者用 `front: cloudflare`。
 - **有域名时**，也就是 `site.url` 的主机，比如 `https://shop.example.com`，setup 还会用 apt 安装 certbot 和它的 nginx 插件，并从 Let's Encrypt 拿一个证书，名字是 `tifa-shop`。80 端口回答 Let's Encrypt 的检查，其余一切用 308 送到 HTTPS。certbot 自己的定时器负责续期，一个钩子会让 nginx 重新加载。DNS 必须在 setup 之前就把域名指向服务器：在那之前 certbot 会被拒绝，setup 会说明，站点停留在普通 HTTP 上。DNS 对了之后再运行一次 setup。
 - **没有域名时**：没有 `site.url`，或者它的主机是 IP 地址或 `localhost`。应用在 80 端口上提供普通 HTTP，并拿到所有没有点名其他应用的请求。一台服务器上只能有一个应用这样：已经有另一个应用这样时，setup 会停下并说明。请给其中一个设一个域名。
 - **HSTS** 和 `front: none` 一样：默认关闭，除非你设置 `server.hsts: true`。程序发出这个头，nginx 原样传过去。
-- **每次改动都先检查。** setup 写好一个站点，运行 `nginx -t`，之后才让 nginx 重新加载。重新加载不会断开其他应用的连接。nginx 不接受这个文件时，之前的文件会放回去，报错里说明 nginx 说了什么。
+- **每次改动都先检查。** setup 写好一个站点，运行 `nginx -t`，之后才让 nginx 重新加载。重新加载不会断开其他应用的连接。`nginx -t` 或重新加载失败时，之前的文件会放回去，报错里说明 nginx 说了什么。再运行一次 setup 时，如果 nginx 没在运行，它也会把它启动。站点文件和包的改动要在服务器上拿同一把锁，`/etc/tifa/nginx.lock`，所以不同应用的两个 setup 或 remove 不会同时写。
 
 有域名且已拿到证书的应用，它的站点是这样：
 
@@ -251,11 +251,11 @@ server {
 - nginx 不做压缩（`gzip off`），所以程序对压缩的决定有效，`No-Gzip-Compression` 也包括在内。请让 `server.compress` 保持开启。
 - 到应用的连接空闲时保持打开 50 秒，比程序关闭空闲连接的 60 秒短。
 
-**ufw。** ufw 开着，并且不让访客访问 80 和 443 端口时，计划会放行这两个，规则的注释是 `tifa nginx`，并且在 nginx 申请证书之前就放行。最后一个用这个 nginx 的应用被 remove 时，它们会被删掉。上面**ufw** 和**服务商的防火墙归你管**下说的一切，在这里同样适用。
+**ufw。** ufw 开着，并且不让访客访问 80 和 443 端口时，计划会放行这两个，规则的注释是 `tifa nginx front`，并且在 nginx 申请证书之前就放行。用更早版本的 Tifa 设置的服务器上，它们的注释是 `tifa nginx`，setup 会接手它们，不会关掉端口。最后一个用这个 nginx 的应用被 remove 时，它们会被删掉。上面**ufw** 和**服务商的防火墙归你管**下说的一切，在这里同样适用。
 
 **搬迁。** setup 把 `none`、`cloudflare` 和 `nginx` 之间的搬迁，当作其他改动一样列进计划。搬到 nginx 的应用，先搬到回环地址的端口上，这会为 nginx 腾出 80 端口，所以访客要等一小会儿。搬走的应用把它的站点和证书从 nginx 里拿掉，没有别的应用有站点时，nginx 和 certbot 也一起走。其他应用还在 nginx 后面时，应用不能搬到 `front: none`：nginx 占着端口，setup 会停下并说明。
 
-`tifa deploy remove` 把应用的站点和证书从 nginx 里拿掉，最后一个应用时还会卸载 nginx，以及 setup 安装过的 certbot，连同它们的配置，并删掉 `/etc/tifa/nginx`。其他应用继续回答。想手动让 nginx 不再归 Tifa 管，请对 `/etc/tifa/nginx` 里列出的包运行 `apt-get purge`，删掉 `/etc/nginx`、`/etc/letsencrypt` 和那个文件，并删掉注释为 `tifa nginx` 的 ufw 规则。
+`tifa deploy remove` 把应用的站点和证书从 nginx 里拿掉，最后一个应用时还会卸载 nginx，以及 setup 安装过的 certbot，连同它们的配置，并删掉 `/etc/tifa/nginx`。如果 setup 只是给原来就有的 certbot 加了 nginx 插件，remove 只拿走插件，certbot、它的定时器和你的证书都不动。nginx 不肯放掉的站点会留下，它的证书和 nginx 也一起留下：报错里说明 nginx 说了什么，下一次 remove 接着做。其他应用继续回答。想手动让 nginx 不再归 Tifa 管，请对 `/etc/tifa/nginx` 里列出的包运行 `apt-get purge`，删掉 `/etc/nginx`、`/etc/letsencrypt` 和那个文件，并删掉注释为 `tifa nginx front` 的 ufw 规则。
 
 ### 部署 {#deploy}
 
@@ -490,7 +490,7 @@ shop on vps, port 9527
 
 `remove` 把应用从服务器上拿掉，收回 Tifa 为它做的东西，别的不动：
 
-- 用 `front: nginx` 时：以 root 删除应用在 nginx 里的站点（重新加载之前先 `nginx -t`）、它在 certbot 里的证书，以及最后一个用这个 nginx 的应用被删时，还有 nginx、certbot（setup 安装过的话）、它们的配置、`/etc/tifa/nginx` 和注释为 `tifa nginx` 的 ufw 规则（见[在 nginx 后面](#behind-nginx)）。其他应用继续回答。
+- 用 `front: nginx` 时：以 root 删除应用在 nginx 里的站点（重新加载之前先 `nginx -t`）、它在 certbot 里的证书，以及最后一个用这个 nginx 的应用被删时，还有 nginx、certbot（setup 安装过的话）、它们的配置、`/etc/tifa/nginx` 和注释为 `tifa nginx front` 的 ufw 规则（见[在 nginx 后面](#behind-nginx)）。站点拿不掉时，证书和 nginx 都留着。其他应用继续回答。
 - 在服务器上，以 `tifa` 身份：它停止并禁用 `tifa-<app>.socket`、`tifa-<app>-http.socket` 和 `.service`，删除它们的单元文件和 `/srv/tifa/<app>`，包括它的发布、`shared/.env`、`shared/` 里的数据、`certs/` 里的证书和 `deploys.log`。想保留数据的话，请先复制出来。对自己接待访客的应用，还以 root 删除 `/etc/sysctl.d/60-tifa-ports.conf`，用户能打开的最小端口改回原来的值，有 ufw 时还删掉 setup 加的、带注释 `tifa <app>` 的规则，计划里会列出它们。其他应用、用户 `tifa`、防火墙的其他规则和 sshd 保持原样。
 - 用 `front: cloudflare` 时：域名的路由、DNS 记录和规则，用 `connect: cloudflare` 时（有没有 CI 都一样），还有 ssh 主机名的 Access 应用和它放行人的策略、它的路由和 DNS 记录，以及仓库的 service token 和策略。所有需要 ssh 的事先做（应用、缓存令牌），然后停掉 tunnel，最后才移除 ssh 主机名：先移除路由和记录，再移除应用和它的策略，所以部分失败也绝不会留下一条没有 Access 保护的路由，而且只在前面的步骤成功时才这样做。当应用已经没了时，再运行一次会从 tunnel 的路由里找到 ssh 主机名。当你的 ssh 经由 tunnel 时，服务器上最后一个应用会在 ssh 离开几秒之后才停掉 tunnel，所以命令不会切断它自己的连接。tunnel 和 cloudflared 服务服务器上的每个应用，所以只有服务器上最后一个 Tifa 应用移除时它们才会一起走：那时 remove 以 root 停止 cloudflared，删除 `/etc/tifa`，在 cloudflared 是 setup 装的时候卸载它，并删除 tunnel。
 - 服务器上的缓存令牌，`/srv/tifa/.config/tifa`，也服务服务器上的每个应用，随服务器上最后一个 Tifa 应用一起走。remove 在删除时会在那个文件的锁下再找一次应用，所以在 remove 等你回答时刚设置好的应用，会保住它们。Cloudflare 控制台里的令牌 `tifa cache purge <zone>` 请你自己删：Tifa 做不到。
