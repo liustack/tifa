@@ -2,7 +2,7 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: 7d914405e1b9
+translatedFrom: 1369d71bad87
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -35,7 +35,7 @@ deploy:
   1. 参数 `--host`
   2. 环境变量 `TIFA_DEPLOY_HOST`
   3. 应用根目录里的 `.env` 文件中的 `TIFA_DEPLOY_HOST`，git 会忽略这个文件（见 [.env](config.zh-CN.md#env)。程序自己不理会这个名字）
-  4. `tifa deploy setup` 记在 `~/.tifa/config.yaml` 里的服务器（见[Tifa 记住的服务器](#the-servers-tifa-remembers)）
+  4. `tifa deploy setup` 和 `tifa deploy` 记在 `~/.tifa/config.yaml` 里的服务器（见[Tifa 记住的服务器](#the-servers-tifa-remembers)）
 
   ```sh
   # .env
@@ -107,10 +107,10 @@ go tool tifa deploy rollback
 
 ## Tifa 记住的服务器 {#the-servers-tifa-remembers}
 
-setup 成功之后，Tifa 会把服务器写进 `~/.tifa/config.yaml`（Windows 上是 `%USERPROFILE%\.tifa\config.yaml`），所以这台机器上的下一个应用不再需要 `TIFA_DEPLOY_HOST`。这个文件里没有任何 secret，只有这台机器设置过的服务器：
+setup 或部署成功之后，Tifa 会把服务器写进 `~/.tifa/config.yaml`（Windows 上是 `%USERPROFILE%\.tifa\config.yaml`），所以这台机器上的下一个应用不再需要 `TIFA_DEPLOY_HOST`。在别的机器上设置的服务器，或者在有这个文件之前设置的服务器，会在这台机器第一次部署到它时得到自己的条目。在 GitHub Actions 里部署什么都不写。这个文件里没有任何 secret，只有这台机器设置过或部署过的服务器：
 
 ```yaml
-# Servers tifa deploy setup has set up from this machine. tifa deploy uses the only one when an app names none.
+# Servers this machine has set up or deployed to with tifa deploy. tifa deploy uses the only one when an app names none.
 # No secrets are kept here. To forget a server, delete its entry.
 servers:
   - id: vultr-1a2b3c4d
@@ -120,7 +120,7 @@ servers:
       - {name: blog, path: /Users/me/blog, host: 'ssh://203.0.113.7:22'}
 ```
 
-- `id` 是服务器的主机名加上它的机器 ID 的开头，setup 从服务器上读取机器 ID。服务器的连接方式变了，它的条目也还在。`host` 是新应用会用的那个：最近一次连通的。
+- `id` 是服务器的主机名加上它的机器 ID 的开头，setup 和部署从服务器上读取机器 ID。服务器的连接方式变了，它的条目也还在。`host` 是新应用会用的那个：最近一次连通的。
 - 一个应用就是它在这台机器上的检出文件夹（`path`），`name` 只用于提示信息。同名应用的另一个检出目录算新的应用。每个应用保留对它连通过的 host：用 `connect: cloudflare` 时，在经由 tunnel 的检查通过之后，它是应用域名的 ssh 主机名，否则是你给的地址。当服务器的 `host` 原本是被移除的那个应用的 host 时，`remove` 会把它换成留下来的某个应用的 host。
 - 当一个应用没有指定服务器时（参数、环境变量和 `.env` 优先），Tifa 使用文件里唯一的那台服务器，并打印一行说明用的是哪一台，以及要指定另一台该在 `.env` 里放什么。文件夹列在某台服务器名下的应用，会去那台服务器，即使有好几台。有好几台服务器、而应用不在任何一台上时，命令会停下，列出它们，并说请在 `.env` 里设置 `TIFA_DEPLOY_HOST=<host>` 或传 `--host`。`setup` 和 `remove` 的方案会把这个文件显示为服务器的来源。
 - 取自这个文件的 host，会在命令第一次向服务器询问时被检查：如果那里的机器不是条目里的那台（别名或地址现在指向了别处），命令会停下，并说出两个 ID 和这个 host。`tifa deploy logs` 不先询问任何东西，所以不做检查。
@@ -136,4 +136,4 @@ servers:
 ssh-copy-id -i ~/.ssh/id_ed25519.pub tifa@vps
 ```
 
-用 `connect: cloudflare` 时，新来的人还要用他自己的 cf 登录运行 `go tool tifa deploy setup`，并在他的 `.env` 里放 `TIFA_DEPLOY_HOST=<ssh host>`：setup 会把他的邮箱加进 Access 策略，安装 cloudflared，并写好他的 `~/.ssh/config` 里的块，第一次 ssh 会在他的浏览器里打开 Access 的登录页。ssh 主机名是第一个人的 `.env` 里的那个，或者他的 setup 方案里打印出来的那个。新机器还需要知道服务器在哪里：把 `TIFA_DEPLOY_HOST=` 放进它的检出目录的 `.env`（或者传 `--host`，或者运行一次 setup，它会把服务器记在 `~/.tifa` 里），在没有 gh 的情况下运行 setup 时，也要在那里放 `TIFA_DEPLOY_GITHUB_TOKEN=`，如果这个值是别名，还要在它的 `~/.ssh/config` 里有同样的别名。机器上不保存别的东西：`tifa.yaml` 在仓库里，其余的在服务器、Cloudflare 和 GitHub 上。
+用 `connect: cloudflare` 时，新来的人还要用他自己的 cf 登录运行 `go tool tifa deploy setup`，并在他的 `.env` 里放 `TIFA_DEPLOY_HOST=<ssh host>`：setup 会把他的邮箱加进 Access 策略，安装 cloudflared，并写好他的 `~/.ssh/config` 里的块，第一次 ssh 会在他的浏览器里打开 Access 的登录页。ssh 主机名是第一个人的 `.env` 里的那个，或者他的 setup 方案里打印出来的那个。新机器还需要知道服务器在哪里：把 `TIFA_DEPLOY_HOST=` 放进它的检出目录的 `.env`（或者传一次 `--host`，因为成功的部署会把服务器记在 `~/.tifa` 里），在没有 gh 的情况下运行 setup 时，也要在那里放 `TIFA_DEPLOY_GITHUB_TOKEN=`，如果这个值是别名，还要在它的 `~/.ssh/config` 里有同样的别名。机器上不保存别的东西：`tifa.yaml` 在仓库里，其余的在服务器、Cloudflare 和 GitHub 上。

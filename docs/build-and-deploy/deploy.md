@@ -34,7 +34,7 @@ deploy:
   1. the flag `--host`
   2. the environment variable `TIFA_DEPLOY_HOST`
   3. `TIFA_DEPLOY_HOST` in the file `.env` at the root of the app, which git ignores (see [.env](config.md#env). The program itself takes no notice of that name)
-  4. the servers `tifa deploy setup` remembered in `~/.tifa/config.yaml` (see [The servers Tifa remembers](#the-servers-tifa-remembers))
+  4. the servers `tifa deploy setup` and `tifa deploy` remembered in `~/.tifa/config.yaml` (see [The servers Tifa remembers](#the-servers-tifa-remembers))
 
   ```sh
   # .env
@@ -106,10 +106,10 @@ It starts the newest earlier release that passed its check, checks it the same w
 
 ## The servers Tifa remembers
 
-After a setup that worked, Tifa writes the server in `~/.tifa/config.yaml` (`%USERPROFILE%\.tifa\config.yaml` on Windows), so the next app on this machine needs no `TIFA_DEPLOY_HOST`. The file holds no secret, only the servers this machine has set up:
+After a setup or a deploy that worked, Tifa writes the server in `~/.tifa/config.yaml` (`%USERPROFILE%\.tifa\config.yaml` on Windows), so the next app on this machine needs no `TIFA_DEPLOY_HOST`. A server set up from another machine, or before the file was there, gets its entry on the first deploy from this machine. A deploy in GitHub Actions writes nothing. The file holds no secret, only the servers this machine has set up or deployed to:
 
 ```yaml
-# Servers tifa deploy setup has set up from this machine. tifa deploy uses the only one when an app names none.
+# Servers this machine has set up or deployed to with tifa deploy. tifa deploy uses the only one when an app names none.
 # No secrets are kept here. To forget a server, delete its entry.
 servers:
   - id: vultr-1a2b3c4d
@@ -119,7 +119,7 @@ servers:
       - {name: blog, path: /Users/me/blog, host: 'ssh://203.0.113.7:22'}
 ```
 
-- `id` is the host name of the server and the start of its machine ID, which setup reads from it. A server keeps its entry when the way to reach it changes. `host` is the one a new app uses: the one that worked last.
+- `id` is the host name of the server and the start of its machine ID, which setup and deploy read from it. A server keeps its entry when the way to reach it changes. `host` is the one a new app uses: the one that worked last.
 - An app is the folder of its checkout on this machine (`path`), and `name` is only for messages. Another checkout of an app with the same name counts as a new app. Each app keeps the host that worked for it: with `connect: cloudflare` that is the ssh host name of the app's domain, once the check through the tunnel passed, else the address you gave. `remove` moves the `host` of the server to an app that stays when it was the host of the app that went.
 - When an app names no server (flag, environment and `.env` come first), Tifa uses the only server in the file and prints one line that says which one, and what to put in `.env` to name another. An app whose folder is listed under one server goes to that server, even when there are several. With several servers and an app that is on none, the command stops, lists them and says to set `TIFA_DEPLOY_HOST=<host>` in `.env` or pass `--host`. The plan of `setup` and `remove` shows the file as the source of the server.
 - A host taken from the file is checked in the first thing the command asks the server: if the machine there is not the one in the entry (an alias or an address that now points elsewhere), the command stops and names both IDs and the host. `tifa deploy logs` asks nothing first, so it does not check.
@@ -135,4 +135,4 @@ Every machine that deploys needs its own access to the server, and setup does no
 ssh-copy-id -i ~/.ssh/id_ed25519.pub tifa@vps
 ```
 
-With `connect: cloudflare`, the new person also runs `go tool tifa deploy setup` with their own cf login, with `TIFA_DEPLOY_HOST=<ssh host>` in their `.env`: setup adds their email to the Access policy, installs cloudflared and writes the block of their `~/.ssh/config`, and the first ssh opens the Access login in their browser. The ssh host name is the one in the `.env` of the first person, or the one the plan of their setup printed. The new machine also needs to know where the server is: put `TIFA_DEPLOY_HOST=` in the `.env` of its checkout (or pass `--host`, or run setup once, which remembers the server in `~/.tifa`), and `TIFA_DEPLOY_GITHUB_TOKEN=` there too when it runs setup without gh, and when the value is an alias, the same alias in its `~/.ssh/config`. Nothing else is stored on a machine: `tifa.yaml` is in the repository and the rest lives on the server, in Cloudflare and in GitHub.
+With `connect: cloudflare`, the new person also runs `go tool tifa deploy setup` with their own cf login, with `TIFA_DEPLOY_HOST=<ssh host>` in their `.env`: setup adds their email to the Access policy, installs cloudflared and writes the block of their `~/.ssh/config`, and the first ssh opens the Access login in their browser. The ssh host name is the one in the `.env` of the first person, or the one the plan of their setup printed. The new machine also needs to know where the server is: put `TIFA_DEPLOY_HOST=` in the `.env` of its checkout (or pass `--host` once, since a deploy that works remembers the server in `~/.tifa`), and `TIFA_DEPLOY_GITHUB_TOKEN=` there too when it runs setup without gh, and when the value is an alias, the same alias in its `~/.ssh/config`. Nothing else is stored on a machine: `tifa.yaml` is in the repository and the rest lives on the server, in Cloudflare and in GitHub.
