@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- The build errors of the analysis, from `tifa build`, `tifa check` and `tifa dev`, now end with the doc section that explains the fix, as the messages about code from other frameworks already did. A few say more than one way out.
+
 ## [0.7.1] - 2026-11-26
 
 ### Added

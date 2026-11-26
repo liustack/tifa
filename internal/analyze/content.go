@@ -174,7 +174,7 @@ func (a *analyzer) content() *Content {
 					decls = append(decls, d)
 					return true
 				}
-				a.errorAt(pos, "content.Define declares a collection, which is written only as the value of a package-level var in content.go in the root of the app, such as var Blog = content.Define[Post](content.Source{Dir: \"blog\"})")
+				a.errorAtDoc(docContent, pos, "content.Define declares a collection, which is written only as the value of a package-level var in content.go in the root of the app, such as var Blog = content.Define[Post](content.Source{Dir: \"blog\"})")
 				return true
 			})
 		}
@@ -276,27 +276,27 @@ func (a *analyzer) declaration(d declaration, byDir map[string]*ast.Ident) (coll
 	t := info.Types[index].Type
 	coll.Type = types.TypeString(t, nil)
 	if !a.schemaType(t) {
-		a.errorAt(index.Pos(), "%s must be a struct type of this module that embeds content.Entry, not a pointer to it", shortType(t))
+		a.errorAtDoc(docContent, index.Pos(), "%s must be a struct type of this module that embeds content.Entry, not a pointer to it", shortType(t))
 		ok = false
 	} else {
 		var problems []scan.Problem
 		schema, problems = scan.FromTypes(t)
 		for _, p := range problems {
-			a.errorAt(p.Pos, "%s", p.Msg)
+			a.errorAtDoc(docContent, p.Pos, "%s", p.Msg)
 			ok = false
 		}
 	}
 	arg := d.call.Args[0]
 	lit, isLit := ast.Unparen(arg).(*ast.CompositeLit)
 	if !isLit || lit.Type == nil || !isNamed(info.Types[lit].Type, contentPkg, "Source") {
-		a.errorAt(arg.Pos(), "the argument of content.Define must be a content.Source literal written in place, so that tifa build can read it")
+		a.errorAtDoc(docContent, arg.Pos(), "the argument of content.Define must be a content.Source literal written in place, so that tifa build can read it")
 		return coll, nil, "", false
 	}
 	hasDir := false
 	for _, el := range lit.Elts {
 		kv, isKV := el.(*ast.KeyValueExpr)
 		if !isKV {
-			a.errorAt(el.Pos(), "write the fields of content.Source by name, such as content.Source{Dir: \"blog\"}")
+			a.errorAtDoc(docContent, el.Pos(), "write the fields of content.Source by name, such as content.Source{Dir: \"blog\"}")
 			return coll, nil, "", false
 		}
 		key, _ := kv.Key.(*ast.Ident)
@@ -309,20 +309,20 @@ func (a *analyzer) declaration(d declaration, byDir map[string]*ast.Ident) (coll
 			dir, isStr := stringLit(kv.Value)
 			switch {
 			case !isStr:
-				a.errorAt(kv.Value.Pos(), "Dir must be a string literal, such as \"blog\"")
+				a.errorAtDoc(docContent, kv.Value.Pos(), "Dir must be a string literal, such as \"blog\"")
 				ok = false
 			case !folderName.MatchString(dir):
-				a.errorAt(kv.Value.Pos(), "Dir %q must be the name of one folder under content/: letters, digits, - and _", dir)
+				a.errorAtDoc(docContent, kv.Value.Pos(), "Dir %q must be the name of one folder under content/: letters, digits, - and _", dir)
 				ok = false
 			default:
 				coll.Dir = dir
 				if info, err := os.Stat(filepath.Join(a.root, scan.Dir, dir)); err != nil || !info.IsDir() {
-					a.errorAt(kv.Value.Pos(), "content/%s does not exist: create it, or fix Dir", dir)
+					a.errorAtDoc(docContent, kv.Value.Pos(), "content/%s does not exist: create it, or fix Dir", dir)
 					ok = false
 				}
 				if first, dup := byDir[dir]; dup {
 					p := a.fset.Position(first.Pos())
-					a.errorAt(d.name.Pos(), "%s reads content/%s, which %s reads too (%s:%d:%d)", d.name.Name, dir, first.Name, a.relFile(p.Filename), p.Line, p.Column)
+					a.errorAtDoc(docContent, d.name.Pos(), "%s reads content/%s, which %s reads too (%s:%d:%d)", d.name.Name, dir, first.Name, a.relFile(p.Filename), p.Line, p.Column)
 					ok = false
 				} else {
 					byDir[dir] = d.name
@@ -340,12 +340,12 @@ func (a *analyzer) declaration(d declaration, byDir map[string]*ast.Ident) (coll
 		case "Match":
 			m, isStr := stringLit(kv.Value)
 			if !isStr {
-				a.errorAt(kv.Value.Pos(), "Match must be a string literal, such as \"*/*/index.md\"")
+				a.errorAtDoc(docContent, kv.Value.Pos(), "Match must be a string literal, such as \"*/*/index.md\"")
 				ok = false
 				continue
 			}
 			if err := scan.CheckMatch(m); err != nil {
-				a.errorAt(kv.Value.Pos(), "%v", err)
+				a.errorAtDoc(docContentFiles, kv.Value.Pos(), "%v", err)
 				ok = false
 				continue
 			}
@@ -353,7 +353,7 @@ func (a *analyzer) declaration(d declaration, byDir map[string]*ast.Ident) (coll
 		}
 	}
 	if !hasDir {
-		a.errorAt(lit.Pos(), "content.Source needs Dir, the folder under content/ that holds the collection, such as Dir: \"blog\"")
+		a.errorAtDoc(docContent, lit.Pos(), "content.Source needs Dir, the folder under content/ that holds the collection, such as Dir: \"blog\"")
 		ok = false
 	}
 	return coll, schema, languagesAt, ok
@@ -398,16 +398,16 @@ func (a *analyzer) languages(e ast.Expr, info *types.Info) ([]string, bool) {
 		ok = false
 	}
 	if !ok {
-		a.errorAt(e.Pos(), "Languages must be tifa.Languages() or a []string literal of string literals, such as []string{\"zh-CN\", \"en\"}")
+		a.errorAtDoc(docContentIDs, e.Pos(), "Languages must be tifa.Languages() or a []string literal of string literals, such as []string{\"zh-CN\", \"en\"}")
 		return nil, false
 	}
 	for i, l := range langs {
 		if !folderName.MatchString(l) {
-			a.errorAt(e.Pos(), "language %q must be the name of one folder: letters, digits, - and _", l)
+			a.errorAtDoc(docContentIDs, e.Pos(), "language %q must be the name of one folder: letters, digits, - and _", l)
 			return nil, false
 		}
 		if slices.Contains(langs[:i], l) {
-			a.errorAt(e.Pos(), "Languages has %q twice", l)
+			a.errorAtDoc(docContentIDs, e.Pos(), "Languages has %q twice", l)
 			return nil, false
 		}
 	}

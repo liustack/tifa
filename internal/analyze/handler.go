@@ -26,7 +26,7 @@ func (a *analyzer) readHandler(pkg *packages.Package, obj types.Object, method s
 			(results.Len() == 1 || results.Len() == 2) && typeString(results.At(results.Len()-1).Type()) == "error"
 	}
 	if !ok {
-		a.errorAt(obj.Pos(), "%s must have one of the signatures %s", method, handlerSignatures)
+		a.errorAtDoc(docNames, obj.Pos(), "%s must have one of the signatures %s", method, handlerSignatures)
 		return Handler{}, false, nil
 	}
 	decl := a.funcDecl(pkg, fn)
@@ -69,7 +69,7 @@ func fieldTypePos(list *ast.FieldList, i int) token.Pos {
 // reportTS reports the problems checkTS found in a type whose source is at pos.
 func (a *analyzer) reportTS(pos token.Pos, label string, problems []tsProblem) {
 	for _, p := range problems {
-		a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s: %s", label, p.path, p.msg), p.field))
+		a.errorAtDoc(docJSON, pos, "%s", a.withField(fmt.Sprintf("%s: %s: %s", label, p.path, p.msg), p.field))
 	}
 }
 
@@ -89,7 +89,7 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, 
 	label := method + " input"
 	st, isStruct := in.Underlying().(*types.Struct)
 	if !isStruct || isNamed(in, multipartPath, "FileHeader") {
-		a.errorAt(pos, "%s %s must be a struct: the input is decoded into the fields of a struct", label, typeString(in))
+		a.errorAtDoc(docHandlers, pos, "%s %s must be a struct: the input is decoded into the fields of a struct", label, typeString(in))
 		return false, false
 	}
 	ok = true
@@ -107,7 +107,7 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, 
 			// would send text where the server waits for a file.
 			for _, name := range []string{"MarshalText", "UnmarshalText"} {
 				if _, _, found := lookupName(f.Type(), name); found {
-					a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file of type %s, which has %s: a file comes as a part of a form, never as text, so a file type cannot have MarshalText or UnmarshalText. Remove the method, or use *multipart.FileHeader or []*multipart.FileHeader", label, rootLabel(in), f.Name(), types.TypeString(f.Type(), shortQualifier), name), f))
+					a.errorAtDoc(docFilesInput, pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file of type %s, which has %s: a file comes as a part of a form, never as text, so a file type cannot have MarshalText or UnmarshalText. Remove the method, or use *multipart.FileHeader or []*multipart.FileHeader", label, rootLabel(in), f.Name(), types.TypeString(f.Type(), shortQualifier), name), f))
 					ok = false
 					break
 				}
@@ -118,18 +118,18 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, 
 	root := rootLabel(in)
 	walkFields(in, root, map[types.Type]bool{}, func(path string, f *types.Var, tag string) {
 		if formNamesOtherwise(tag, f.Name()) {
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s has a form tag with another name than its json tag: an input field is named by its json tag only, also in a form body, so make the form tag name it the same, or remove it", label, path), f))
+			a.errorAtDoc(docHandlers, pos, "%s", a.withField(fmt.Sprintf("%s: %s has a form tag with another name than its json tag: an input field is named by its json tag only, also in a form body, so make the form tag name it the same, or remove it", label, path), f))
 			ok = false
 		}
 		if !files[f] && holdsFile(f.Type()) {
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s holds a file as %s: a file can only be a field of the input itself, of type *multipart.FileHeader or []*multipart.FileHeader", label, path, types.TypeString(f.Type(), shortQualifier)), f))
+			a.errorAtDoc(docFilesInput, pos, "%s", a.withField(fmt.Sprintf("%s: %s holds a file as %s: a file can only be a field of the input itself, of type *multipart.FileHeader or []*multipart.FileHeader", label, path, types.TypeString(f.Type(), shortQualifier)), f))
 			ok = false
 		}
 	})
 	switch {
 	case method == "GET" || method == "DELETE":
 		for f := range files {
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file, which comes in a request body, and a %s input comes from the query string: take files in a POST, PUT or PATCH handler", label, root, f.Name(), method), f))
+			a.errorAtDoc(docFilesInput, pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file, which comes in a request body, and a %s input comes from the query string: take files in a POST, PUT or PATCH handler", label, root, f.Name(), method), f))
 			ok = false
 		}
 		if !a.checkFlatInput(label, in, st, files, pos, fmt.Sprintf("a %s input comes from the query string", method)) {
@@ -158,7 +158,7 @@ func (a *analyzer) readValidate(t types.Type, checks string) (withCtx *types.Fun
 	s := fn.Signature()
 	takesCtx := s.Params().Len() == 1 && typeString(s.Params().At(0).Type()) == ctxType
 	if !(s.Params().Len() == 0 || takesCtx) || s.Results().Len() != 1 || typeString(s.Results().At(0).Type()) != "error" {
-		a.errorAt(fn.Pos(), "Validate must have the signature func() error or func(c *tifa.Ctx) error: it checks %s", checks)
+		a.errorAtDoc(docHandlers, fn.Pos(), "Validate must have the signature func() error or func(c *tifa.Ctx) error: it checks %s", checks)
 		return nil, false
 	}
 	if takesCtx {
@@ -173,7 +173,7 @@ func (a *analyzer) readValidate(t types.Type, checks string) (withCtx *types.Fun
 func (a *analyzer) checkFlatInput(label string, in types.Type, st *types.Struct, files map[*types.Var]bool, pos token.Pos, why string) bool {
 	for _, name := range []string{"MarshalText", "UnmarshalText"} {
 		if _, _, found := lookupName(in, name); found {
-			a.errorAt(pos, "%s %s has %s: %s, which holds an object of fields, not a string", label, types.TypeString(in, shortQualifier), name, why)
+			a.errorAtDoc(docJSON, pos, "%s %s has %s: %s, which holds an object of fields, not a string", label, types.TypeString(in, shortQualifier), name, why)
 			return false
 		}
 	}
@@ -184,7 +184,7 @@ func (a *analyzer) checkFlatInput(label string, in types.Type, st *types.Struct,
 		path := root + "." + f.Name()
 		switch {
 		case f.Embedded():
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is an embedded field: %s, so list its fields directly", label, path, why), f))
+			a.errorAtDoc(docJSON, pos, "%s", a.withField(fmt.Sprintf("%s: %s is an embedded field: %s, so list its fields directly", label, path, why), f))
 			ok = false
 		case !f.Exported() || jsonName(st.Tag(i)) == "-" || files[f] || holdsFile(f.Type()):
 		case !queryType(f.Type()):
@@ -192,7 +192,7 @@ func (a *analyzer) checkFlatInput(label string, in types.Type, st *types.Struct,
 			if text != "" {
 				text += ", which tifa does not call: it decodes each value by its kind"
 			}
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s is %s%s: %s, so its fields are strings, numbers, bools or slices of them", label, path, types.TypeString(f.Type(), shortQualifier), text, why), f))
+			a.errorAtDoc(docJSON, pos, "%s", a.withField(fmt.Sprintf("%s: %s is %s%s: %s, so its fields are strings, numbers, bools or slices of them", label, path, types.TypeString(f.Type(), shortQualifier), text, why), f))
 			ok = false
 		}
 	}

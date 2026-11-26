@@ -189,11 +189,11 @@ func (a *analyzer) scan() error {
 		}
 		id := a.id(filepath.Dir(path))
 		if reservedDir(id) {
-			a.errorInFile(id, name, "the path /__tifa/ is reserved for tifa itself, such as its dev server: rename the directory")
+			a.errorInFileDoc(docRefused, id, name, "the path /__tifa/ is reserved for tifa itself, such as its dev server: rename the directory")
 			return nil
 		}
 		if skipped := skippedDir(id); skipped != "" {
-			a.errorInFile(id, name, "the go command skips %s because its name starts with . or _ or is testdata, so this file is never built: rename the directory", skipped)
+			a.errorInFileDoc(docRefused, id, name, "the go command skips %s because its name starts with . or _ or is testdata, so this file is never built: rename the directory", skipped)
 			return nil
 		}
 		info := a.dirs[id]
@@ -220,9 +220,9 @@ func (a *analyzer) scan() error {
 		switch {
 		case !d.replaceTSX:
 		case d.id == "app":
-			a.errorInFile(d.id, "layout_.tsx", "layout_.tsx drops the layouts above it, and app/ has none: rename it to layout.tsx")
+			a.errorInFileDoc(docLayoutDrop, d.id, "layout_.tsx", "layout_.tsx drops the layouts above it, and app/ has none: rename it to layout.tsx")
 		case d.layoutTSX:
-			a.errorInFile(d.id, "layout_.tsx", "layout.tsx and layout_.tsx are both in %s, and a folder has one layout: keep layout.tsx to show it inside the layouts above, or layout_.tsx to show it without them", d.id)
+			a.errorInFileDoc(docLayoutDrop, d.id, "layout_.tsx", "layout.tsx and layout_.tsx are both in %s, and a folder has one layout: keep layout.tsx to show it inside the layouts above, or layout_.tsx to show it without them", d.id)
 		}
 	}
 	return nil
@@ -450,9 +450,19 @@ func (a *analyzer) errorAt(pos token.Pos, format string, args ...any) {
 	a.errs = append(a.errs, Error{Pos: p, Msg: fmt.Sprintf(format, args...)})
 }
 
+// errorAtDoc is errorAt with a pointer to the doc section that explains the fix at the end.
+func (a *analyzer) errorAtDoc(doc string, pos token.Pos, format string, args ...any) {
+	a.errorAt(pos, "%s", fmt.Sprintf(format, args...)+see(doc))
+}
+
 // errorInFile reports a violation that belongs to a whole file, at its line 1.
 func (a *analyzer) errorInFile(id, file, format string, args ...any) {
 	a.errs = append(a.errs, Error{Pos: token.Position{Filename: id + "/" + file, Line: 1}, Msg: fmt.Sprintf(format, args...)})
+}
+
+// errorInFileDoc is errorInFile with a pointer to the doc section that explains the fix at the end.
+func (a *analyzer) errorInFileDoc(doc, id, file, format string, args ...any) {
+	a.errorInFile(id, file, "%s", fmt.Sprintf(format, args...)+see(doc))
 }
 
 func (a *analyzer) sortedErrors() Errors {
@@ -571,7 +581,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 		err = module.CheckImportPath("example.com/" + d.id)
 	}
 	if err != nil {
-		a.errorInFile(d.id, d.firstFile(), "%v", err)
+		a.errorInFileDoc(docFolders, d.id, d.firstFile(), "%v", err)
 		return nil, false
 	}
 	return segs, true
@@ -600,7 +610,7 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 			continue // a type or variable named Cache in another file is the domain code's own
 		}
 		if file := filepath.Base(a.fset.Position(obj.Pos()).Filename); file != "route.go" {
-			a.errorAt(obj.Pos(), "%s is read from route.go only, move it there from %s", name, file)
+			a.errorAtDoc(docNames, obj.Pos(), "%s is read from route.go only, move it there from %s", name, file)
 		}
 	}
 }
@@ -625,7 +635,7 @@ func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 			continue
 		}
 		if advice, ok := switchSpellings[name]; ok && c.Val().Kind() == constant.Bool {
-			a.errorAt(c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
+			a.errorAtDoc(docNames, c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
 		}
 	}
 }
@@ -671,11 +681,11 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	scope := pkg.Types.Scope()
 	declared := slices.ContainsFunc(methods, func(m string) bool { return scope.Lookup(m) != nil })
 	if load := scope.Lookup("Load"); load != nil && !d.pageTSX {
-		a.errorAt(load.Pos(), "Load is not allowed without page.tsx: Load loads the data of a page, an API route answers GET with a GET function")
+		a.errorAtDoc(docRouteGo, load.Pos(), "Load is not allowed without page.tsx: Load loads the data of a page, an API route answers GET with a GET function")
 	}
 	for _, name := range []string{"SSR", "Memo", "Cache"} {
 		if obj := scope.Lookup(name); obj != nil && !d.pageTSX {
-			a.errorAt(obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout has no switches of its own)", name)
+			a.errorAtDoc(docNames, obj.Pos(), "%s is not allowed without page.tsx: it applies to the page of the folder only (a Layout has no switches of its own)", name)
 		}
 	}
 	if !d.pageTSX && !declared {
@@ -691,7 +701,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 			continue
 		}
 		if method == "GET" && d.pageTSX {
-			a.errorAt(obj.Pos(), "GET is not allowed next to page.tsx: the framework renders GET for a page")
+			a.errorAtDoc(docNames, obj.Pos(), "GET is not allowed next to page.tsx: the framework renders GET for a page")
 			continue
 		}
 		if h, ok, uses := a.readHandler(pkg, obj, method); ok {
@@ -734,7 +744,7 @@ func (a *analyzer) boolConst(pkg *packages.Package, name string, def bool) bool 
 	}
 	c, ok := obj.(*types.Const)
 	if !ok || c.Val().Kind() != constant.Bool {
-		a.errorAt(obj.Pos(), "%s must be a bool constant", name)
+		a.errorAtDoc(docNames, obj.Pos(), "%s must be a bool constant", name)
 		return def
 	}
 	return constant.BoolVal(c.Val())
@@ -750,7 +760,7 @@ func (a *analyzer) checkFunc(obj types.Object, params, results []string, want st
 			slices.Equal(tupleTypes(sig.Params()), params) && slices.Equal(tupleTypes(sig.Results()), results)
 	}
 	if !ok {
-		a.errorAt(obj.Pos(), "%s must have the signature %s", obj.Name(), want)
+		a.errorAtDoc(docNames, obj.Pos(), "%s must have the signature %s", obj.Name(), want)
 	}
 	return ok
 }
@@ -802,7 +812,7 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 			sig.Results().Len() == 2 && typeString(sig.Results().At(1).Type()) == "error"
 	}
 	if !ok {
-		a.errorAt(obj.Pos(), "%s must have one of the signatures func(c *tifa.Ctx) (T, error) or func(c *tifa.Ctx, q Filter) (T, error), where Filter is a struct with a field for each query parameter the page reads", name)
+		a.errorAtDoc(docQuery, obj.Pos(), "%s must have one of the signatures func(c *tifa.Ctx) (T, error) or func(c *tifa.Ctx, q Filter) (T, error), where Filter is a struct with a field for each query parameter the page reads", name)
 		return nil, nil
 	}
 	result := sig.Results().At(0).Type()
@@ -824,7 +834,7 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 		bare = types.Unalias(p.Elem())
 	}
 	if isNamed(bare, tifaPath, "HTML") {
-		a.errorAt(fieldTypePos(decl.Type.Results, 0), "%s result: a tifa.HTML on its own would come with the page twice, in its markup and in its data: put it in a struct field, and the data carries only a marker in its place", name)
+		a.errorAtDoc(docHTML, fieldTypePos(decl.Type.Results, 0), "%s result: a tifa.HTML on its own would come with the page twice, in its markup and in its data: put it in a struct field, and the data carries only a marker in its place", name)
 	}
 
 	return load, a.walkLoad(pkg, owner, name == "Layout", load, decl, validate)
@@ -845,7 +855,7 @@ type queryAt struct {
 func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Pos) (validate *types.Func) {
 	st, isStruct := q.Underlying().(*types.Struct)
 	if !isStruct || isNamed(q, multipartPath, "FileHeader") {
-		a.errorAt(pos, "the second parameter of %s, %s, must be a struct, not a pointer or another type: it holds the query parameters, one field for each. For example type Filter struct { Page int `json:\"page\"` } and func %s(c *tifa.Ctx, q Filter) (T, error)", what, typeString(q), what)
+		a.errorAtDoc(docQuery, pos, "the second parameter of %s, %s, must be a struct, not a pointer or another type: it holds the query parameters, one field for each. For example type Filter struct { Page int `json:\"page\"` } and func %s(c *tifa.Ctx, q Filter) (T, error)", what, typeString(q), what)
 		return nil
 	}
 	load.Input = typeString(q)
@@ -874,7 +884,7 @@ func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Po
 		if b := t.(*types.Basic); b.Kind() == types.Float32 {
 			// The browser has no 32-bit float to write the shortest text of one, so it and Go could not read
 			// a value alike.
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s (%s) cannot hold a query value. A query value must be the same number in Go and in the browser, the browser has only 64-bit numbers, and a float32 rounds differently: ?price=1234567.89 is 1234567.9 in a float32, and the page would show 1234567.89. Declare it float64", label, rootLabel(q), f.Name(), types.TypeString(f.Type(), shortQualifier)), f))
+			a.errorAtDoc(docQuery, pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s (%s) cannot hold a query value. A query value must be the same number in Go and in the browser, the browser has only 64-bit numbers, and a float32 rounds differently: ?price=1234567.89 is 1234567.9 in a float32, and the page would show 1234567.89. Declare it float64", label, rootLabel(q), f.Name(), types.TypeString(f.Type(), shortQualifier)), f))
 			continue
 		}
 		field.Kind = queryKind(t.(*types.Basic)) // checkQueryStruct accepted the type
@@ -918,20 +928,20 @@ func (a *analyzer) checkQueryStruct(label string, in types.Type, st *types.Struc
 			name = f.Name()
 		}
 		if first := named[name]; first != nil {
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: the fields %s and %s are both the query parameter %q, and one value cannot fill two: give the parameter one field, or the other field its own json tag", label, first.Name(), f.Name(), name), f))
+			a.errorAtDoc(docQuery, pos, "%s", a.withField(fmt.Sprintf("%s: the fields %s and %s are both the query parameter %q, and one value cannot fill two: give the parameter one field, or the other field its own json tag", label, first.Name(), f.Name(), name), f))
 			ok = false
 		} else {
 			named[name] = f
 		}
 		if name == reservedQuery {
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: the query parameter %q is reserved for tifa: the browser asks for the data of a navigation with it, and the server removes it before any code sees the request. Rename the field, or its json tag", label, name), f))
+			a.errorAtDoc(docQuery, pos, "%s", a.withField(fmt.Sprintf("%s: the query parameter %q is reserved for tifa: the browser asks for the data of a navigation with it, and the server removes it before any code sees the request. Rename the field, or its json tag", label, name), f))
 			ok = false
 		}
 		if files[f] {
 			continue
 		}
 		if files == nil && holdsFile(f.Type()) {
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file, which comes in a request body, and %s: take files in a POST, PUT or PATCH handler", label, rootLabel(in), f.Name(), why), f))
+			a.errorAtDoc(docFilesInput, pos, "%s", a.withField(fmt.Sprintf("%s: %s.%s is a file, which comes in a request body, and %s: take files in a POST, PUT or PATCH handler", label, rootLabel(in), f.Name(), why), f))
 			ok = false
 		}
 	}
@@ -1064,9 +1074,9 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 		}
 		if pages == 0 {
 			if dropped != nil {
-				a.errorInFile(l.Dir, l.file, "every page below this layout is below %s/layout_.tsx, which shows its pages without the layouts above it, so this layout wraps no page: add a page it wraps, or remove it", dropped.Dir)
+				a.errorInFileDoc(docLayoutDrop, l.Dir, l.file, "every page below this layout is below %s/layout_.tsx, which shows its pages without the layouts above it, so this layout wraps no page: add a page it wraps, or remove it", dropped.Dir)
 			} else {
-				a.errorInFile(l.Dir, l.file, "this layout has no pages (page.tsx) in its directory or below it")
+				a.errorInFileDoc(docLayout, l.Dir, l.file, "this layout has no pages (page.tsx) in its directory or below it")
 			}
 			continue
 		}
@@ -1075,7 +1085,7 @@ func (a *analyzer) linkLayouts(routes []*route, layouts []*layout) {
 		}
 		for _, u := range l.uses {
 			if u.method == "Param" && !slices.ContainsFunc(l.segs, func(s segment) bool { return s.param == u.name }) {
-				a.errorAt(u.pos, "c.Param(%q) reads a parameter that is not in %q, the path of the layout's directory %s", u.name, l.Path, l.Dir)
+				a.errorAtDoc(docLoadCtx, u.pos, "c.Param(%q) reads a parameter that is not in %q, the path of the layout's directory %s: a Layout reads the parameters of its own folder, so fix the name, or read the parameter in the Load of the page below", u.name, l.Path, l.Dir)
 			}
 		}
 	}
@@ -1114,7 +1124,7 @@ func (a *analyzer) checkParamSiblings(ids []string) {
 			}
 			if !reported[dir] {
 				reported[dir] = true
-				a.errorInFile(id, a.dirs[id].firstFile(), "%s and %s are both parameter directories in %s: a directory holds at most one, since both would read the same URL segment", other, dir, parent)
+				a.errorInFileDoc(docFolders, id, a.dirs[id].firstFile(), "%s and %s are both parameter directories in %s: a directory holds at most one, since both would read the same URL segment", other, dir, parent)
 			}
 		}
 	}
@@ -1133,12 +1143,12 @@ func (a *analyzer) checkPaths(routes []*route) {
 		}
 		for _, u := range r.uses {
 			if u.method == "Param" && !slices.ContainsFunc(r.segs, func(s segment) bool { return s.param == u.name }) {
-				a.errorAt(u.pos, "c.Param(%q) reads a parameter that is not in %q, the path of %s", u.name, r.Path, r.Dir)
+				a.errorAtDoc(docLoadCtx, u.pos, "c.Param(%q) reads a parameter that is not in %q, the path of %s", u.name, r.Path, r.Dir)
 			}
 		}
 		for _, other := range checked {
 			if comparePaths(muxSegments(other.segs), muxSegments(r.segs)) == overlaps {
-				a.errorInFile(r.Dir, r.file, "the path %q conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, other.Path, other.Dir)
+				a.errorInFileDoc(docFolders, r.Dir, r.file, "the path %q conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, other.Path, other.Dir)
 			}
 		}
 		checked = append(checked, r)
@@ -1152,7 +1162,7 @@ func (a *analyzer) checkPaths(routes []*route) {
 		}
 		for _, other := range checked {
 			if other != r && comparePaths(muxSegments(prefix), muxSegments(other.segs)) == overlaps {
-				a.errorInFile(r.Dir, r.file, "the path %q also answers %q, which conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, formatPath(prefix), other.Path, other.Dir)
+				a.errorInFileDoc(docFolders, r.Dir, r.file, "the path %q also answers %q, which conflicts with %q of %s: both match some URLs and neither is more specific", r.Path, formatPath(prefix), other.Path, other.Dir)
 			}
 		}
 	}
@@ -1186,7 +1196,7 @@ func (a *analyzer) checkLayoutURLs(routes []*route, layouts []*layout) {
 				rel := comparePaths(muxSegments(l.segs), muxSegments(segs))
 				return rel == equivalent || rel == moreSpecific || rel == overlaps
 			}) {
-				a.errorInFile(l.Dir, l.file, "the URL %q of the layout of %s has no page, but the page %s matches it: the browser would show the 404 page there while the server renders %s, so add a page.tsx to %s or rename one of the directories", l.Path, l.Dir, r.Dir, r.Dir, l.Dir)
+				a.errorInFileDoc(docFolders, l.Dir, l.file, "the URL %q of the layout of %s has no page, but the page %s matches it: the browser would show the 404 page there while the server renders %s, so add a page.tsx to %s or rename one of the directories", l.Path, l.Dir, r.Dir, r.Dir, l.Dir)
 			}
 		}
 	}
@@ -1241,11 +1251,11 @@ func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string,
 	const need = "the function passed to tifa.Use must be a package-level function"
 	switch e := arg.(type) {
 	case *ast.FuncLit:
-		a.errorAt(arg.Pos(), "%s, got a closure: tifa.Use tells Loads apart by code address, so closures of one literal would share results", need)
+		a.errorAtDoc(docLayout, arg.Pos(), "%s, got a closure: tifa.Use tells Loads apart by code address, so closures of one literal would share results", need)
 		return
 	case *ast.SelectorExpr:
 		if s := info.Selections[e]; s != nil && s.Kind() != types.FieldVal { // a field is a function value
-			a.errorAt(arg.Pos(), "%s, got the method value %s: method values of one method share a code address and would share results", need, text)
+			a.errorAtDoc(docLayout, arg.Pos(), "%s, got the method value %s: method values of one method share a code address and would share results", need, text)
 			return
 		}
 	}
@@ -1255,15 +1265,15 @@ func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string,
 	}
 	l := layoutByPkg[fn.Pkg().Path()]
 	if l == nil || fn.Name() != "Layout" {
-		a.errorAt(arg.Pos(), "tifa.Use(c, %s): %s is not the Layout function of a layout", text, text)
+		a.errorAtDoc(docLayout, arg.Pos(), "tifa.Use(c, %s): %s is not the Layout function of a layout", text, text)
 		return
 	}
 	if !covers(l.Dir, caller) {
-		a.errorAt(arg.Pos(), "tifa.Use(c, %s): the layout of %s does not wrap %s", text, l.Dir, caller)
+		a.errorAtDoc(docLayout, arg.Pos(), "tifa.Use(c, %s): the layout of %s does not wrap %s", text, l.Dir, caller)
 		return
 	}
 	if d := dropper(layouts, l.Dir, caller); d != nil {
-		a.errorAt(arg.Pos(), "tifa.Use(c, %s): %s/layout_.tsx drops the layout of %s, so its Layout does not run for %s: call the code %s calls yourself, or rename layout_.tsx to layout.tsx to keep the layouts above", text, d.Dir, l.Dir, caller, text)
+		a.errorAtDoc(docLayoutDrop, arg.Pos(), "tifa.Use(c, %s): %s/layout_.tsx drops the layout of %s, so its Layout does not run for %s: call the code %s calls yourself, or rename layout_.tsx to layout.tsx to keep the layouts above", text, d.Dir, l.Dir, caller, text)
 	}
 }
 
@@ -1324,12 +1334,12 @@ func (a *analyzer) cacheConst(pkg *packages.Package) (time.Duration, bool) {
 		return 0, false // a type or a function named Cache is the domain code's own
 	}
 	if !isConst || !isDuration {
-		a.errorAt(obj.Pos(), "Cache must be true, false or a time.Duration constant, such as const Cache = 10 * time.Minute")
+		a.errorAtDoc(docCache, obj.Pos(), "Cache must be true, false or a time.Duration constant, such as const Cache = 10 * time.Minute")
 		return 0, false
 	}
 	ns, exact := constant.Int64Val(c.Val())
 	if !exact || time.Duration(ns) < time.Second {
-		a.errorAt(obj.Pos(), "Cache must be at least one second, such as const Cache = 10 * time.Minute")
+		a.errorAtDoc(docCache, obj.Pos(), "Cache must be at least one second, such as const Cache = 10 * time.Minute, or true for the time of cache.s_maxage")
 		return 0, false
 	}
 	return time.Duration(ns), false
@@ -1403,7 +1413,7 @@ func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
 		if r.what == "c.Header" {
 			what = "c.Header sees only Host, Accept-Encoding, If-None-Match, If-Modified-Since, Cache-Control, Pragma, Content-Length, Connection, Origin and Sec-Fetch-* here, every other header is always empty"
 		}
-		a.errorAt(r.pos, "%s: %s, so its requests are anonymous and the answer is kept for everyone. Remove Cache, or move what depends on the visitor into the browser, where the page can read it after it loads", what, r.why)
+		a.errorAtDoc(docPrivate, r.pos, "%s: %s, so its requests are anonymous and the answer is kept for everyone. Remove Cache, or move what depends on the visitor into the browser, where the page can read it after it loads", what, r.why)
 	}
 }
 
@@ -1439,7 +1449,7 @@ func (a *analyzer) checkQueryTypes(routes []*route, layouts []*layout) {
 						}
 						reported[pair{out.pos, in.pos}] = true
 						at := a.fset.Position(out.pos)
-						a.errorAt(in.pos, "the query parameter %q has the type %s here and %s at %s:%d: a Layout and the pages below it read one query string, so a name they share must have one type. Change one of the fields to the type of the other", in.Name, types.TypeString(in.typ, shortQualifier), types.TypeString(out.typ, shortQualifier), a.relFile(at.Filename), at.Line)
+						a.errorAtDoc(docQuery, in.pos, "the query parameter %q has the type %s here and %s at %s:%d: a Layout and the pages below it read one query string, so a name they share must have one type. Change one of the fields to the type of the other", in.Name, types.TypeString(in.typ, shortQualifier), types.TypeString(out.typ, shortQualifier), a.relFile(at.Filename), at.Line)
 					}
 				}
 			}
@@ -1477,7 +1487,7 @@ func (a *analyzer) checkBindTags() {
 				root = strings.TrimPrefix(root, "&")
 				walkFields(t, root, map[types.Type]bool{}, func(path string, field *types.Var, tag string) {
 					if formNamesOtherwise(tag, field.Name()) {
-						a.errorAt(call.Pos(), "%s", a.withField(fmt.Sprintf("c.%s: %s has a form tag with another name than its json tag: c.%s names a field by its json tag only, as a typed handler input does, so make the form tag name it the same, or remove it", sel.Sel.Name, path, sel.Sel.Name), field))
+						a.errorAtDoc(docHandlers, call.Pos(), "%s", a.withField(fmt.Sprintf("c.%s: %s has a form tag with another name than its json tag: c.%s names a field by its json tag only, as a typed handler input does, so make the form tag name it the same, or remove it", sel.Sel.Name, path, sel.Sel.Name), field))
 					}
 				})
 				return true
