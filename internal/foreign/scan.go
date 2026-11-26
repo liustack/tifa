@@ -77,7 +77,8 @@ func fileRule(base string, siblings map[string]bool, top bool) (Rule, bool) {
 	case svelteFile.MatchString(base):
 		return ruleSvelteFile(base), true
 	case remixIndex.MatchString(base):
-		return ruleRemixIndex(base), true
+		// Remix has no page.tsx, so next to one the file is a module of the app's own.
+		return ruleRemixIndex(base), !siblings["page.tsx"]
 	case remixFlat.MatchString(base):
 		return ruleRemixFlat(base), true
 	case nextPageExt.MatchString(base):

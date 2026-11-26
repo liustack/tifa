@@ -101,7 +101,11 @@ var importRules = []importRule{
 		Says:    "{module} is the Next.js package",
 		Instead: "Tifa has no Next.js modules: " + insteadLoad + ", the head is the head export, and links come from '@tanstack/react-router'",
 		Doc:     docPage}},
-	{names: []string{"react-router", "react-router-dom", "@remix-run"}, text: []string{"@remix-run/"}, Rule: Rule{
+	// The framework and its adapters only. The other packages of the @remix-run organization
+	// (headers, form-data-parser, file-storage) are standalone libraries and work in any app.
+	{names: []string{"react-router", "react-router-dom", "@remix-run/react", "@remix-run/node", "@remix-run/server-runtime", "@remix-run/router",
+		"@remix-run/dev", "@remix-run/serve", "@remix-run/express", "@remix-run/architect", "@remix-run/cloudflare", "@remix-run/cloudflare-pages",
+		"@remix-run/cloudflare-workers", "@remix-run/deno", "@remix-run/css-bundle", "@remix-run/testing"}, Rule: Rule{
 		Says:    "{module} is a module of Remix or React Router",
 		Instead: insteadRouter,
 		Doc:     docPage}},
@@ -109,7 +113,8 @@ var importRules = []importRule{
 		Says:    "{module} is a module of TanStack Start (@tanstack/react-router is fine)",
 		Instead: "there are no server functions: " + insteadHandler,
 		Doc:     docCalling}},
-	{names: []string{"@sveltejs/kit"}, text: []string{"$app/"}, Rule: Rule{
+	// The modules of SvelteKit by name: $app is a prefix an app may give to a Vite alias of its own.
+	{names: []string{"@sveltejs/kit", "$app/environment", "$app/forms", "$app/navigation", "$app/paths", "$app/server", "$app/state", "$app/stores"}, Rule: Rule{
 		Says:    "{module} is a module of SvelteKit",
 		Instead: "pages are React: " + insteadLoad + ", links come from '@tanstack/react-router', and a redirect is return tifa.Redirect(url, status) in Go",
 		Doc:     docPage}},

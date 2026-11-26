@@ -13,6 +13,8 @@ func TestCheckFactsReportsImportsOfOtherFrameworks(t *testing.T) {
 		// Legal: TanStack Router and Query, and packages whose names only start like another framework.
 		{"@tanstack/react-router", 20, 1}, {"@tanstack/react-query", 21, 1}, {"@tanstack/router-core", 22, 1},
 		{"next-themes", 23, 1}, {"nextra", 24, 1}, {"react-router-config", 25, 1}, {"tifa/client", 26, 1}, {"./next/link", 27, 1},
+		// Standalone packages of the Remix organization, and a name below $app/ that SvelteKit does not have.
+		{"@remix-run/headers", 28, 1}, {"@remix-run/form-data-parser", 29, 1}, {"@remix-run/file-storage", 30, 1}, {"$app/colors", 31, 1},
 	}}
 	got := CheckFacts("app/util.ts", f)
 	if len(got) != 13 {
@@ -28,6 +30,16 @@ func TestCheckFactsReportsImportsOfOtherFrameworks(t *testing.T) {
 	}
 	if !strings.HasPrefix(got[7].Msg, "@tanstack/react-start/server is a module of TanStack Start") || !strings.Contains(got[7].Msg, "route.gen") {
 		t.Errorf("react-start: %q", got[7].Msg)
+	}
+}
+
+// _index.tsx next to a page.tsx is a module of the app's own, since Remix has no page.tsx.
+func TestRemixIndexNextToAPageIsTheAppsOwn(t *testing.T) {
+	if _, ok := fileRule("_index.tsx", map[string]bool{"_index.tsx": true, "page.tsx": true}, false); ok {
+		t.Error("_index.tsx next to page.tsx is reported")
+	}
+	if _, ok := fileRule("_index.tsx", map[string]bool{"_index.tsx": true}, false); !ok {
+		t.Error("_index.tsx in a folder with no page.tsx is not reported")
 	}
 }
 
