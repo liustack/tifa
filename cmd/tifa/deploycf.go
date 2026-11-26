@@ -454,7 +454,7 @@ type ruleSet struct {
 	rules []cfRule
 }
 
-// hostRules are the rules for hostname, from docs/build-and-deploy/deploy.md: cache what the Cache-Control of the
+// hostRules are the rules for hostname, from docs/build-and-deploy/deploy-proxy.md: cache what the Cache-Control of the
 // app allows and nothing without one, never cache /__tifa/ or the navigation data (?_tifa=), and
 // turn off the features that write into the HTML. Each rule names the host, so the other sites of
 // the zone keep their settings.

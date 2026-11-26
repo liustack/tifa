@@ -1,4 +1,4 @@
-// Package metrics writes the state of the program for Prometheus, as docs/build-and-deploy/deploy.md of Tifa
+// Package metrics writes the state of the program for Prometheus, as docs/build-and-deploy/deploy-by-hand.md of Tifa
 // teaches: the VM pool and the render memo from tifa.Stats. The route renders nothing. The
 // comparison of test/compare reads it to check that the render memo is empty when a round starts
 // its clock, and how the memo answered in the round.
