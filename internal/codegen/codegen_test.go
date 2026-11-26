@@ -207,26 +207,30 @@ func TestRootLayoutHTMLAttributesReachTheEntries(t *testing.T) {
 	}
 }
 
-// A component remounts when a path parameter its Load reads changes, itself or through a Layout
-// it uses. A Layout that reads no parameter keeps its state.
-func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
+// A component remounts when a path parameter of its folder changes, those of the folders above it
+// included, whatever its Load reads: the path names the thing a page shows, and another order or
+// another file is another thing. A Layout keeps its state while the pages below it change their own
+// parameters, and the root Layout, whose folder has none, never remounts.
+func TestRemountFollowsTheParametersOfTheFolder(t *testing.T) {
 	root := t.TempDir()
 	const project = "app/projects/projectId+"
-	for _, f := range []string{"app/layout.tsx", project + "/layout.tsx", project + "/page.tsx", project + "/orders/orderId+/page.tsx", project + "/files/path++/page.tsx"} {
+	for _, f := range []string{"app/layout.tsx", project + "/layout.tsx", project + "/page.tsx", project + "/orders/orderId+/page.tsx", project + "/files/path++/page.tsx", project + "/notes/noteId+/page.tsx"} {
 		writeFile(t, filepath.Join(root, f), "export default function C() { return null }\n")
 	}
 	str := types.Typ[types.String]
-	scope := []string{project + "/route", project + "/orders/orderId+/route", project + "/files/path++/route"}
+	scope := []string{project + "/route", project + "/orders/orderId+/route", project + "/files/path++/route", project + "/notes/noteId+/route"}
 	m := &analyze.Manifest{
 		Module: "example.com/x",
 		Layouts: []analyze.Layout{
 			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{Result: str}, Routes: scope},
-			{ID: project + "/layout", Dir: project, Parent: "app/layout", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Params: []string{"projectId"}, Result: str}, Routes: scope},
+			{ID: project + "/layout", Dir: project, Parent: "app/layout", Path: "/projects/{projectId}", TSX: true, Load: &analyze.Load{Result: str}, Routes: scope},
 		},
 		Routes: []analyze.Route{
-			{ID: project + "/route", Dir: project, Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Uses: []string{project + "/layout"}, Result: str}},
+			{ID: project + "/route", Dir: project, Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Result: str}},
 			{ID: project + "/orders/orderId+/route", Dir: project + "/orders/orderId+", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Params: []string{"orderId"}, Result: str}},
-			{ID: project + "/files/path++/route", Dir: project + "/files/path++", Path: "/projects/{projectId}/files/{path...}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Params: []string{"path"}, Result: str}},
+			{ID: project + "/files/path++/route", Dir: project + "/files/path++", Path: "/projects/{projectId}/files/{path...}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Result: str}},
+			// A page without a Load, which may fetch its data in the browser.
+			{ID: project + "/notes/noteId+/route", Dir: project + "/notes/noteId+", Path: "/projects/{projectId}/notes/{noteId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}},
 		},
 	}
 	files, err := Generate(root, m, false, fakeExports)
@@ -238,8 +242,9 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 		`load<D3>(context, "app/projects/projectId+/route", location, preload),
   staticData: { page: true, load: "app/projects/projectId+/route" },
   remountDeps: ({ params }) => [params.projectId],`,
-		`remountDeps: ({ params }) => [params.orderId],`,
-		`remountDeps: ({ params }) => [params._splat],`,
+		`remountDeps: ({ params }) => [params.projectId, params.orderId],`,
+		`remountDeps: ({ params }) => [params.projectId, params._splat],`,
+		`remountDeps: ({ params }) => [params.projectId, params.noteId],`,
 		`load<D2>(context, "app/projects/projectId+/layout", location, preload),
   staticData: { load: "app/projects/projectId+/layout" },
   remountDeps: ({ params }) => [params.projectId],`,
@@ -249,7 +254,7 @@ func TestRemountFollowsTheParametersLoadReads(t *testing.T) {
 		}
 	}
 	if app := tree[strings.Index(tree, `load<D1>`):strings.Index(tree, `load<D2>`)]; strings.Contains(app, "remountDeps") {
-		t.Errorf("the root Layout reads no parameter but remounts:\n%s", app)
+		t.Errorf("the root Layout has no parameter in its folder but remounts:\n%s", app)
 	}
 }
 

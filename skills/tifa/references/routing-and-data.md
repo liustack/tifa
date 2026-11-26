@@ -84,7 +84,7 @@ export default function ProjectLayout() {
 ```
 
 - `c.Param` in a `Layout` may read only the parameters of its own folder path. `Load` is held to its own path the same way.
-- Moving between pages under one Layout keeps the Layout mounted and its state. When a path parameter the Layout function reads changes, it remounts. A query parameter only loads the data again: state set from `Load` data needs a `key` or an effect to follow it.
+- Moving between pages under one Layout keeps the Layout mounted and its state. When a path parameter of its folder or a folder above changes, it remounts, whatever its `Layout` reads, and so does a page: keep state that should outlive another value of the parameter (the scroll of a list beside the details) in a Layout above that folder. A query parameter only loads the data again: state set from `Load` data needs a `key` or an effect to follow it.
 - `tifa.Use(c, project.Layout)` gives a `Load` or `Layout` the result of a Layout above it (same folder or an ancestor), for the current request. It runs once per request however many callers ask. The argument must be a package-level `Layout` function of a Layout that wraps the caller. Anything else fails the build.
 - On browser navigation only the `Load` and `Layout` of routes not already loaded run. A Layout whose data is cached does not run. Never rely on a Layout alone for a permission check. Put it in `OnRequest`, or make the page's `Load` call `tifa.Use` on the checking Layout so the check runs on every request.
 - Name the file `layout_.tsx` to show a section without any Layout above it, for example a storefront inside a site that has an admin shell. Details in `docs/pages-and-data/layouts.md#a-layout-without-the-layouts-above`.

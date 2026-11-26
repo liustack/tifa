@@ -123,6 +123,20 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Instead.** `ErrorBoundary`, and one class, `TifaError`, with `status`, `message` and `fields`: [Errors and 404](../pages-and-data/errors.md).
 
+### When a page or a Layout remounts
+
+**Settled (2026-11-26).** A page or a Layout remounts when a path parameter of its folder or of a folder above it changes, whatever its `Load` or `Layout` function reads. Another value of a query parameter loads the data again and keeps the component. It used to remount only for the path parameters its function read, found by reading the code (2026-10-14).
+
+**Why.**
+- The path names the thing a page shows, and the query says how to look at it. State kept across another order is state about the wrong thing: a form whose inputs took their first values from order 1 (`defaultValue`, `useState(data.x)`) still shows them on order 2, and a save writes them there. Keeping it is a silent wrong write. Remounting when it was not needed loses a scroll position or an open panel, which shows at once and which the app fixes by keeping that state in a Layout above the folder.
+- What a function reads does not tell what the page shows: a page without a `Load` that fetches in the browser shows another thing for another parameter too. And the reads were found by reading the code, which the rules on where a Ctx may go existed for.
+- Next.js keys each segment in the browser by its parameters, "so navigation preserves or resets component state according to the segment's actual identity" (`create-segment-key.browser.ts`). TanStack Router, React Router, SvelteKit and Vue Router keep the component and leave a `key` or `remountDeps` to the app, which an app forgets.
+- The 2026-10-14 reason, a root Layout whose route path was the common prefix of its pages and so held `projectId`, is gone: the route path of a Layout is the path of its folder.
+
+**Instead of a way to opt out.** State that should outlive another value of the parameter, such as the scroll of a list next to the details of an item, goes in a Layout above the folder of the parameter, as in Next.js.
+
+**Reopen when** apps need a page that keeps its state across its own parameter, such as an animation between items, and a Layout above cannot hold it.
+
 ## Requests, handlers and errors
 
 ### A query string on the handler functions of POST, PUT and PATCH
