@@ -428,12 +428,6 @@ func TestViolations(t *testing.T) {
 		{"paramname", [][]string{
 			{"app/items/key+/route.go:11:", `"id"`, `"/items/{key}"`},
 		}},
-		{"escape", [][]string{
-			{"app/page/route.go:11:", "c.Request", "second parameter"},
-			{"app/page/route.go:12:", "c.Writer", "OnRequest"},
-			{"db/db.go:8:", "c.Request"},
-			{"db/db.go:10:", "c.Writer"},
-		}},
 		// The framework writes the answer of a page, so Load, Layout and the functions they call do not.
 		{"loadwrite", [][]string{
 			{"app/route.go:5:", "c.NoContent", "writes the response", "Layout"},
@@ -1255,10 +1249,10 @@ func TestQueryStructFields(t *testing.T) {
 
 // The Ctx goes anywhere a value can, as in an http.Handler: into an interface, a slice, a map, a
 // channel, a generic function, a function value, another goroutine, a variable of the package, a
-// function outside the module, and c.Param and tifa.Use may be taken as values. The build checks
-// what its walk reaches and says nothing of the rest.
+// function outside the module, c.Param and tifa.Use may be taken as values, and c.Request and
+// c.Writer may be called. The build checks what its walk reaches and says nothing of the rest.
 func TestCtxGoesAnywhere(t *testing.T) {
-	for _, app := range []string{"ctxflow", "ifacectx", "indirect"} {
+	for _, app := range []string{"ctxflow", "ifacectx", "indirect", "escape"} {
 		if _, err := analyzeApp(t, app); err != nil {
 			t.Errorf("%s: %v", app, err)
 		}

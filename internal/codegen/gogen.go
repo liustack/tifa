@@ -97,7 +97,7 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 	for _, l := range m.Layouts {
 		fmt.Fprintf(&app, "{\nID: %q,\nPath: %q,\n", l.ID, l.Path)
 		if l.Load != nil {
-			fmt.Fprintf(&app, "Load: %s,\n", imports.load(l.Package, l.Dir, "Layout", l.Load))
+			fmt.Fprintf(&app, "Load: %s,\nFunc: %s.Layout,\n", imports.load(l.Package, l.Dir, "Layout", l.Load), imports.alias(l.Package, l.Dir))
 			if l.Load.HTML {
 				app.WriteString("HTML: true,\n")
 			}
@@ -115,7 +115,7 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 	for _, r := range m.Routes {
 		fmt.Fprintf(&app, "{\nID: %q,\nPath: %q,\nPage: %t,\n", r.ID, r.Path, r.Page)
 		if r.Load != nil {
-			fmt.Fprintf(&app, "Load: %s,\n", imports.load(r.Package, r.Dir, "Load", r.Load))
+			fmt.Fprintf(&app, "Load: %s,\nFunc: %s.Load,\n", imports.load(r.Package, r.Dir, "Load", r.Load), imports.alias(r.Package, r.Dir))
 		}
 		for _, h := range r.Handlers {
 			fmt.Fprintf(&app, "%s: %s,\n", h.Method, imports.handler(r.Package, r.Dir, h))

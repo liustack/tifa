@@ -7,6 +7,7 @@ import (
 
 // The directory is the URL.
 
+// Load may read the raw request, a copy with what Load may depend on, and the writer.
 func Load(c *tifa.Ctx) (string, error) {
 	tab := c.Request().URL.Query().Get("tab")
 	(*tifa.Ctx).Writer(c).Header().Set("X", "1")

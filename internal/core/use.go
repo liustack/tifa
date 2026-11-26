@@ -3,15 +3,23 @@ package core
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"runtime/debug"
 	"time"
 )
 
+// loadCall is one run of a Load or Layout function for a request, which the Ctx the function runs
+// with points to.
 type loadCall struct {
 	done  chan struct{}
 	value any
 	err   error
+	key   uintptr   // the code pointer of the function
+	view  *LoadView // what it sees of the request, nil for the whole query
+	// from is the request the last copy of Request was made from, and copy that copy. The lock of
+	// the request guards both.
+	from, copy *http.Request
 }
 
 // Use returns the result of load for this request, running it at most once.
@@ -63,13 +71,18 @@ func validateQuery(c *Ctx, v any) error {
 // useKeyed is Use for the Load that key names.
 func useKeyed[T any](c *Ctx, key uintptr, load func(*Ctx) (T, error)) (T, error) {
 	var zero T
-	if key == c.load {
+	if c.run != nil && key == c.run.key {
 		return zero, errors.New("tifa: a Load cannot Use itself")
 	}
 	c.req.mu.Lock()
 	call, running := c.req.loads[key]
 	if !running {
-		call = &loadCall{done: make(chan struct{})}
+		// A function the server made no view for, such as one that is not a Load or a Layout,
+		// sees what the function that asked for it sees.
+		call = &loadCall{done: make(chan struct{}), key: key, view: c.req.views[key]}
+		if call.view == nil && c.run != nil {
+			call.view = c.run.view
+		}
 		c.req.loads[key] = call
 		c.req.startLoad()
 	}
@@ -78,7 +91,7 @@ func useKeyed[T any](c *Ctx, key uintptr, load func(*Ctx) (T, error)) (T, error)
 		<-call.done
 	} else {
 		lc := *c
-		lc.mode, lc.load = modeLoad, key
+		lc.run = call
 		call.value, call.err = run(&lc, load)
 		close(call.done)
 	}

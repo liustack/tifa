@@ -63,34 +63,6 @@ func TestLoadInputAnswers400ForAValueThatIsNotValid(t *testing.T) {
 	}
 }
 
-// A Load that runs through Use is in Load mode: it gets its query parameters as the second
-// parameter and a read of the request's query string there is a mistake of the program.
-func TestQueryReadInALoadPanicsWithTheFix(t *testing.T) {
-	for name, read := range map[string]func(*Ctx){
-		"Query":       func(c *Ctx) { c.Query("sort") },
-		"QueryValues": func(c *Ctx) { c.QueryValues("sort") },
-		"BindQuery": func(c *Ctx) {
-			var v struct {
-				Sort string `json:"sort"`
-			}
-			c.BindQuery(&v)
-		},
-	} {
-		c := newQueryCtx("/list?sort=name")
-		_, err := Use(c, func(c *Ctx) (int, error) { read(c); return 0, nil })
-		if err == nil || !strings.Contains(err.Error(), "tifa: c."+name) || !strings.Contains(err.Error(), "second parameter") {
-			t.Errorf("c.%s in a Load: got %v", name, err)
-		}
-		// Outside Load, in a handler or OnRequest, it reads as before.
-		var v struct {
-			Sort string `json:"sort"`
-		}
-		if c.Query("sort") != "name" || len(c.QueryValues("sort")) != 1 || c.BindQuery(&v) != nil || v.Sort != "name" {
-			t.Errorf("c.%s outside Load does not read the query string", name)
-		}
-	}
-}
-
 type checkedFilter struct {
 	Page int `json:"page"`
 }

@@ -8,18 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
-)
-
-type mode int
-
-const (
-	modeHandler mode = iota
-	modeLoad
 )
 
 // Ctx wraps one request and its response.
@@ -28,8 +22,7 @@ type Ctx struct {
 	r       *http.Request
 	pattern string
 	req     *request
-	mode    mode
-	load    uintptr // key of the Load running on this context, 0 outside Load
+	run     *loadCall // the run of a Load or Layout function this Ctx was made for, nil outside one
 }
 
 // request is shared by every Ctx of the same HTTP request, including the copies handed to concurrent Loads.
@@ -53,6 +46,9 @@ type request struct {
 	// alternates is the list SetAlternates gave, set tells it from a page that gave none.
 	alternates []Alternate
 	altSet     bool
+	// views are the views of the Load and Layout functions of the app by code pointer, see
+	// SetLoadViews.
+	views map[uintptr]*LoadView
 }
 
 // New builds the context for one request. pattern is the matched route pattern, empty when no route matched.
@@ -96,32 +92,24 @@ func Finish(c *Ctx) error {
 	return errors.Join(errs...)
 }
 
-func (c *Ctx) Param(name string) string { return c.r.PathValue(name) }
-
-// Query returns the first value of the query parameter name. Load and Layout take their query
-// parameters as a second parameter instead (see LoadInput), so a call from either panics: the
-// parameter the page reads must be in its signature, where the build and the browser can see it.
-func (c *Ctx) Query(name string) string {
-	c.noQueryInLoad("Query")
-	return c.r.URL.Query().Get(name)
+// Param returns the value of the path parameter name. In a Layout function it is "" for a
+// parameter of a folder below the Layout, as in the copy Request returns there.
+func (c *Ctx) Param(name string) string {
+	if c.run != nil && c.run.view != nil && slices.Contains(c.run.view.Hide, name) {
+		return ""
+	}
+	return c.r.PathValue(name)
 }
+
+// Query returns the first value of the query parameter name, from the request Request returns: in
+// a Load or Layout function, only the query parameters it declared are there.
+func (c *Ctx) Query(name string) string { return c.Request().URL.Query().Get(name) }
+
 func (c *Ctx) Header(name string) string { return c.r.Header.Get(name) }
 
 // QueryValues returns every value of the query parameter name, in order, and nil when there is
 // none. Query returns only the first.
-func (c *Ctx) QueryValues(name string) []string {
-	c.noQueryInLoad("QueryValues")
-	return c.r.URL.Query()[name]
-}
-
-// noQueryInLoad panics when method is called while a Load or Layout runs. The build refuses the
-// calls it can see, and this is for the ones it cannot: a Ctx kept in a variable, a helper outside
-// the module. The panic reaches OnError as the error of that Load.
-func (c *Ctx) noQueryInLoad(method string) {
-	if c.mode == modeLoad {
-		panic("tifa: c." + method + " cannot run in Load or Layout, which take their query parameters as a second parameter: declare them as the fields of a struct, such as type Filter struct { Page int `json:\"page\"` }, and write func Load(c *tifa.Ctx, q Filter) (T, error)")
-	}
-}
+func (c *Ctx) QueryValues(name string) []string { return c.Request().URL.Query()[name] }
 
 func (c *Ctx) Cookie(name string) (*http.Cookie, error) { return c.r.Cookie(name) }
 
@@ -253,14 +241,60 @@ func (c *Ctx) NoContent(code int) error {
 }
 
 func (c *Ctx) checkWrite() error {
-	if c.mode == modeLoad {
+	if c.run != nil {
 		return errors.New("tifa: Load cannot write the response body, it may only set headers and cookies")
 	}
 	return nil
 }
 
-func (c *Ctx) Request() *http.Request      { return c.r }
+// Request returns the request. In a Load or Layout function, and the functions it calls, it is a
+// copy made on the first call of the run, which holds what the function may depend on: the query
+// parameters it declared, the path parameters of its own folder for a Layout, and no body. Each
+// run has its own copy, so a function that changes it changes nothing of another.
+func (c *Ctx) Request() *http.Request {
+	if c.run == nil {
+		return c.r
+	}
+	// Copying reads the Body of c.r, which SetBodyLimit sets under the lock.
+	c.req.mu.Lock()
+	defer c.req.mu.Unlock()
+	if c.run.from != c.r {
+		c.run.from, c.run.copy = c.r, c.run.view.request(c.r)
+	}
+	return c.run.copy
+}
+
 func (c *Ctx) Writer() http.ResponseWriter { return c.w }
+
+// LoadView is what a Load or Layout function sees of the request besides its own parameters.
+// The server makes one for each function of the app.
+type LoadView struct {
+	// RawQuery returns the query string of u with only the parameters the function declared.
+	RawQuery func(u *url.URL) string
+	// Hide lists the path parameters it does not see: for a Layout, those of the folders below it.
+	Hide []string
+}
+
+// request makes the copy of r a function with the view v sees. A nil v is a function the server
+// made no view for, which sees the whole query.
+func (v *LoadView) request(r *http.Request) *http.Request {
+	cp := r.Clone(r.Context())
+	cp.Body, cp.GetBody, cp.ContentLength = http.NoBody, nil, 0
+	cp.TransferEncoding, cp.Trailer = nil, nil
+	cp.Form, cp.PostForm, cp.MultipartForm = nil, nil, nil
+	if v != nil {
+		cp.URL.RawQuery, cp.URL.ForceQuery = v.RawQuery(r.URL), false
+		for _, name := range v.Hide {
+			cp.SetPathValue(name, "")
+		}
+	}
+	cp.RequestURI = cp.URL.RequestURI()
+	return cp
+}
+
+// SetLoadViews gives the request the views of the Load and Layout functions of the app, by the
+// code pointer of each function. The server sets them before the request reaches OnRequest.
+func SetLoadViews(c *Ctx, views map[uintptr]*LoadView) { c.req.views = views }
 
 // watchedBody tells SetBodyLimit whether reading has started. The first Read that reaches it counts, whatever it
 // returns. http.MaxBytesReader answers zero-length reads itself, and those consume nothing.

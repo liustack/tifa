@@ -239,7 +239,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 - The names come from reading the code, so a Ctx the build cannot follow (a helper outside the module, an interface, a stored Ctx) hides a parameter. The page does not load again when it changes, and the server render and the memo key do not see it. The runtime also gave `Load` the whole query string, whatever the build found.
 - A parameter had no type, so every page parsed its own numbers, and a value that did not parse was left out without a word.
 
-**Instead.** `Load(c, q Filter)` and `Layout(c, q Filter)`: the parameters are the fields of the struct in the signature, which the build reads without following anything, and the runtime gives `Load` the declared ones only. The types, the loading again on a change, the render URL, the memo key and the canonical link all come from the same fields. `c.Query`, `c.QueryValues` and `c.BindQuery` are for method handlers (and `Validate`, `OnRequest` for the first two), and a call in `Load` or `Layout` fails the build, or panics when the build could not see it.
+**Instead.** `Load(c, q Filter)` and `Layout(c, q Filter)`: the parameters are the fields of the struct in the signature, which the build reads without following anything, and the runtime gives `Load` the declared ones only. The types, the loading again on a change, the render URL, the memo key and the canonical link all come from the same fields. `c.Query`, `c.QueryValues` and `c.BindQuery` are for method handlers (and `Validate`, `OnRequest` for the first two), and a call in `Load` or `Layout` that the build sees fails it. One it does not see reads the copy of the request the function gets, which holds the declared parameters only (see [The raw request in a Load](#the-raw-request-in-a-load)).
 
 **Reopen when** an app needs query parameters whose names are not known when it is built, such as a free list of filters. A field that holds the rest of them would be the first thing to try.
 
@@ -305,11 +305,11 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 ### The raw request in a Load
 
-**Settled (2026-11-26), to be built with the removal of the five places a Ctx may go.** `c.Request()` and `c.Writer()` work in a `Load` and a `Layout`. There `c.Request()` gives a copy of the request whose URL holds only the query parameters that function declares, with no body, and a `Layout` sees only the path parameters of its own folder. `c.Writer()` is the writer of the response, as everywhere.
+**Settled (2026-11-26).** `c.Request()` and `c.Writer()` work in a `Load` and a `Layout`. There `c.Request()` gives a copy of the request whose URL holds only the query parameters that function declares, spelled as the memo key spells them, with no body, and a `Layout` sees only the path parameters of its own folder: the others are `""`, in the copy and from `c.Param`. `URL.Path` stays the path of the page, which goes stale in a `Layout` as `c.Path()` does. Each run of a function gets its own copy, made on its first call. `c.Writer()` is the writer of the response, as everywhere.
 
 **Why.** They were refused there (2026-10-14) because the build found what a `Load` read by reading its code, and a read through the raw request hid it. The query parameters now come from the declared struct and the path parameters from the folder, so that reason is gone. What is left is a part of the address the browser does not load the function again for, which would show old data. The copy leaves it out, so such a read is always empty and shows the first time it runs. A method that the package exports and then refuses was a rule to learn that kept nothing safe, and a library that takes an `*http.Request` works. Changing the request, which the `Load`s of a page share while they run at once, or writing the response from a `Load`, breaks the page. `net/http` only documents the first for its handlers ("Except for reading the body, handlers should not modify the provided Request"), and Tifa does the same for both.
 
-**Instead.** The docs on loading data say it plainly, and that logging, counting and anything that needs the whole request belong in `OnRequest`, which sees it as it came.
+**Instead.** The docs on loading data say it plainly, and that logging, counting and anything that needs the whole request belong in `OnRequest`, which sees it as it came. `c.JSON`, `c.Text` and `c.NoContent`, which write the response too, fail the build where it sees them in a `Load` or `Layout`, and return an error without writing where it does not. The generated app gives the server each `Load` and `Layout` function (`Func`), and the server keeps what each sees of the request by the code address of the function: one map lookup when a function starts, and the copy only when it is asked for.
 
 ### Reading the visitor on a page with Cache
 
@@ -333,11 +333,11 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 ### Runtime guards for Ctx in Load and Layout
 
-**Turned down (2026-11-26).** Checks at run time for what the build cannot see once the rules above are gone: a table of every `Load` and `Layout` by code address, the running function kept on the Ctx, and a panic or an error for `c.Path()` in a `Layout`, a path parameter below its folder, a `tifa.Use` of a Layout that does not wrap the page, a call in `Validate` that changes the response, and a write after the function returned.
+**Turned down (2026-11-26).** Checks at run time for what the build cannot see once the rules above are gone: a table of every `Load` and `Layout` by code address to check each call against, the identity of the Ctx kept for those checks, and a panic or an error for `c.Path()` in a `Layout`, a path parameter below its folder, a `tifa.Use` of a Layout that does not wrap the page, a call in `Validate` that changes the response, and a write after the function returned.
 
 **Why not.** The build reports what it can see, and a guard at run time does not catch the rest either: a Ctx handed to a library, or the raw request, goes past it. A panic in a goroutine the app started has no `recover` above it and ends the process. The table and the field are a cost every request pays for mistakes of the app, not for a promise of Tifa ([How ideas are weighed](#how-ideas-are-weighed)).
 
-**Instead.** The build reports what it sees, and the rest is the app's to get right, as in an `http.Handler`: the docs on loading data say not to keep the Ctx after the function returns, and to wait for a goroutine of its own before returning. The one check at run time is a `Load` that passes itself to `tifa.Use`, which would wait for ever.
+**Instead.** The build reports what it sees, and the rest is the app's to get right, as in an `http.Handler`: the docs on loading data say not to keep the Ctx after the function returns, and to wait for a goroutine of its own before returning. At run time a `Load` that passes itself to `tifa.Use` gets an error, since it would wait for ever, and `c.JSON`, `c.Text` and `c.NoContent` in a `Load` return one. What a function sees of the request is the copy of [The raw request in a Load](#the-raw-request-in-a-load), which checks nothing: it only holds less.
 
 ### The path of the page in a Layout
 

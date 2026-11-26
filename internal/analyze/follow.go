@@ -253,8 +253,6 @@ func refusedInLoad(fn *types.Func) string {
 		return ""
 	}
 	switch fn.Name() {
-	case "Request", "Writer":
-		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which path parameters are read: in Load and the functions it calls, use c.Param, c.Header, c.Cookie, c.Path (the path of the page) or c.Context() instead, and take the query parameters as the second parameter of Load. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
 	case "BindQuery":
 		return `c.BindQuery decodes the query string in a method handler, where the response is the handler's own: Load and Layout take their query parameters as the second parameter, for example type Filter struct { Page int ` + "`json:\"page\"`" + ` } and func Load(c *tifa.Ctx, q Filter) (T, error)`
 	case "Bind":

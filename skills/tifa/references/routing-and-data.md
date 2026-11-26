@@ -111,7 +111,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 
 | Method | What it does |
 | --- | --- |
-| `c.Param(name)` | Path parameter |
+| `c.Param(name)` | Path parameter. In a `Layout`, `""` for a parameter of a folder below it |
 | `c.Query(name)`, `c.QueryValues(name)` | First query value (`""` when absent), every value of a repeated query key. Method handlers, `Validate` and `OnRequest` only. `Load` and `Layout` take query parameters as a second parameter |
 | `c.Header(name)`, `c.Cookie(name)` | Request header, request cookie |
 | `c.Context()`, `c.WithContext(ctx)` | Request context, and a copy of `c` that carries another one (`c` does not change) |
@@ -121,7 +121,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 | `c.SetHeader(k, v)`, `c.SetCookie(cookie)` | Response header and cookie. Allowed in `Load` too |
 | `c.JSON(code, v)`, `c.Text(code, s)`, `c.NoContent(code)` | Write the response. Not allowed in `Load` or `Layout` |
 | `c.Bind(&v)`, `c.BindQuery(&v)` | Decode body or query into a struct, for a handler that writes its own response. Not in `Load` or `Layout` |
-| `c.Request()`, `c.Writer()` | Raw request and writer. Method handlers and `OnRequest` only |
+| `c.Request()`, `c.Writer()` | Raw request and writer. In `Load` and `Layout` the request is a copy with only the declared query parameters and no body, and writing the response breaks the page |
 
 Request-scoped values (the signed-in user) ride on the standard context: `OnRequest` passes `c.WithContext(context.WithValue(...))` to `next` and a domain package offers a typed getter. Domain code takes `context.Context`, not `*tifa.Ctx`.
 
@@ -145,22 +145,16 @@ func Load(c *tifa.Ctx, q Filter) (Page, error) { return page(c, q.Tab, q.Page) }
 - A test calls `Load(c, Filter{Tab: "a"})`.
 - `c.Query` and `c.QueryValues` in `Load`, `Layout` or a function they call fail the build.
 
-At build time Tifa also reads `Load`, `Layout` and the module functions they call, to find which path parameters and Layouts each page depends on. That decides when the browser must fetch data again. So:
+At build time Tifa also reads `Load`, `Layout` and the module functions they pass the Ctx to, and fails on the mistakes it sees there, with the file and line:
 
-- Pass `c.Param` a constant string: `c.Param("order")`. A variable name fails the build.
-- Call it and `tifa.Use` directly. Storing the method in a variable or passing it as a value fails.
-- Do not call `c.Request()`, `c.Writer()`, `c.Bind` or `c.BindQuery`. A body does not exist in a page load. The path of the page is `c.Path()` (not in a `Layout`, whose data is shared by the pages below it).
-- `*tifa.Ctx` may be passed to a plain (non-generic) function of this module or of Tifa, or used for a direct method call. Converting it, returning it, putting it in a slice, map or channel, assigning to an existing variable, `go` or `defer` with it, passing it to an interface, a function variable, a generic function or a library function all fail the build, and the error names the file and line.
-- If a helper needs only the context, pass `c.Context()`.
+- `c.Query`, `c.QueryValues`, `c.Bind`, `c.BindQuery`, `c.JSON`, `c.Text`, `c.NoContent`, `tifa.SetSession` and `tifa.ClearSession`.
+- A constant `c.Param` name that the path of the folder does not have. A `Layout` reads only the parameters of its own folder: one of a folder below it is `""`.
+- `c.Path()` in a `Layout`, whose data stays while the visitor moves between the pages below it. Read the address in `layout.tsx` with `useRouterState({ select: (s) => s.location.pathname })`.
+- `tifa.Use` with anything but a package-level `Layout` that wraps the caller.
 
-```go
-// fine
-func Load(c *tifa.Ctx, q Filter) (Page, error) { return page(c, q.Tab) }
-func page(c *tifa.Ctx, tab string) (Page, error) { return build(c.Context(), c.Param("order"), tab) }
+Otherwise the Ctx goes where an `*http.Request` goes in a handler: a library, an interface, a goroutine, an `errgroup`. Where the build cannot follow it, it says nothing, and the rules of `net/http` hold: do not keep `c` after the function returns, and wait for your goroutines before returning.
 
-// fails the build: the name is not a constant
-func param(c *tifa.Ctx, name string) string { return c.Param(name) }
-```
+In `Load` and `Layout`, `c.Request()` is a copy: only the declared query parameters, no body, and in a `Layout` only the path parameters of its own folder. `c.Writer()` is the real response, and writing to it breaks the page. Logging and anything that needs the whole request go in `OnRequest`.
 
 Full rules: `docs/pages-and-data/loading-data.md#how-load-may-use-ctx`.
 
