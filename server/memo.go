@@ -15,15 +15,31 @@ import (
 	"github.com/liustack/tifa/internal/ssr"
 )
 
+// protectedShare is the part of the memo, in percent, that pages hit more than once can fill
+// (the protected segment). The rest is for pages seen once and for those a full protected segment
+// sent back. 80 is the usual split of a segmented LRU: a hot page keeps its place against any run of
+// new addresses, and a fifth of the memo is still enough for a new page to be hit a second time
+// and earn its place.
+const protectedShare = 80
+
 // renderMemo keeps rendered pages by the hash of their render input, up
-// to size bytes of pages, each in the one form it keeps. It drops the least recently used pages first.
+// to size bytes of pages, each in the one form it keeps. It is a segmented LRU, so that a run of
+// addresses that come once (a search term, a page number nobody asked before) cannot push out the
+// pages that are asked for again and again. A new page enters the probation list. A hit on a page
+// in probation moves it to the protected list, which holds up to protectedShare percent of size.
+// When protected is over that, its least recently used page goes back to the head of probation,
+// not out. Pages are dropped only from the tail of probation. A page larger than the protected
+// share can never be protected and stays in probation, where a hit still makes it the most recent.
 // Requests that miss the same page at the same time wait for one render of it (fetch).
 type renderMemo struct {
-	mu    sync.Mutex
-	size  int64
-	used  int64
-	order *list.List // of *cached, most recently used first
-	pages map[string]*list.Element
+	mu        sync.Mutex
+	size      int64
+	used      int64
+	protCap   int64      // the bytes the protected list may hold
+	protUsed  int64      // the bytes it holds
+	probation *list.List // of *cached, most recently used first
+	protected *list.List // of *cached, most recently used first
+	pages     map[string]*list.Element
 	// flights holds the renders of pages not in the cache yet, by key.
 	flights map[string]*flight
 	// failed holds the results of renders that landed with keepBrief, by key, for failMemory.
@@ -58,6 +74,7 @@ type flight struct {
 type cached struct {
 	key  string
 	page cachedPage
+	prot bool // in the protected list
 }
 
 // cachedPage is a rendered page as the cache keeps it: one form of it, never changed after the page
@@ -119,7 +136,8 @@ func (c *renderMemo) stats() (render core.MemoStats, used int64) {
 
 func newRenderMemo(size int64) *renderMemo {
 	// The text config refuses a negative size, but a config built in Go can hold one: it is off, as 0 is.
-	return &renderMemo{size: max(size, 0), order: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{},
+	size = max(size, 0)
+	return &renderMemo{size: size, protCap: size / 100 * protectedShare, probation: list.New(), protected: list.New(), pages: map[string]*list.Element{}, flights: map[string]*flight{},
 		failed: map[string]*list.Element{}, failures: list.New(), now: time.Now}
 }
 
@@ -130,8 +148,38 @@ func (c *renderMemo) get(key string) (cachedPage, bool) {
 	if !ok {
 		return cachedPage{}, false
 	}
-	c.order.MoveToFront(e)
+	c.hitLocked(e)
 	return e.Value.(*cached).page, true
+}
+
+// hitLocked records a hit on e. A page in probation that fits the protected list moves to its head,
+// and the protected pages that no longer fit go back to the head of probation.
+func (c *renderMemo) hitLocked(e *list.Element) {
+	v := e.Value.(*cached)
+	switch {
+	case v.prot:
+		c.protected.MoveToFront(e)
+	case v.page.size() > c.protCap:
+		c.probation.MoveToFront(e)
+	default:
+		c.probation.Remove(e)
+		v.prot = true
+		c.pages[v.key] = c.protected.PushFront(v)
+		c.protUsed += v.page.size()
+		c.demoteLocked()
+	}
+}
+
+// demoteLocked sends the least recently used protected pages back to probation until the protected
+// list fits. The total in the memo does not change.
+func (c *renderMemo) demoteLocked() {
+	for c.protUsed > c.protCap {
+		e := c.protected.Back()
+		v := c.protected.Remove(e).(*cached)
+		v.prot = false
+		c.protUsed -= v.page.size()
+		c.pages[v.key] = c.probation.PushFront(v)
+	}
 }
 
 // kept returns the page as the cache stores it: a page that has its gzip form keeps that alone.
@@ -157,24 +205,49 @@ func (c *renderMemo) put(key string, page cachedPage) {
 }
 
 func (c *renderMemo) putLocked(key string, page cachedPage) {
+	// A page that replaces one of the same key keeps the list of the old one, if it still fits there.
+	wasProt := false
+	if e, ok := c.pages[key]; ok {
+		wasProt = e.Value.(*cached).prot
+	}
 	c.removeLocked(key)
 	page = page.kept()
 	if page.size() > c.size {
 		return
 	}
-	c.pages[key] = c.order.PushFront(&cached{key: key, page: page})
+	v := &cached{key: key, page: page}
+	if wasProt && page.size() <= c.protCap {
+		v.prot = true
+		c.pages[key] = c.protected.PushFront(v)
+		c.protUsed += page.size()
+		c.demoteLocked()
+	} else {
+		c.pages[key] = c.probation.PushFront(v)
+	}
 	c.entries++
 	c.used += page.size()
 	for c.used > c.size {
-		c.removeLocked(c.order.Back().Value.(*cached).key)
+		// Probation drops from its tail. When the new page is all it holds, the protected page
+		// least recently used goes instead, so the new page is kept: it fits the memo alone.
+		l := c.probation
+		if l.Len() == 1 && !v.prot {
+			l = c.protected
+		}
+		c.removeLocked(l.Back().Value.(*cached).key)
 		c.evictions++
 	}
 }
 
 func (c *renderMemo) removeLocked(key string) {
 	if e, ok := c.pages[key]; ok {
-		c.used -= e.Value.(*cached).page.size()
-		c.order.Remove(e)
+		v := e.Value.(*cached)
+		c.used -= v.page.size()
+		if v.prot {
+			c.protected.Remove(e)
+			c.protUsed -= v.page.size()
+		} else {
+			c.probation.Remove(e)
+		}
 		delete(c.pages, key)
 		c.entries--
 	}
@@ -209,10 +282,11 @@ func (c *renderMemo) fetch(ctx context.Context, key string, unheard func(error),
 	}
 	c.mu.Lock()
 	if e, ok := c.pages[key]; ok {
-		c.order.MoveToFront(e)
+		c.hitLocked(e)
+		page := e.Value.(*cached).page
 		c.mu.Unlock()
 		c.hits.Add(1)
-		return fetched{page: e.Value.(*cached).page, how: "memo"}, nil
+		return fetched{page: page, how: "memo"}, nil
 	}
 	if e, ok := c.failed[key]; ok {
 		if r := e.Value.(*failure); c.now().Before(r.until) {

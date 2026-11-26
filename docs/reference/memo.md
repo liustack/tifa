@@ -99,13 +99,13 @@ When that shared render fails, every request that waited for it gets the same er
 - **The pages of a list are checked once.** Which pages a list has is the same for every file of it, so the checked pages of the newest list of each language are kept next to the memo, and the `.md` of each post does not check the whole list again. They are not counted in `ssr.memo_size`, and a changed list is checked again by the next request. With `ssr.memo_size` 0 nothing is kept.
 - **Not kept:** a `.md` for no page, a part of the sitemap that does not exist and an error of the function. Made-up URLs do not fill the memo. They carry no `ETag`.
 - **Requests that ask for the same file and list at the same time share one build**, also with `ssr.memo_size` 0, where every request builds its own file.
-- **Counted with the pages.** They share `ssr.memo_size` and the order in which the least recently used go, and `Entries`, `Hits`, `Misses` and `Shared` count them too: a miss is a file built. They have no `X-Tifa-Render` header. `/robots.txt` does not change, so it is not in the memo.
+- **Counted with the pages.** They share `ssr.memo_size` and the order in which the rules for what goes, and `Entries`, `Hits`, `Misses` and `Shared` count them too: a miss is a file built. They have no `X-Tifa-Render` header. `/robots.txt` does not change, so it is not in the memo.
 
 ## Limits
 
 - **A component that reads the time or a random number** (`Date.now()`, `Math.random()`) puts a value into the HTML that is not in the input, and so not in the key, and the memo would give it to later visitors. Hydration needs the same. Under `tifa dev` every page is rendered a second time with the clock 36 hours on. When the two differ, the terminal and the dev overlay say so, show the first place where they part and list the places in your code that read the time or a random number. The page is not memoized until it is fixed. The check does not run in a built app. For a page that must show such a value on purpose, such as the time of the server, write `const Memo = false` in its `route.go`: it renders for every request and gets no `ETag`.
 - **A request with a render clock** (`tifa.WithRenderClock`) neither reads nor stores a page, because its HTML depends on a time the key does not hold. It gets no `ETag`.
-- **`ssr.memo_size`** is the memory of the render memo, 64 MiB by default. When it is full the least recently used pages go. `0` turns it off, and requests that miss the same page at the same time still share one render. See [Configuration](../build-and-deploy/config.md).
+- **`ssr.memo_size`** is the memory of the render memo, 64 MiB by default. When it is full, the pages that were hit only once go first, least recently used first, so a run of addresses that come once cannot push out the pages that are asked for again and again. `0` turns it off, and requests that miss the same page at the same time still share one render. See [Configuration](../build-and-deploy/config.md).
 
 ## One key per page
 
@@ -121,6 +121,6 @@ The memo keeps one gzip form of each page and sends it in the encoding each visi
 
 - `X-Tifa-Render` on a page: `vm` is a render for this request, `memo` a hit, `shared` a render another request started at the same time, `none` a 304 or an answer that did not go through the VM.
 - A request with `If-None-Match` gets 304 when the key did not change, before the memo is asked.
-- `tifa.Stats().Memo` has `Entries`, `Hits`, `Misses`, `Shared` and `Evictions` (the pages dropped, least recently used first, to make room for another), and `MemoBytes` against `MemoSize` shows how full the memo is. See [Deployment](../build-and-deploy/deploy.md) for a route that writes them for Prometheus.
+- `tifa.Stats().Memo` has `Entries`, `Hits`, `Misses`, `Shared` and `Evictions` (the pages dropped to make room for another, those hit only once first), and `MemoBytes` against `MemoSize` shows how full the memo is. See [Deployment](../build-and-deploy/deploy.md) for a route that writes them for Prometheus.
 
 For numbers, see [Performance](performance.md).

@@ -18,6 +18,17 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - `c.JSON`, `c.Text` and `c.NoContent` in a `Load`, a `Layout` or a function they call now fail the build where it sees them. They return an error at run time, as before.
 - A `Layout` shared by pages with `Cache` and pages without no longer fails the build for reading `c.Cookie`, `c.Header` or `tifa.Session`: on a page with `Cache` it gets what an anonymous visitor has. The build still fails for such a read in code that runs only for pages with `Cache`, the `Load` of such a page and a `Layout` whose pages all have it.
 - `tifa routes --json` no longer has `params`, `uses` and `allQuery` in a `load`. `query` lists the query parameters the data depends on.
+- The render memo drops pages differently when it is full. A page seen once goes first, and a page that was hit more than once is kept, so a run of addresses that come once, such as search terms or page numbers nobody asked before, no longer pushes the home page and popular pages out of `ssr.memo_size`. Nothing to change in an app.
+- The warning about `import.meta.env.VITE_*` is one line for a build, with every name it found and the place of the first read, instead of a line for each name.
+
+### Removed
+
+- A constant in `route.go` that is near the name of a switch, such as `SSL`, `Demo` or `Cahce`, no longer fails the build with `did you mean`. `route.go` is your package, so such a constant is your own. A bool constant that spells a switch in lower case (`cache`, `memo`, `ssr`) still fails.
+- The build no longer fails for the names of older versions. A module that exports `Document`, `NotFound` or `Error`, and a `const Path` in a `route.go`, are now your own code: they are not read, and nothing reports them. A 404 is shown by the `ErrorBoundary` export.
+- A `form` tag no longer fails the build when it names the field as its `json` tag (or its Go name) does, such as `json:"email" form:"email"`, so a type shared with another framework works as it is. A `form` tag with another name still fails, in the input of a handler and in a struct passed to `c.Bind` or `c.BindQuery`, since Tifa reads the field by its `json` name.
+- The imports and files of other frameworks that fail the build are only those that are surely wrong in a Tifa app. The packages of the Remix organization that stand alone (`@remix-run/headers`, `@remix-run/form-data-parser`, `@remix-run/file-storage` and the like) and a name below `$app/` that SvelteKit does not have are left alone, and so is an `_index.tsx` next to a `page.tsx`. `@remix-run/react`, `@remix-run/node` and the other packages of the Remix framework, `react-router`, the modules of Next.js, TanStack Start, SvelteKit and Astro still fail the build.
+- A key in the front matter of an entry that is not a field of its type is now a warning with the nearest field name, and the entry is read without it. Before, it failed the build, so Markdown moved from Hugo or Jekyll, with `weight` or `categories` in its front matter, did not build.
+- `const Memo = true` in a `route.go` is accepted and changes nothing, since the render memo is on by default. Before, only `Memo = false` was.
 
 ## [0.6.0] - 2026-11-26
 
@@ -54,17 +65,6 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - New in the docs: [Philosophy](docs/start/philosophy.md) says what Tifa is built on (the path is the URL, one address for each write, nothing happens that you did not write) and lists what Tifa leaves out with what to write instead. [Where a write goes](docs/pages-and-data/handlers.md#where-a-write-goes) shows the three shapes of a write. [Other UI libraries](docs/pages-and-data/styles.md#other-ui-libraries) says which UI libraries have their styles in the first paint: daisyUI, Base UI, React Aria Components, Chakra UI and MUI as they are, Mantine with one attribute in `documentHead`. styled-components and Ant Design do not, and Tifa plans nothing for them.
 
 - New in the docs: [Security](docs/guides/security.md) lists what Tifa guards by default (writes from other sites, the session cookie, request limits, security headers, escaped page data, anonymous pages with `Cache`, error messages) and what is left to the app (who may do what, HTTPS and HSTS, Content-Security-Policy, secrets in `Load`, user HTML, uploads, redirects, rate limits, SQL, dependencies), with where to read more for each.
-
-- The warning about `import.meta.env.VITE_*` is one line for a build, with every name it found and the place of the first read, instead of a line for each name.
-
-### Removed
-
-- A constant in `route.go` that is near the name of a switch, such as `SSL`, `Demo` or `Cahce`, no longer fails the build with `did you mean`. `route.go` is your package, so such a constant is your own. A bool constant that spells a switch in lower case (`cache`, `memo`, `ssr`) still fails.
-- The build no longer fails for the names of older versions. A module that exports `Document`, `NotFound` or `Error`, and a `const Path` in a `route.go`, are now your own code: they are not read, and nothing reports them. A 404 is shown by the `ErrorBoundary` export.
-- A `form` tag no longer fails the build when it names the field as its `json` tag (or its Go name) does, such as `json:"email" form:"email"`, so a type shared with another framework works as it is. A `form` tag with another name still fails, in the input of a handler and in a struct passed to `c.Bind` or `c.BindQuery`, since Tifa reads the field by its `json` name.
-- The imports and files of other frameworks that fail the build are only those that are surely wrong in a Tifa app. The packages of the Remix organization that stand alone (`@remix-run/headers`, `@remix-run/form-data-parser`, `@remix-run/file-storage` and the like) and a name below `$app/` that SvelteKit does not have are left alone, and so is an `_index.tsx` next to a `page.tsx`. `@remix-run/react`, `@remix-run/node` and the other packages of the Remix framework, `react-router`, the modules of Next.js, TanStack Start, SvelteKit and Astro still fail the build.
-- A key in the front matter of an entry that is not a field of its type is now a warning with the nearest field name, and the entry is read without it. Before, it failed the build, so Markdown moved from Hugo or Jekyll, with `weight` or `categories` in its front matter, did not build.
-- `const Memo = true` in a `route.go` is accepted and changes nothing, since the render memo is on by default. Before, only `Memo = false` was.
 
 ### Fixed
 

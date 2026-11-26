@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"compress/gzip"
+	"container/list"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -27,13 +28,15 @@ func countCompressions(t *testing.T) *atomic.Int64 {
 	return &n
 }
 
-// keptPages returns the pages the cache keeps, most recently used first.
+// keptPages returns the pages the cache keeps: the protected ones, then those in probation, each most recently used first.
 func keptPages(s *server) []cachedPage {
 	s.memo.mu.Lock()
 	defer s.memo.mu.Unlock()
 	var out []cachedPage
-	for e := s.memo.order.Front(); e != nil; e = e.Next() {
-		out = append(out, e.Value.(*cached).page)
+	for _, l := range []*list.List{s.memo.protected, s.memo.probation} {
+		for e := l.Front(); e != nil; e = e.Next() {
+			out = append(out, e.Value.(*cached).page)
+		}
 	}
 	return out
 }

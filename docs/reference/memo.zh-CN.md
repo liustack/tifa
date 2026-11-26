@@ -2,7 +2,7 @@
 summary: '渲染记忆是什么，以及它和 Cache 有什么不同：`ssr.memo_size`、ETag、查询参数、登录后的页面'
 audience: app
 order: 1
-translatedFrom: 0bf2ae3f02a8
+translatedFrom: af8b3b2ebf7b
 read_when:
   - '想知道为什么叫记忆而不叫缓存，或者它会不会显示旧页面'
   - '想知道 `/sitemap.xml`、`/llms.txt` 或 `.md` 文件是不是每个请求都重新生成'
@@ -100,13 +100,13 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 - **一份列表的页面只检查一次。** 列表有哪些页面，对它的每个文件都一样，所以每种语言最新一份列表检查过的页面保存在 memo 旁边，每篇文章的 `.md` 不会再把整张列表检查一遍。它们不计入 `ssr.memo_size`，列表变了，下一个请求会重新检查。`ssr.memo_size` 为 0 时什么都不保存。
 - **不保存：** 没有对应页面的 `.md`、不存在的 sitemap 部分和函数返回的错误。编造的 URL 填不满 memo。它们没有 `ETag`。
 - **同时请求同一个文件、同一份列表的请求共用一次生成**，`ssr.memo_size` 为 0 时也一样，只是那时每个请求都生成自己的文件。
-- **和页面一起统计。** 它们共用 `ssr.memo_size` 和先去掉最久没用的顺序，`Entries`、`Hits`、`Misses` 和 `Shared` 也算上它们：一次未命中就是生成一次文件。它们没有 `X-Tifa-Render` 头。`/robots.txt` 不会变，所以不在 memo 里。
+- **和页面一起统计。** 它们共用 `ssr.memo_size` 和丢弃的规则，`Entries`、`Hits`、`Misses` 和 `Shared` 也算上它们：一次未命中就是生成一次文件。它们没有 `X-Tifa-Render` 头。`/robots.txt` 不会变，所以不在 memo 里。
 
 ## 限制 {#limits}
 
 - **读取时间或随机数的组件**（`Date.now()`、`Math.random()`）会把一个不在输入里、因此也不在键里的值放进 HTML，memo 会把它给之后的访客。水合也要求这样。在 `tifa dev` 下，每个页面都会再渲染一次，时钟拨快 36 小时，两次结果不同时，终端和开发浮层会告诉你，指出第一处不同的位置，并列出你代码里读取时间或随机数的地方。在修好之前，这个页面不会被 memo 记住。构建好的应用不做这项检查。如果页面确实要显示这样的值，比如服务器的时间，就在它的 `route.go` 里写 `const Memo = false`：它对每个请求都渲染，并且没有 `ETag`。
 - **带渲染时钟**（`tifa.WithRenderClock`）的请求既不读也不存页面，因为它的 HTML 取决于键里没有的时间，也没有 `ETag`。
-- **`ssr.memo_size`** 是渲染 memo 的内存，默认 64 MiB。满了之后，最近最少使用的页面会被丢掉。`0` 会把它关掉，同时没命中同一个页面的请求仍然共用一次渲染。见 [配置](../build-and-deploy/config.zh-CN.md)。
+- **`ssr.memo_size`** 是渲染 memo 的内存，默认 64 MiB。满了之后，只被命中过一次的页面先丢，最久没用的先走，所以只来一次的一批地址挤不掉被反复访问的页面。`0` 会把它关掉，同时没命中同一个页面的请求仍然共用一次渲染。见 [配置](../build-and-deploy/config.zh-CN.md)。
 
 ## 每个页面一个键 {#one-key-per-page}
 
@@ -122,6 +122,6 @@ memo 对每个页面只保存一种 gzip 形式，并以每个访客接受的编
 
 - 页面上的 `X-Tifa-Render`：`vm` 是为这个请求做的一次渲染，`memo` 是一次命中，`shared` 是另一个请求同时发起的一次渲染，`none` 是 304 或没有经过 VM 的响应。
 - 带 `If-None-Match` 的请求，在键没变时得到 304，这发生在询问 memo 之前。
-- `tifa.Stats().Memo` 有 `Entries`、`Hits`、`Misses`、`Shared` 和 `Evictions`（为给别的页面腾地方而丢掉的页面，最近最少使用的先丢），`MemoBytes` 对照 `MemoSize` 能看出 memo 有多满。要看把它们写给 Prometheus 的路由，见 [部署](../build-and-deploy/deploy.zh-CN.md)。
+- `tifa.Stats().Memo` 有 `Entries`、`Hits`、`Misses`、`Shared` 和 `Evictions`（为给别的页面腾地方而丢掉的页面，只命中过一次的先丢），`MemoBytes` 对照 `MemoSize` 能看出 memo 有多满。要看把它们写给 Prometheus 的路由，见 [部署](../build-and-deploy/deploy.zh-CN.md)。
 
 数字请见 [性能](performance.zh-CN.md)。
