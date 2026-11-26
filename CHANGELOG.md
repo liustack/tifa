@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa deploy status --all` looks once at every server in `~/.tifa/config.yaml`, with no app checkout: for each its system, memory, disk, uptime and load, and for each app on it (also those set up from another machine) the release and its commit, the service and how often systemd restarted it, what `GET /healthz` answers and its memory. `--json` prints the same as one document. It exits with an error when a server cannot be reached or a deployed app is not active with a passing health check. See [Logs, status and remove](docs/build-and-deploy/deploy-operate.md#logs-status-and-remove).
+
 ### Changed
 
 - `tifa build` passes `-trimpath` to `go build`, so the program holds no folder of the machine that built it, and a panic names a file by its path in its module. `build.debug_info: true` keeps the full paths with the debug info, and `-trimpath=false` in `GOFLAGS` keeps them alone.

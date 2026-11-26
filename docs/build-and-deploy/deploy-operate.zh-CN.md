@@ -2,7 +2,7 @@
 summary: '管理已部署的应用：`tifa deploy env`、没有终端时设置密钥、`logs`、`status`、`remove`，以及应用在服务器上把文件放在哪里'
 audience: app
 order: 15
-translatedFrom: 1acd8ddd48cc
+translatedFrom: 7016bda38b0a
 read_when:
   - '用 tifa deploy env 设置已部署应用 .env 里的密钥或设置'
   - 'agent 运行 tifa deploy env set，或带 --cache-purge-token 的 tifa deploy setup，浏览器里打开了一个页面用来输入密钥'
@@ -41,6 +41,7 @@ Tifa 打开页面并打印它的 URL，`http://127.0.0.1:<port>/<code>`，这样
 go tool tifa deploy logs        # the last 100 lines of the log, -n 500 for more
 go tool tifa deploy logs -f     # and then the new ones, until Ctrl-C
 go tool tifa deploy status
+go tool tifa deploy status --all   # every server of ~/.tifa/config.yaml, once
 go tool tifa deploy remove
 ```
 
@@ -61,6 +62,30 @@ shop on vps, port 9527
 ```
 
 它只在服务运行时才请求 `/healthz`，因为向 socket 发请求会把它启动起来。
+
+`status --all` 不需要应用的检出目录。它对 `~/.tifa/config.yaml` 里的每台服务器看一次，并打印每台的系统、CPU 数、内存、磁盘、运行时长和负载，然后是用户 `tifa` 在这台服务器上的每个应用，从另一台机器设置的应用也算。每个应用显示发布和它的提交、有没有通过健康检查、服务，以及 systemd 自己重启过它几次、`GET /healthz` 现在的回答和程序的内存。没有发布的应用会说它还没部署。
+
+```
+vps
+  system    Ubuntu 24.04.1 LTS, x86_64, 2 CPUs
+  memory    2.1 GB total, 1.0 GB available
+  disk      12.3 GB used of 25.0 GB (49%)
+  uptime    up 12d 6h, load 0.10 0.20 0.30
+
+  shop
+    release   20261120T120000Z  commit ccc333  passed its health check
+    service   active since 2026-11-20 12:00:05 UTC, 2h3m ago, 0 restarts
+    health    GET /healthz answered 200
+    memory    38.7 MB
+
+Only the servers set up from this machine, the ones in ~/.tifa/config.yaml, are shown.
+```
+
+- 服务器并行询问，按文件里的顺序打印，一台服务器上的应用按名字排序。不回答的服务器会打印它的错误，其他服务器照常打印。现在回答自己是另一台机器的主机，会被报告成这样，它的应用不显示。
+- 每台服务器都回答，而且每个已部署的应用都在运行并通过健康检查时，退出状态是 0。否则会先打印全部内容，再以 1 退出，错误信息会说有几台服务器没能检查、有几个应用状态不好。脚本或 agent 可以依赖这一点。
+- `--json` 把同样的内容作为一个 JSON 文档打印到 stdout：一个服务器列表。每台服务器有 `name`、`id`、`host`、`reached`、`error`（没连上时）和 `apps`，连上时还有 `facts`：`os`、`arch`、`cpus`、`memoryTotalKiB`、`memoryAvailableKiB`、`diskTotalKiB`、`diskUsedKiB`（`tifa` 的家目录所在的磁盘）、`uptimeSeconds`、`load1`、`load5` 和 `load15`。服务器没说的数字是 0。每个应用有 `name`、`host`、`deployed`、`release`、`commit`、`checkPassed`、`service`、`activeSince`、`restarts`、`health`（`GET /healthz` 的状态码，服务没运行时为空，没有回答时为 `000`）、`memoryKiB`、`ok` 和 `error`。
+- 它只看某一个时刻，不是监控：不刷新、不报警、不留历史。它只覆盖那个文件里的服务器，也就是从这台机器设置的服务器。要报警，请用服务器之外的探测，比如 UptimeRobot 或 Cloudflare 的健康检查，因为服务器上的探测会和服务器一起挂掉。
+- `--all` 不接受 `--host` 和 `--dir`。
 
 `remove` 把应用从服务器上拿掉，收回 Tifa 为它做的东西，别的不动：
 

@@ -313,9 +313,13 @@ printf '%s\n' "$*" >> `+shellQuote(argv)+`
 while [ "$1" != "--" ]; do if [ "$1" = -l ]; then user=$2; fi; shift; done
 echo "ssh $user $2" >> `+shellQuote(log)+`
 HOME=`+shellQuote(home)+` XDG_RUNTIME_DIR=`+shellQuote(filepath.Join(home, ".run"))+` PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
-	// show answers with the file .run/show of the home, which a test writes.
+	// show answers with the file .run/show-<unit> of the home, else .run/show, which a test writes.
 	tool("systemctl", `echo "systemctl $*" >> `+shellQuote(log)+`
-case " $* " in *" show "*) cat "$HOME/.run/show" 2>/dev/null ;; esac`)
+case " $* " in *" show "*)
+	unit=$(echo "$*" | sed -n 's/.*\(tifa-[a-z0-9-]*\)\.service.*/\1/p')
+	f="$HOME/.run/show-$unit"
+	if [ ! -f "$f" ]; then f="$HOME/.run/show"; fi
+	cat "$f" 2>/dev/null ;; esac`)
 	tool("curl", `echo "curl $*" >> `+shellQuote(log)+`
 rel=$(basename "$(readlink "$HOME/shop/current")")
 cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
