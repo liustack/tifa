@@ -65,7 +65,7 @@ It asks for `/healthz` only while the service runs, because a request to the soc
 `status --all` needs no app checkout. It looks once at every server in `~/.tifa/config.yaml` and prints, for each: the system, CPUs, memory, disk, uptime and load, and then every app of the user `tifa` on it, also the apps set up from another machine. For each app it shows the release and its commit, whether it passed its health check, the service and how many times systemd restarted it by itself, what `GET /healthz` answers now, and the memory of the program. An app with no release says it is not deployed yet.
 
 ```
-vps, reached as vps
+vps
   system    Ubuntu 24.04.1 LTS, x86_64, 2 CPUs
   memory    2.1 GB total, 1.0 GB available
   disk      12.3 GB used of 25.0 GB (49%)

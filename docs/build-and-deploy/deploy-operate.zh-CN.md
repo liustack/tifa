@@ -2,7 +2,7 @@
 summary: '管理已部署的应用：`tifa deploy env`、没有终端时设置密钥、`logs`、`status`、`remove`，以及应用在服务器上把文件放在哪里'
 audience: app
 order: 15
-translatedFrom: ad5d597f1bad
+translatedFrom: 7016bda38b0a
 read_when:
   - '用 tifa deploy env 设置已部署应用 .env 里的密钥或设置'
   - 'agent 运行 tifa deploy env set，或带 --cache-purge-token 的 tifa deploy setup，浏览器里打开了一个页面用来输入密钥'
@@ -66,7 +66,7 @@ shop on vps, port 9527
 `status --all` 不需要应用的检出目录。它对 `~/.tifa/config.yaml` 里的每台服务器看一次，并打印每台的系统、CPU 数、内存、磁盘、运行时长和负载，然后是用户 `tifa` 在这台服务器上的每个应用，从另一台机器设置的应用也算。每个应用显示发布和它的提交、有没有通过健康检查、服务，以及 systemd 自己重启过它几次、`GET /healthz` 现在的回答和程序的内存。没有发布的应用会说它还没部署。
 
 ```
-vps, reached as vps
+vps
   system    Ubuntu 24.04.1 LTS, x86_64, 2 CPUs
   memory    2.1 GB total, 1.0 GB available
   disk      12.3 GB used of 25.0 GB (49%)

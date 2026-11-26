@@ -368,7 +368,11 @@ func count(n int, one, many string) string {
 func statusAllText(servers []serverReport, now time.Time) string {
 	var b strings.Builder
 	for _, s := range servers {
-		fmt.Fprintf(&b, "%s, reached as %s\n", s.Name, s.Host)
+		if s.Name == s.Host {
+			fmt.Fprintf(&b, "%s\n", s.Name)
+		} else {
+			fmt.Fprintf(&b, "%s (%s)\n", s.Name, s.Host)
+		}
 		line := func(indent, label, text string) { fmt.Fprintf(&b, "%s%-8s  %s\n", indent, label, text) }
 		if !s.Reached {
 			line("  ", "problem", s.Error)
