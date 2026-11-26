@@ -20,7 +20,7 @@ tifa check [--dir app-root]
 
 Runs every check of the app with one command and stops at the first step that fails:
 
-1. `analyze`: the static analysis of `tifa build`. Each convention violation is printed as `file:line: reason`. It also reads the code for idioms of other frameworks, such as `next/link`, `'use client'` or an exported `loader`, and says what to write in Tifa (see [Coming from another framework](../start/app.md#coming-from-another-framework)). The idioms in TypeScript are read in the `generate` step, which has Node.
+1. `analyze`: the static analysis of `tifa build`. Each convention violation is printed as `file:line: reason`. It also reads the code for idioms of other frameworks, such as `next/link`, `'use client'` or an exported `loader`, and says what to write in Tifa (see [Coming from another framework](../start/app.md#coming-from-another-framework)). It also warns of a string that `OnRequest` compares with `c.Pattern()` (`==`, `!=`, `switch` and `strings.HasPrefix`) when no route of the app can have it, such as a guard left behind by a renamed folder. The warning names the file and line, the string and the closest routes, and does not fail the check. The idioms in TypeScript are read in the `generate` step, which has Node.
 2. `generate`: writes `.tifa/`, as `tifa build` does, so the types the TypeScript step needs are current. It starts Node only for an app with pages. While a `tifa dev` or `tifa build` runs in the app, it holds the lock of `.tifa/` and keeps the files up to date, and the files of a build are not the ones `tifa dev` needs. So this step writes nothing then and prints a line that says so, and the checks go on with the files it generated in memory. It never waits for the lock.
 3. `go vet ./...`
 4. `go test ./...`

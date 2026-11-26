@@ -6,6 +6,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Added
 
+- `tifa check`, `tifa build` and `tifa dev` warn of a string that `OnRequest` compares with `c.Pattern()` (`==`, `!=`, `switch` or `strings.HasPrefix`) when no route of the app can have it, for example a guard left behind by a renamed folder. The warning names the file and line, the string and the closest routes. See [Check the app](docs/build-and-deploy/check.md#tifa-check).
 - `tifa deploy rollback` takes an optional release ID, as `tifa deploy status` lists it (such as `20261120T110000Z`), and goes to that release, older or newer than the one that runs, with the same restart and health check. The release must still be on the server and have passed its health check when it was deployed, else nothing changes and the error lists the releases it can go to. See [Roll back](docs/build-and-deploy/deploy.md#roll-back).
 - `tifa deploy status --json` works without `--all`: it prints one JSON object for the app of the folder, with the fields of an app of `--all`, the `server` it asked and the `releases` kept (`id`, `commit`, `checkPassed`). It exits as the text does. See [Logs, status and remove](docs/build-and-deploy/deploy-operate.md#logs-status-and-remove).
 
