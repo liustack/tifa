@@ -457,12 +457,23 @@ func (r *setupRun) useCF(ctx context.Context) bool {
 func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 	err := r.refresh(ctx)
 	var login *sshLoginError
+	var noSudo *noSudoError
 	switch {
 	case err == nil:
+		// An admin user that cannot run sudo stops setup here, before a step of root fails
+		// halfway through the plan. A server without the user tifa finds it in its probe below.
+		if r.t.dest.sudo() {
+			if serr := r.t.ssh(ctx, "root", sudoCheckBody, nil, io.Discard, r.stderr); serr != nil {
+				return serr
+			}
+		}
 	case errors.As(err, &login) && login.user == deployUser:
 		var out strings.Builder
 		if rerr := r.t.ssh(ctx, "root", setupProbeScript(), nil, &out, r.stderr); rerr != nil {
-			return fmt.Errorf("cannot log in to %s as %s (%v: %s) or as root: %w", r.t.host, deployUser, err, login.said, rerr)
+			if errors.As(rerr, &noSudo) {
+				return rerr
+			}
+			return fmt.Errorf("cannot log in to %s as %s (%v: %s) or as %s: %w", r.t.host, deployUser, err, login.said, r.t.rootLogin(), rerr)
 		}
 		s, perr := parseServerState(out.String())
 		if perr != nil {
@@ -477,7 +488,7 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 		// What the app needs to know of a server without the user: who listens on the ports of
 		// the visitors, and whether its user may open them.
 		r.st.LowPort, r.st.Listen, r.st.Used, r.st.UFW = s.LowPort, s.Listen, s.Used, s.UFW
-		p.add(opAdd, fmt.Sprintf("server: the user %s does not exist yet (ssh cannot log in as it), so setup creates it (home %s) with the keys of root, and starts its systemd at boot", deployUser, deployHome), r.serverApply)
+		p.add(opAdd, fmt.Sprintf("server: the user %s does not exist yet (ssh cannot log in as it), so setup creates it (home %s) with the keys of %s, and starts its systemd at boot", deployUser, deployHome, r.t.dest.admin()), r.serverApply)
 		return nil
 	default:
 		return err
@@ -495,7 +506,7 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 
 func (r *setupRun) serverApply(ctx context.Context) (string, error) {
 	var out strings.Builder
-	if err := r.t.ssh(ctx, "root", serverScript(), nil, &out, r.stderr); err != nil {
+	if err := r.t.ssh(ctx, "root", serverScript(r.t.dest.admin()), nil, &out, r.stderr); err != nil {
 		return "", err
 	}
 	if err := r.refresh(ctx); err != nil {
@@ -1520,15 +1531,15 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 
 // remember records the server in ~/.tifa after a setup that reached it and prepared it: the host
 // that worked, which with ssh through the tunnel is the ssh host name once the check passed, and
-// the app. It says so when that changed the file. A file it cannot write is a warning: the server
+// the app. Either keeps the admin user the host names. It says so when that changed the file. A file it cannot write is a warning: the server
 // is set up all the same, and the next deploy only needs the host named.
 func (r *setupRun) remember(stdout, stderr io.Writer) {
 	if !r.haveServer || !r.st.Prepared() || r.st.Machine == "" {
 		return
 	}
-	host := r.t.host
+	host := r.t.dest.raw
 	if r.tunnelHost != "" {
-		host = r.tunnelHost
+		host = r.t.dest.withUser(r.tunnelHost)
 	}
 	changed, err := rememberServer(r.st.Machine, host, knownApp{Name: r.t.app, Path: r.t.root})
 	switch {

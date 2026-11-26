@@ -922,6 +922,14 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Instead.** `--host`, or `TIFA_DEPLOY_HOST` in the environment or `.env`, or the one server that `~/.tifa/config.yaml` knows, a file that holds no secret: [Deploy](../build-and-deploy/deploy.md).
 
+### The user tifa deploy logs in as
+
+**Settled (2026-11-27).** The host may name an admin user, as `ubuntu@203.0.113.7` or `ssh://ubuntu@203.0.113.7:2222`. The steps that need root log in as that user and run through `sudo -n`, which needs passwordless sudo. Setup checks it at its first look at the server and stops before it changes anything when it is missing. The steps of the apps always log in as `tifa`, whatever user the host names, and setup gives `tifa` the keys of the admin user. With no user, or `root@`, root logs in as before.
+
+**Why.** The images of AWS, Google Cloud and Azure do not let root log in, and their default user has passwordless sudo. Telling people to turn the root login on would make their servers less safe to use Tifa. Keeping `tifa` for the apps means a deploy never needs more than the user that owns them.
+
+**Turned down.** Asking for a sudo password: a deploy runs without a terminal, and a coding agent must never get the password.
+
 ### Several targets, and the options of GitHub Actions in tifa.yaml
 
 **Turned down (2026-11-20 to 2026-11-23).** Environments such as staging and production in `tifa.yaml`, and keys for the runner, the Node version, approvals, timeouts or path filters.

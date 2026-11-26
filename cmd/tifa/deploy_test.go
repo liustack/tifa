@@ -218,7 +218,10 @@ func TestDeployHost(t *testing.T) {
 	if d, err := loadTarget(root, "from-flag"); err != nil || d.host != "from-flag" {
 		t.Errorf("flag beats env: %+v, %v", d, err)
 	}
-	if _, err := loadTarget(root, "root@vps"); err == nil || !strings.Contains(err.Error(), "--host") {
+	if d, err := loadTarget(root, "ubuntu@vps"); err != nil || d.host != "vps" || d.dest.user != "ubuntu" || d.dest.raw != "ubuntu@vps" {
+		t.Errorf("admin user: %+v, %v", d, err)
+	}
+	if _, err := loadTarget(root, "-x@vps"); err == nil || !strings.Contains(err.Error(), "--host") {
 		t.Errorf("bad flag: %v", err)
 	}
 	t.Setenv(deployHostEnv, "-oProxyCommand=x")
@@ -325,6 +328,12 @@ rel=$(basename "$(readlink "$HOME/shop/current")")
 cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 	tool("loginctl", `cat `+shellQuote(filepath.Join(home, ".run", "linger"))+` 2>/dev/null || echo no`)
 	tool("flock", `echo "flock $*" >> `+shellQuote(log))
+	// sudo runs the command after its options, unless the test wrote .run/nosudo: then it wants a
+	// password, which sudo -n refuses.
+	tool("sudo", `echo "sudo $*" >> `+shellQuote(log)+`
+if [ -f "$HOME/.run/nosudo" ]; then echo "sudo: a password is required" >&2; exit 1; fi
+while [ $# -gt 0 ]; do case "$1" in -*) shift ;; *) break ;; esac; done
+exec "$@"`)
 	tool("sleep", "exit 0")
 	// With -f it says so and waits as the one process of the ssh, so killing the ssh ends it.
 	tool("journalctl", `echo "journalctl $*" >> `+shellQuote(log)+`

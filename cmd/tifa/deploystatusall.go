@@ -222,7 +222,7 @@ func checkServer(ctx context.Context, ks knownServer) serverReport {
 			return deployTarget{}, err
 		}
 		h.knownID = ks.ID
-		return deployTarget{host: h.raw, dest: h}, nil
+		return deployTarget{host: h.addr(), dest: h}, nil
 	}
 	t, err := hostOf(ks.Host)
 	if err != nil {

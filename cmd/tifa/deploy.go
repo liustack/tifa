@@ -57,8 +57,9 @@ var buildForServer = func(ctx context.Context, root, goos, goarch, out string, s
 type deployTarget struct {
 	root string
 	app  string
+	// host is the server as ssh gets it, without the user: see deployHost.addr.
 	host string
-	// dest is host checked and taken apart.
+	// dest is the server as named, checked and taken apart, with the admin user when it names one.
 	dest deployHost
 	// domain is the host of site.url when deploy.front is cloudflare, else empty.
 	domain string
@@ -184,15 +185,22 @@ func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, err
 	if err != nil {
 		return deployTarget{}, err
 	}
-	return deployTarget{root: root, app: app, host: h.raw, dest: h, domain: domain, front: settings.Deploy.Front, own: own,
+	return deployTarget{root: root, app: app, host: h.addr(), dest: h, domain: domain, front: settings.Deploy.Front, own: own,
 		connectMode: settings.Deploy.Connect, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
 }
 
 // sshWaitDelay is how long ssh may leave its output open once it has ended.
 const sshWaitDelay = 2 * time.Second
 
-// ssh runs script with sh on the server, logged in as user, with stdin as its input.
+// ssh runs script with sh on the server, logged in as user, with stdin as its input. The user root
+// stands for the admin user of the host: with one other than root, ssh logs in as it and the script
+// runs through sudo -n, which fails with a noSudoError before the script starts when the user
+// has no passwordless sudo.
 func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Reader, stdout, stderr io.Writer) error {
+	viaSudo := user == "root" && t.dest.sudo()
+	if viaSudo {
+		user, script = t.dest.user, sudoScript(script)
+	}
 	c := exec.CommandContext(ctx, sshProgram, "-l", user, "--", t.host, "sh -c "+shellQuote(script))
 	c.Stdin, c.Stdout, c.Stderr = stdin, stdout, stderr
 	// Killing ssh does not close its output when another process holds it too, such as the
@@ -208,7 +216,38 @@ func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Rea
 		}
 		return &sshLoginError{user: user, host: t.host, hint: hint, err: err}
 	}
+	if viaSudo && errors.As(err, &exit) && exit.ExitCode() == noSudoExit {
+		return &noSudoError{user: user, host: t.host}
+	}
 	return err
+}
+
+// noSudoExit is the status sudoScript ends with when sudo -n cannot run a command: the user has no
+// passwordless sudo, or the server has no sudo. No script of tifa deploy exits with it.
+const noSudoExit = 86
+
+// sudoScript runs script as root through sudo, with root's HOME and the input of ssh. It first
+// asks sudo for nothing, without the input, so a user who needs a password stops it before the
+// script starts.
+func sudoScript(script string) string {
+	return fmt.Sprintf("sudo -n true </dev/null >/dev/null 2>&1 || exit %d\nexec sudo -n -H sh -c %s", noSudoExit, shellQuote(script))
+}
+
+// noSudoError is an admin user that logged in and cannot run sudo without a password.
+type noSudoError struct{ user, host string }
+
+func (e *noSudoError) Error() string {
+	return fmt.Sprintf("ssh %[1]s@%[2]s worked, but %[1]s cannot run sudo without a password, and the steps that change the server run as root through it. "+
+		"Give %[1]s passwordless sudo on the server, with the line %[1]s ALL=(ALL) NOPASSWD:ALL in a file of /etc/sudoers.d, or name the host without a user so tifa deploy logs in as root. Nothing was changed by this step",
+		e.user, e.host)
+}
+
+// rootLogin names who runs the steps of root, for a sentence: root, or the admin user with sudo.
+func (t deployTarget) rootLogin() string {
+	if t.dest.sudo() {
+		return t.dest.user + " with sudo"
+	}
+	return "root"
 }
 
 // sshLoginError is ssh failing to log in, as opposed to a script that ran and failed.
@@ -366,7 +405,7 @@ app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHu
 		},
 	}
 	cmd.PersistentFlags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
-	cmd.PersistentFlags().StringVar(&host, "host", "", "the server: an ssh alias or ssh://host[:port] (default "+deployHostEnv+" of the environment or of .env, else the server in ~/.tifa)")
+	cmd.PersistentFlags().StringVar(&host, "host", "", "the server: an ssh alias or ssh://host[:port], with user@ in front when root cannot log in (default "+deployHostEnv+" of the environment or of .env, else the server in ~/.tifa)")
 
 	setup := &cobra.Command{
 		Use:   "setup",
@@ -377,7 +416,8 @@ or remove, counts what is already right (--all lists it), and ends with what you
 setup cannot. When something is left for you, setup does the rest and then exits with an error.
 When all is right it prints one line and asks nothing. It can run again at any time.
 
-  server    the user tifa and its systemd at boot, the first time as root
+  server    the user tifa and its systemd at boot, the first time as root, or as the user
+            in front of the host (ubuntu@203.0.113.7) with passwordless sudo
   app       the folder, port and systemd units of this app, as tifa. With deploy.front none
             the app serves visitors itself on port 80, and with a domain in site.url on 443
             with HTTPS: setup stops when another program has them, and lets the systemd of
