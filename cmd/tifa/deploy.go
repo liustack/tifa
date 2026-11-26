@@ -772,13 +772,18 @@ func deployRollback(ctx context.Context, t deployTarget, release string, stdout,
 		return err
 	}
 	sum.Release, sum.Commit = target.ID, target.Commit
-	fmt.Fprintf(stdout, "rolling %s on %s back from %s to %s (commit %s)\n", t.app, t.host, s.Current, target.ID, target.Commit)
+	// Release IDs are times, so a later one sorts after an earlier one.
+	way := "back"
+	if target.ID > s.Current {
+		way = "forward"
+	}
+	fmt.Fprintf(stdout, "rolling %s on %s %s from %s to %s (commit %s)\n", t.app, t.host, way, s.Current, target.ID, target.Commit)
 	a := activation{App: t.app, ID: target.ID, Commit: target.Commit, Port: s.Port, Action: "rollback",
 		Back: s.Current, Tries: healthTries}
 	if err := t.activate(ctx, a, health, stderr); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "rolled back to %s in %s\n", target.ID, time.Since(started).Round(100*time.Millisecond))
+	fmt.Fprintf(stdout, "rolled %s to %s in %s\n", way, target.ID, time.Since(started).Round(100*time.Millisecond))
 	sum.Cache = clearCache(ctx, t, stderr)
 	printCache(stdout, sum.Cache)
 	return nil

@@ -852,7 +852,8 @@ func TestDeployRollbackToFlow(t *testing.T) {
 		t.Fatalf("to the first: %v, current %s\n%s%s", err, current(), out, stderr)
 	}
 	// And forward again, to a newer release.
-	if out, _, err = run(t, "deploy", "rollback", ids[2], "--dir", root); err != nil || current() != "releases/"+ids[2] {
+	if out, _, err = run(t, "deploy", "rollback", ids[2], "--dir", root); err != nil || current() != "releases/"+ids[2] ||
+		!strings.Contains(out, "forward from "+ids[0]+" to "+ids[2]) || !strings.Contains(out, "rolled forward to "+ids[2]) {
 		t.Fatalf("forward: %v, current %s\n%s", err, current(), out)
 	}
 }
