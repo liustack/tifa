@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/liustack/beastjs"
+	beasturl "github.com/liustack/beastjs/url"
 	"github.com/liustack/tifa/internal/config"
 )
 
@@ -118,7 +119,7 @@ func TestSoakOOMRecycle(t *testing.T) {
 
 // What a VM holds after a GC. Every VM here but the bare one comes from Load, as in the pool, since
 // a bundle may use Intl at its top level. An empty bundle shows what Intl adds: compared with a bare
-// VM, the stand-ins of a VM whose pages never format, and what formatting a number and a date
+// VM with URL, which Load installs too and which is not part of the budget, the stand-ins of a VM whose pages never format, and what formatting a number and a date
 // installs. The testdata bundle then shows what it adds after loading, formatting and a render. It
 // gives two counts of QuickJS: malloc, the bytes the VM's allocations take, which ssr.vm_memory
 // limits, and used, its own estimate of what its objects, strings and functions take.
@@ -166,11 +167,14 @@ func TestSoakVMMemory(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer vm.Close()
+		if err := beasturl.Register(vm); err != nil {
+			t.Fatal(err)
+		}
 		return VMMemory(vm, true)
 	}()
 	empty := loaded(t, "")
 	unused := measure(t, empty, nil)
-	show(t, "bare VM", bare, bare)
+	show(t, "bare VM with URL", bare, bare)
 	show(t, "Intl, unused", unused, bare)
 	show(t, "Intl, after formatting", measure(t, empty, format), bare)
 	// malloc moves in whole blocks of the allocator, so a few bytes more can show as 16 KB more.
