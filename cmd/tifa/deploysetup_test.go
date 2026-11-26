@@ -147,7 +147,7 @@ true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF
 *"tifa: nginx remove certificate"*) echo "nginxremovecert $user" >> "$d/calls"; echo "deleted the certificate" ;;
 *"tifa: nginx uninstall"*) echo "nginxuninstall $user" >> "$d/calls"; [ -f "$d/uninstallkept" ] && { echo "kept nginx: /etc/nginx/conf.d/tifa-blog.conf is there"; exit 0; }; echo "uninstalled nginx" ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
-*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\nmachine vps-1234\n'; cat "$d/rootfacts" 2>/dev/null; true ;;
+*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; [ "$user" = root ] && [ -f "$d/rootdenied" ] && { echo "root@vps: Permission denied (publickey)." >&2; exit 255; }; printf 'os Linux\narch x86_64\nmachine vps-1234\n'; cat "$d/rootfacts" 2>/dev/null; true ;;
 *"tifa: who listens"*) echo "listeners $user" >> "$d/calls"; [ "$user" = root ] && [ -f "$d/rootdenied" ] && { echo "root@vps: Permission denied (publickey)." >&2; exit 255; }; cat "$d/rootfacts" 2>/dev/null; true ;;
 *"tifa: open ports"*) echo "ports $user" >> "$d/calls"; echo "net.ipv4.ip_unprivileged_port_start was 1024, now 80" ;;
 *"tifa: close ports"*) echo "unports $user" >> "$d/calls"; echo "net.ipv4.ip_unprivileged_port_start is 1024 again" ;;
@@ -1696,6 +1696,20 @@ func TestSetupRootUserAsBefore(t *testing.T) {
 // An admin user without passwordless sudo stops setup at its first look at the server, before
 // anything changed, on a new server and on one tifa already logs in to, and the error says what
 // is needed.
+// A server where neither tifa nor root can log in, as on the images of most clouds, gets an error
+// that says to name the user that can log in in front of the host.
+func TestSetupRootDeniedNamesAdminUser(t *testing.T) {
+	root := setupApp(t, "deploy:\n", nil)
+	t.Setenv(deployHostEnv, "vps")
+	srv := newSetupServer(t, "", freshFacts)
+	srv.deny(t)
+	writeFile(t, filepath.Join(srv.dir, "rootdenied"), "")
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "When root cannot log in to this server, put the user you log in with in front of the host, such as ubuntu@vps") {
+		t.Errorf("got %v\n%s", err, out)
+	}
+}
+
 func TestSetupAdminWithoutSudo(t *testing.T) {
 	for name, facts := range map[string]string{"new": freshFacts, "prepared": factsOf("shop", 80, "")} {
 		root := setupApp(t, "deploy:\n", nil)

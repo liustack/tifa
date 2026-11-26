@@ -473,7 +473,15 @@ func (r *setupRun) serverSteps(ctx context.Context, p *setupPlan) error {
 			if errors.As(rerr, &noSudo) {
 				return rerr
 			}
-			return fmt.Errorf("cannot log in to %s as %s (%v: %s) or as %s: %w", r.t.host, deployUser, err, login.said, r.t.rootLogin(), rerr)
+			hint := ""
+			if r.t.dest.user == "" && errors.As(rerr, new(*sshLoginError)) {
+				example := "ubuntu@" + r.t.dest.raw
+				if r.t.dest.url {
+					example = "ssh://ubuntu@" + strings.TrimPrefix(r.t.dest.raw, "ssh://")
+				}
+				hint = fmt.Sprintf(". When root cannot log in to this server, put the user you log in with in front of the host, such as %s, a user with passwordless sudo", example)
+			}
+			return fmt.Errorf("cannot log in to %s as %s (%v: %s) or as %s: %w%s", r.t.host, deployUser, err, login.said, r.t.rootLogin(), rerr, hint)
 		}
 		s, perr := parseServerState(out.String())
 		if perr != nil {
