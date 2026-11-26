@@ -208,9 +208,9 @@ export async function load<T>(
     if (context.browser && context.prefix && !context.prefix.reaches(result.location)) {
       // Only a web address: window.location.assign runs a javascript: one, and redirect() checks
       // none of what it is given as href.
-      const target = webTarget(result.location, `the data of ${id}`)
-      if (preload) throw redirect({ href: target.href, reloadDocument: true })
-      window.location.assign(target.href)
+      webTarget(result.location, `the data of ${id}`)
+      if (preload) throw redirect({ href: result.location, reloadDocument: true })
+      window.location.assign(result.location)
       return new Promise<never>(() => {})
     }
     throw redirect({ href: result.location, statusCode: result.status, [askedByLoad]: true } as Parameters<typeof redirect>[0])
