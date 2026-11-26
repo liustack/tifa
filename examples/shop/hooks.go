@@ -21,7 +21,7 @@ func OnStart(context.Context) error {
 // It asks which route matched, not what the URL says, since one route has many spellings.
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 	route := c.Pattern()
-	if !Open && (route == "/projects" || strings.HasPrefix(route, "/projects/") || route == "/metrics") && tifa.Session[Session](c) == nil {
+	if !Open && (strings.HasPrefix(route, "/projects/") || route == "/metrics") && tifa.Session[Session](c) == nil {
 		return tifa.Redirect("/login?next="+url.QueryEscape(c.Request().URL.RequestURI()), 302)
 	}
 	return next(c)
