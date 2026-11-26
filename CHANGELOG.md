@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-26
+
 ### Added
 
 - `deploy.front: nginx` in `tifa.yaml` puts several apps on one server without Cloudflare. `tifa deploy setup` installs an nginx that Tifa owns, as a line of the plan, writes one site for each app (the host of `site.url`, the app on a loopback port), and for an app with a domain gets a certificate with certbot, which renews it with its own timer. An app without a domain is served over plain HTTP on port 80, and one app per server can be that. Each change goes through `nginx -t` before nginx reloads, and a file nginx refuses is put back. Setup stops, and changes nothing, when the server has an nginx that Tifa did not install or another program holds port 80 or 443. `tifa deploy remove` takes the site and certificate of an app away, and nginx and certbot with the last app. See [Behind nginx](docs/build-and-deploy/deploy.md#behind-nginx).
