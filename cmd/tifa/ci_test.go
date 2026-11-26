@@ -56,6 +56,18 @@ func ciSteps(t *testing.T, ci ciFile) []string {
 	return out
 }
 
+const govulncheckStep = "go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
+
+// goMinorOf returns the minor of the go line of go.mod in dir, such as 1.27.
+func goMinorOf(t *testing.T, dir string) string {
+	t.Helper()
+	m := regexp.MustCompile(`(?m)^go (\d+\.\d+)`).FindStringSubmatch(readText(t, filepath.Join(dir, "go.mod")))
+	if m == nil {
+		t.Fatalf("go.mod has no go line:\n%s", readText(t, filepath.Join(dir, "go.mod")))
+	}
+	return m[1]
+}
+
 func TestNewWritesTheCIWorkflow(t *testing.T) {
 	for _, empty := range []bool{false, true} {
 		withPnpm(t, true)
@@ -77,14 +89,16 @@ func TestNewWritesTheCIWorkflow(t *testing.T) {
 		got := strings.Join(ciSteps(t, ci), "\n")
 		want := strings.Join([]string{
 			"actions/checkout@v7", "actions/setup-go@v7", "pnpm/action-setup@v6", "actions/setup-node@v7",
-			"run: pnpm install --frozen-lockfile --ignore-scripts", "run: go tool tifa check",
+			"run: pnpm install --frozen-lockfile --ignore-scripts", "run: go tool tifa check", "run: " + govulncheckStep,
 		}, "\n")
 		if got != want {
 			t.Errorf("steps:\n%s\nwant:\n%s", got, want)
 		}
 		for _, job := range ci.Jobs {
-			if job.Steps[1].With["go-version-file"] != "go.mod" {
-				t.Errorf("setup-go does not read go.mod: %v", job.Steps[1].With)
+			// go-version-file would install the exact patch of the go line (1.27.0), which has none of
+			// the later fixes of net/http. The minor with an x and check-latest gets the newest patch.
+			if w := job.Steps[1].With; w["go-version"] != goMinorOf(t, dir)+".x" || w["check-latest"] != true || w["go-version-file"] != nil {
+				t.Errorf("setup-go does not install the newest patch of the minor of go.mod: %v", w)
 			}
 			if job.Steps[2].With["version"] != 10 && job.Steps[2].With["version"] != "10" {
 				t.Errorf("pnpm/action-setup needs a version, package.json has no packageManager: %v", job.Steps[2].With)
@@ -104,7 +118,7 @@ func TestNewWorkflowUsesNpmWithoutPnpm(t *testing.T) {
 	}
 	text, ci := readCI(t, dir)
 	got := strings.Join(ciSteps(t, ci), "\n")
-	want := "actions/checkout@v7\nactions/setup-go@v7\nactions/setup-node@v7\nrun: npm ci\nrun: go tool tifa check"
+	want := "actions/checkout@v7\nactions/setup-go@v7\nactions/setup-node@v7\nrun: npm ci\nrun: go tool tifa check\nrun: " + govulncheckStep
 	if got != want || strings.Contains(text, "pnpm") {
 		t.Errorf("steps:\n%s\nwant:\n%s\n%s", got, want, text)
 	}
@@ -123,6 +137,9 @@ func TestCIWorkflowRunsDocumentedCommands(t *testing.T) {
 		cmd, ok := strings.CutPrefix(step, "run: ")
 		if !ok {
 			continue
+		}
+		if cmd == govulncheckStep {
+			continue // runs in CI only, an app does not run it by hand
 		}
 		name, _, _ := strings.Cut(cmd, " --")
 		if !regexp.MustCompile("(?m)^\\| `" + regexp.QuoteMeta(name) + "` \\|").MatchString(notes) {
@@ -181,7 +198,7 @@ func TestAgentsWorkflowWithoutPackageJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, ci := readCI(t, dir)
-	if got := strings.Join(ciSteps(t, ci), "\n"); got != "actions/checkout@v7\nactions/setup-go@v7\nrun: go tool tifa check" {
+	if got := strings.Join(ciSteps(t, ci), "\n"); got != "actions/checkout@v7\nactions/setup-go@v7\nrun: go tool tifa check\nrun: "+govulncheckStep {
 		t.Errorf("steps:\n%s", got)
 	}
 }

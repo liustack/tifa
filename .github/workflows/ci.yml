@@ -37,7 +37,8 @@ jobs:
         run: (lscpu | grep "Model name") || sysctl -n machdep.cpu.brand_string
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: '1.27.x'
+          check-latest: true
           cache: true
 
       # The bundle tests, the router test and the dev test run Vite on Node, and show skip without
@@ -87,7 +88,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: '1.27.x'
+          check-latest: true
           cache: true
       - name: Test with the race detector
         run: go test -race -count=1 ./internal/core ./server
@@ -103,7 +105,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: '1.27.x'
+          check-latest: true
           cache: true
       - uses: pnpm/action-setup@v6
         with:
@@ -139,7 +142,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: '1.27.x'
+          check-latest: true
           cache: true
       - uses: pnpm/action-setup@v6
         with:
@@ -177,7 +181,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: '1.27.x'
+          check-latest: true
           cache: true
       - uses: pnpm/action-setup@v6
         with:

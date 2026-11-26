@@ -54,7 +54,7 @@ func TestDeployLogs(t *testing.T) {
 func statusApp(t *testing.T, show string) (root, home string) {
 	t.Helper()
 	root = t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	t.Setenv(deployHostEnv, "vps")
 	home = t.TempDir()
 	prepareFakeServer(t, home)
@@ -125,7 +125,7 @@ func TestDeployStatusStopped(t *testing.T) {
 // An app that is not on the server has no status.
 func TestDeployStatusNeedsTheApp(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	t.Setenv(deployHostEnv, "vps")
 	fakeServer(t, t.TempDir(), nil)
 	if _, _, err := run(t, "deploy", "status", "--dir", root); err == nil || !strings.Contains(err.Error(), "tifa deploy first") {

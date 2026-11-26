@@ -55,7 +55,7 @@ func uses(steps []map[string]any) []string {
 // The workflow of each way to connect is YAML, deploys on a push to the default branch and by
 // hand, never cancels a deploy that runs, and gives the secrets to the steps that need them.
 func TestGitHubWorkflow(t *testing.T) {
-	direct := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect})
+	direct := githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "main", Mode: connDirect})
 	doc, steps := parseWorkflow(t, direct)
 	on := doc["on"].(map[string]any)
 	if got := on["push"].(map[string]any)["branches"]; !slices.Equal(anyStrings(got), []string{"main"}) {
@@ -70,6 +70,10 @@ func TestGitHubWorkflow(t *testing.T) {
 	}
 	if got := uses(steps); !slices.Equal(got, []string{"actions/checkout@v7", "actions/setup-go@v7"}) {
 		t.Errorf("an app without pages uses %v", got)
+	}
+	// go-version-file would install the go line as it is, 1.27.0, without the fixes of later patches.
+	if w := steps[1]["with"].(map[string]any); w["go-version"] != "1.27.x" || w["check-latest"] != true || w["go-version-file"] != nil {
+		t.Errorf("setup-go does not install the newest patch of the minor: %v", w)
 	}
 	runs := stepRuns(steps)
 	for _, want := range []string{
@@ -96,7 +100,7 @@ func TestGitHubWorkflow(t *testing.T) {
 	}
 
 	// Pages: pnpm and Node, with the version of pnpm only when package.json has none.
-	pages := githubWorkflow(githubWorkflowSpec{Branch: "release/1", Mode: connDirect, Node: true, PnpmVersion: "10"})
+	pages := githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "release/1", Mode: connDirect, Node: true, PnpmVersion: "10"})
 	_, steps = parseWorkflow(t, pages)
 	if got := uses(steps); !slices.Equal(got, []string{"actions/checkout@v7", "actions/setup-go@v7", "pnpm/action-setup@v6", "actions/setup-node@v7"}) {
 		t.Errorf("pages use %v", got)
@@ -104,13 +108,13 @@ func TestGitHubWorkflow(t *testing.T) {
 	if !strings.Contains(stepRuns(steps), "pnpm install --frozen-lockfile --ignore-scripts") || strings.Contains(pages, "Port ") || !strings.Contains(pages, "version: 10") {
 		t.Errorf("pages:\n%s", pages)
 	}
-	if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, Node: true}), "          version:") {
+	if strings.Contains(githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "main", Mode: connDirect, Node: true}), "          version:") {
 		t.Error("pnpm version written though package.json names pnpm")
 	}
 
 	// Cloudflare: the pinned cloudflared, the token through the variables cloudflared reads, and
 	// nothing about the token on a command line.
-	cf := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare})
+	cf := githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "main", Mode: connCloudflare})
 	_, steps = parseWorkflow(t, cf)
 	for _, want := range []string{"ProxyCommand cloudflared access ssh --hostname %h",
 		"TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.TIFA_DEPLOY_CF_ACCESS_ID }}", "TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.TIFA_DEPLOY_CF_ACCESS_SECRET }}"} {
@@ -123,7 +127,7 @@ func TestGitHubWorkflow(t *testing.T) {
 	}
 
 	// Tailscale.
-	ts := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connTailscale})
+	ts := githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "main", Mode: connTailscale})
 	_, steps = parseWorkflow(t, ts)
 	if got := uses(steps); !slices.Contains(got, "tailscale/github-action@v4") {
 		t.Errorf("tailscale uses %v", got)
@@ -135,7 +139,7 @@ func TestGitHubWorkflow(t *testing.T) {
 			t.Errorf("tailscale workflow lacks %q:\n%s", want, ts)
 		}
 	}
-	if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect}), "id-token") {
+	if strings.Contains(githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "main", Mode: connDirect}), "id-token") {
 		t.Error("id-token is asked for where nothing needs it")
 	}
 }
@@ -155,7 +159,7 @@ func TestWorkflowPinsCloudflared(t *testing.T) {
 	if !regexp.MustCompile(`^\d{4}\.\d+\.\d+$`).MatchString(cloudflaredVersion) || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(cloudflaredDebSHA256) {
 		t.Fatalf("version %q, checksum %q", cloudflaredVersion, cloudflaredDebSHA256)
 	}
-	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connCloudflare})
+	text := githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "main", Mode: connCloudflare})
 	_, steps := parseWorkflow(t, text)
 	var install string
 	for _, s := range steps {
@@ -179,7 +183,7 @@ func TestWorkflowPinsCloudflared(t *testing.T) {
 	}
 	// Other modes install nothing of it.
 	for _, mode := range []string{connDirect, connTailscale} {
-		if strings.Contains(githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: mode}), "cloudflared") {
+		if strings.Contains(githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "main", Mode: mode}), "cloudflared") {
 			t.Errorf("%s workflow mentions cloudflared", mode)
 		}
 	}
@@ -343,7 +347,7 @@ func TestDeployKey(t *testing.T) {
 func githubApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	writeFile(t, filepath.Join(root, "tifa.yaml"), tifaYAML)
 	for name, content := range files {
 		writeFile(t, filepath.Join(root, name), content)
@@ -515,7 +519,7 @@ func ingressOf(cf *fakeAccess, id string) []map[string]any {
 // After the CI workflow, the deploy follows it: only a passed push, on the commit that was
 // checked, from the default branch. Without a CI workflow a push deploys.
 func TestWorkflowAfterCI(t *testing.T) {
-	text := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect, CIName: "CI"})
+	text := githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "main", Mode: connDirect, CIName: "CI"})
 	doc, steps := parseWorkflow(t, text)
 	if !strings.HasPrefix(text, workflowMarker) {
 		t.Error("no marker line")
@@ -545,7 +549,7 @@ func TestWorkflowAfterCI(t *testing.T) {
 	if doc["permissions"].(map[string]any)["contents"] != "read" {
 		t.Error("permissions")
 	}
-	push := githubWorkflow(githubWorkflowSpec{Branch: "main", Mode: connDirect})
+	push := githubWorkflow(githubWorkflowSpec{GoMinor: "1.27", Branch: "main", Mode: connDirect})
 	doc, _ = parseWorkflow(t, push)
 	on = doc["on"].(map[string]any)
 	if _, ok := on["push"]; !ok {
@@ -553,5 +557,14 @@ func TestWorkflowAfterCI(t *testing.T) {
 	}
 	if _, ok := on["workflow_run"]; ok || strings.Contains(push, "TIFA_DEPLOY_CF_PURGE_TOKEN") {
 		t.Errorf("fallback:\n%s", push)
+	}
+}
+
+// Without a go line there is no minor to install, and the workflow is not written with a guess.
+func TestWorkflowSpecNeedsAGoLine(t *testing.T) {
+	root := githubApp(t, "", nil)
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	if _, err := workflowSpec(deployTarget{root: root}, "main", "", connDirect); err == nil || !strings.Contains(err.Error(), "go line") {
+		t.Errorf("error %v", err)
 	}
 }

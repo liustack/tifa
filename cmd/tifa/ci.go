@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	gover "go/version"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,6 +18,13 @@ const (
 	// packageManager. The action fails without either.
 	defaultPnpmVersion = "10"
 )
+
+// goMinor returns the minor of a Go version, such as 1.27 for 1.27.0 and 1.27rc1, or "" when it
+// is not a Go version. setup-go installs exactly 1.27.0 for a go line of 1.27.0, and the newest
+// patch for 1.27.x with check-latest.
+func goMinor(v string) string {
+	return strings.TrimPrefix(gover.Lang("go"+v), "go")
+}
 
 // planCI returns the workflow for an existing app at root, or nil when the app has a workflow
 // already (ci.yml or any other: a second one would run the checks twice). It never replaces a
@@ -33,6 +41,9 @@ func planCI(root string, app newApp, notes []string) (*agentChange, []string, er
 		if ext := filepath.Ext(e.Name()); !e.IsDir() && (ext == ".yml" || ext == ".yaml") {
 			return nil, notes, nil
 		}
+	}
+	if app.GoMinor == "" {
+		return nil, append(notes, fmt.Sprintf("no %s: go.mod has no go line, so the workflow cannot tell which Go to install", ciPath)), nil
 	}
 	pkg, err := os.ReadFile(filepath.Join(root, "package.json"))
 	switch {

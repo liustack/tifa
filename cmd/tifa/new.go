@@ -40,6 +40,7 @@ type newApp struct {
 	Title   string // the last element of the module path, the page title
 	NPM     string // the name in package.json
 	Go      string // the go line of go.mod
+	GoMinor string // the minor of the go line, such as 1.27: CI installs the newest patch of it
 	Version string // the tifa version in go.mod
 	Install string // the command that installs the npm packages: pnpm install or npm install
 	Run     string // the command that runs a package.json script: pnpm or npm run
@@ -104,6 +105,7 @@ table, a root Layout and a home page of one line.`,
 			if app.Go, err = goDirective(runtime.Version()); err != nil {
 				return err
 			}
+			app.GoMinor = goMinor(app.Go)
 			info, _ := debug.ReadBuildInfo()
 			if app.Version = releaseVersion(info); app.Version == "" {
 				app.Version = "v0.0.0"

@@ -204,7 +204,7 @@ func TestShellQuote(t *testing.T) {
 // at the root of the app. tifa.yaml has no host: the file is committed.
 func TestDeployHost(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  auto: {}\n")
 	t.Setenv(deployHostEnv, "")
 	writeFile(t, filepath.Join(root, ".env"), "# the server\nOTHER=1\nTIFA_DEPLOY_HOST=ssh://203.0.113.7:2222\n")
@@ -261,7 +261,7 @@ func TestDeploySettingsChecks(t *testing.T) {
 		"all set":                    {site + "deploy:\n  front: cloudflare\n  connect: cloudflare\n  auto: {}\n", ""},
 	} {
 		root := t.TempDir()
-		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 		writeFile(t, filepath.Join(root, "tifa.yaml"), tc.yaml)
 		t.Setenv(deployHostEnv, "vps")
 		d, err := loadTarget(root, "")
@@ -364,7 +364,7 @@ echo the app said goodbye`)
 // check is recorded and the one before runs again, and tifa deploy rollback goes back past it.
 func TestDeployFlow(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
 	t.Setenv(deployHostEnv, "vps")
 	home := t.TempDir()
@@ -456,7 +456,7 @@ func TestDeployFlow(t *testing.T) {
 // Before setup the server has no port for the app, and tifa deploy says to run setup.
 func TestDeployNeedsSetup(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	t.Setenv(deployHostEnv, "vps")
 	fakeServer(t, t.TempDir(), nil)
 	if _, _, err := run(t, "deploy", "--dir", root); err == nil || !strings.Contains(err.Error(), "tifa deploy setup") {
@@ -467,7 +467,7 @@ func TestDeployNeedsSetup(t *testing.T) {
 // A first deploy that fails its check has nothing to go back to, so the app is stopped.
 func TestDeployFirstReleaseFails(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	t.Setenv(deployHostEnv, "vps")
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, "shop", "port"), "9531\n")
@@ -502,7 +502,7 @@ func prepareFakeServer(t *testing.T, home string) {
 // visitors itself on port 80, which the deploy user may open there.
 func TestDeployCreatesTheApp(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	t.Setenv(deployHostEnv, "vps")
 	home := t.TempDir()
 	prepareFakeServer(t, home)
@@ -608,7 +608,7 @@ func TestDeployMasksTheHostInActions(t *testing.T) {
 
 	// Before anything reaches the server.
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	t.Setenv(deployHostEnv, "ssh://203.0.113.7:2222")
 	t.Setenv(envGitHubActions, "true")
 	fakeServer(t, t.TempDir(), nil)
