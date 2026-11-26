@@ -12,13 +12,13 @@ import (
 	"golang.org/x/tools/go/types/typeutil"
 )
 
-// fixHint tells the user how to change a call the analyzer cannot follow.
-const fixHint = `read the path parameters with c.Param("name") in Load, or in a function the analyzer follows, and pass the values instead, take the query parameters as the second parameter of Load and pass its fields, or pass c.Context() when only the request context is needed`
-
-// loadWalk collects what one Load reads: the c.Param names and the tifa.Use calls in
-// its body and in every function it passes the Ctx to, followed through any number of calls
-// inside the module. Each Load gets its own walk, so a helper shared by several Loads counts for
-// each of them.
+// loadWalk collects what one Load reads: the c.Param names and the tifa.Use calls in its body
+// and in every function of the module it passes the Ctx to, as an argument or as the receiver of a
+// method, followed through any number of calls. The walk is best effort: it stops where it cannot
+// see which function runs (an interface method, a function value, a function outside the module)
+// and says nothing about it, as the Ctx may go anywhere a value can. What it reaches is checked,
+// what it does not is the app's own, as it is for an http.Handler. Each Load gets its own walk, so
+// a helper shared by several Loads counts for each of them.
 type loadWalk struct {
 	a        *analyzer
 	owner    string // directory ID of the route or Layout that declares the Load
@@ -45,7 +45,6 @@ func (a *analyzer) walkLoad(pkg *packages.Package, owner string, layout bool, lo
 	if layout {
 		w.self = pkg.PkgPath
 	}
-	a.checkCtxFlow(pkg.TypesInfo, decl.Body)
 	w.body(pkg.TypesInfo, decl.Body, false)
 	return w.uses
 }
@@ -55,14 +54,8 @@ func (w *loadWalk) body(info *types.Info, body *ast.BlockStmt, helper bool) {
 	defer func() { w.unrun = saved }()
 	w.unrun = unrunClosures(body)
 	ast.Inspect(body, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.GoStmt:
-			if mentionsCtx(info, n.Call) {
-				w.a.errorAt(n.Pos(), "a go statement hands the Ctx to another goroutine, which the analyzer does not follow: %s", fixHint)
-				return false
-			}
-		case *ast.CallExpr:
-			w.call(info, n, helper)
+		if call, ok := n.(*ast.CallExpr); ok {
+			w.call(info, call, helper)
 		}
 		return true
 	})
@@ -100,15 +93,14 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 			a.errorAt(call.Pos(), "c.%s cannot be used in Load, Layout or the functions they call: they take their query parameters as a second parameter, which the build and the browser can read. Declare the parameters in a struct and take it as the second parameter, for example type Filter struct { Sort string `json:\"sort\"` } and func %s(c *tifa.Ctx, q Filter) (T, error), then read q.Sort. c.%s is for method handlers, Validate and OnRequest", method, what, method)
 			return
 		}
-		if len(call.Args) != 1 {
+		// A name that is not a constant is read when the page runs, and the build checks only the
+		// names it can see.
+		if method != "Param" || len(call.Args) != 1 {
 			return
 		}
-		tv := info.Types[call.Args[0]]
-		if tv.Value == nil || tv.Value.Kind() != constant.String {
-			a.errorAt(call.Pos(), "the argument of c.%s must be a constant string, the analyzer reads parameter names from it", method)
-			return
+		if tv := info.Types[call.Args[0]]; tv.Value != nil && tv.Value.Kind() == constant.String {
+			w.uses = append(w.uses, paramUse{method: method, name: constant.StringVal(tv.Value), pos: call.Pos()})
 		}
-		w.uses = append(w.uses, paramUse{method: method, name: constant.StringVal(tv.Value), pos: call.Pos()})
 		return
 	}
 	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok {
@@ -138,51 +130,26 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	if info.Types[call.Fun].IsType() || !callCarriesCtx(info, call) {
 		return
 	}
-	switch callee := typeutil.Callee(info, call).(type) {
-	case *types.Builtin:
-	case *types.Func:
-		if callee.Pkg() != nil && a.isFramework(callee.Pkg().Path()) {
-			return
-		}
-		if recv := callee.Signature().Recv(); recv != nil && types.IsInterface(recv.Type()) {
-			a.errorAt(call.Pos(), "%s is an interface method that receives the Ctx, the analyzer cannot tell which implementation runs: %s", methodName(callee), fixHint)
-			return
-		}
-		key := callee.Origin().FullName()
-		if src, ok := a.funcs[key]; ok {
-			w.follow(key, src)
-			return
-		}
-		if callee.Pkg() != nil && a.modulePkgs[callee.Pkg().Path()] {
-			return // a module package that does not type check, its errors are reported
-		}
-		a.errorAt(call.Pos(), "%s is outside this module and receives the Ctx, the analyzer cannot read its source: %s", callee.FullName(), fixHint)
-	default: // a variable, parameter or field of function type, or a call result
-		if _, ok := ast.Unparen(call.Fun).(*ast.FuncLit); ok {
-			return // the literal's body is inspected as part of the enclosing body
-		}
-		a.errorAt(call.Pos(), "%s is a function value that receives the Ctx, the analyzer cannot tell which function runs: call a named function, or %s", types.ExprString(call.Fun), fixHint)
+	// A builtin, a function value, an interface method and a function outside the module are not
+	// followed: the build cannot read which code runs. A function literal called on the spot is
+	// inspected as part of the body around it.
+	callee, ok := typeutil.Callee(info, call).(*types.Func)
+	if !ok || callee.Pkg() != nil && a.isFramework(callee.Pkg().Path()) {
+		return
+	}
+	key := callee.Origin().FullName()
+	if src, ok := a.funcs[key]; ok {
+		w.follow(key, src)
 	}
 }
 
-// follow walks the body of a function in the module that receives the Ctx. The checks that do
-// not depend on the Load run once per function: Param and Query must be called directly there
-// too, and the Ctx must not be converted to an interface with these methods.
+// follow walks the body of a function in the module that receives the Ctx.
 func (w *loadWalk) follow(key string, src funcSource) {
 	if w.visited[key] || src.decl.Body == nil {
 		return
 	}
 	w.visited[key] = true
-	a := w.a
-	info := src.pkg.TypesInfo
-	if !a.checked[key] {
-		a.checked[key] = true
-		a.checkCtxFlow(info, src.decl.Body)
-		if !a.appPkgs[src.pkg.PkgPath] { // checkDirectCalls covers the application packages whole
-			a.checkDirectCallsIn(info, src.decl)
-		}
-	}
-	w.body(info, src.decl.Body, true)
+	w.body(src.pkg.TypesInfo, src.decl.Body, true)
 }
 
 // callCarriesCtx reports whether a call passes the Ctx, as an argument or as the receiver of a
@@ -199,20 +166,6 @@ func callCarriesCtx(info *types.Info, call *ast.CallExpr) bool {
 		}
 	}
 	return false
-}
-
-// mentionsCtx reports whether any variable inside n holds the Ctx.
-func mentionsCtx(info *types.Info, n ast.Node) bool {
-	found := false
-	ast.Inspect(n, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok {
-			if v, ok := info.Uses[id].(*types.Var); ok && containsCtx(v.Type()) {
-				found = true
-			}
-		}
-		return !found
-	})
-	return found
 }
 
 // containsCtx reports whether a value of type t holds a tifa.Ctx: the Ctx itself, a pointer to it,
@@ -258,6 +211,19 @@ func containsCtxSeen(t types.Type, seen map[types.Type]bool) bool {
 	return false
 }
 
+func isCtxNamed(n *types.Named) bool {
+	obj := n.Obj()
+	return obj.Pkg() != nil && obj.Pkg().Path() == corePath && obj.Name() == "Ctx"
+}
+
+// shortType writes a type with package names instead of import paths.
+func shortType(t types.Type) string {
+	if t == nil {
+		return "no parameter"
+	}
+	return types.TypeString(t, shortQualifier)
+}
+
 // isFrameworkPath reports whether an import path belongs to tifa itself, whose functions read
 // no parameters on the application's behalf.
 func (a *analyzer) isFramework(path string) bool {
@@ -266,14 +232,6 @@ func (a *analyzer) isFramework(path string) bool {
 
 func isFrameworkPath(path string) bool {
 	return path == tifaPath || strings.HasPrefix(path, tifaPath+"/")
-}
-
-// methodName names an interface method by its interface: reader.Read.
-func methodName(fn *types.Func) string {
-	if named, ok := types.Unalias(derefType(fn.Signature().Recv().Type())).(*types.Named); ok {
-		return named.Obj().Name() + "." + fn.Name()
-	}
-	return fn.Name()
 }
 
 // refusedInLoad returns why fn may not run in Load, Layout and the functions they call, and an

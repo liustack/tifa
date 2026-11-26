@@ -139,8 +139,6 @@ type analyzer struct {
 	// appPkgs holds the import paths of pkgs, modulePkgs those of every package in the module.
 	appPkgs, modulePkgs map[string]bool
 	funcs               map[string]funcSource // functions of module packages that type check, by full name
-	checked             map[string]bool       // followed functions whose own body has been checked
-	carrying            map[*types.Named]bool // carriesCtx results
 	helperUses          []useCall
 	errs                Errors
 	used                usedLoads
@@ -322,8 +320,6 @@ func (a *analyzer) load() error {
 	a.broken = map[string]bool{}
 	a.appPkgs = map[string]bool{}
 	a.funcs = map[string]funcSource{}
-	a.checked = map[string]bool{}
-	a.carrying = map[*types.Named]bool{}
 	// Walk the import graph of the application, packages outside app/ included. A package with
 	// errors is broken, and so is every package that imports a broken one directly or
 	// indirectly, because it was type checked against incomplete information. Visit calls post
@@ -541,7 +537,6 @@ func (a *analyzer) build() *Manifest {
 	a.checkPaths(routes)
 	a.checkLayoutURLs(routes, layouts)
 	a.checkUses(layouts)
-	a.checkDirectCalls()
 	a.checkBindTags()
 	a.propagateQuery(routes, layouts)
 	a.checkQueryTypes(routes, layouts)
@@ -1088,63 +1083,6 @@ func calleeIdent(call *ast.CallExpr) *ast.Ident {
 	return nil
 }
 
-// checkDirectCalls requires c.Param and tifa.Use to be called directly, in every loaded package.
-// The analyzer reads parameter names and Use arguments at the call site, so a method value
-// (f := c.Param), a method expression ((*tifa.Ctx).Param(c, "x")) or tifa.Use stored in a variable
-// or passed as an argument would hide them. c.Query and c.QueryValues are not read by name: a Load
-// that calls them is refused whatever the way, and one the analyzer cannot see is stopped when it runs.
-func (a *analyzer) checkDirectCalls() {
-	for _, pkg := range a.pkgs {
-		for _, f := range pkg.Syntax {
-			a.checkDirectCallsIn(pkg.TypesInfo, f)
-		}
-	}
-}
-
-// checkDirectCallsIn applies checkDirectCalls to the syntax under root.
-func (a *analyzer) checkDirectCallsIn(info *types.Info, root ast.Node) {
-	called := map[*ast.Ident]bool{}
-	selectors := map[*ast.Ident]*ast.SelectorExpr{}
-	var idents []*ast.Ident
-	ast.Inspect(root, func(n ast.Node) bool {
-		switch e := n.(type) {
-		case *ast.CallExpr:
-			if id := calleeIdent(e); id != nil {
-				called[id] = true
-			}
-		case *ast.SelectorExpr:
-			selectors[e.Sel] = e
-		case *ast.Ident:
-			idents = append(idents, e)
-		}
-		return true
-	})
-	for _, id := range idents {
-		obj := info.Uses[id]
-		method := paramMethod(obj)
-		var name string
-		switch {
-		case method == "Param":
-			name = "c." + method
-			if sel := selectors[id]; sel != nil && info.Selections[sel] != nil && info.Selections[sel].Kind() == types.MethodExpr {
-				a.errorAt(sel.Pos(), "%s is a method expression: call c.%s(...) directly, the analyzer reads parameter names at the call", types.ExprString(sel), method)
-				continue
-			}
-		case isUseFunc(obj):
-			name = "tifa.Use"
-		default:
-			continue
-		}
-		if !called[id] {
-			pos := id.Pos()
-			if sel := selectors[id]; sel != nil {
-				pos = sel.Pos()
-			}
-			a.errorAt(pos, "%s must be called directly, not stored or passed as a value, so the analyzer can read its arguments", name)
-		}
-	}
-}
-
 func derefType(t types.Type) types.Type {
 	if p, ok := types.Unalias(t).(*types.Pointer); ok {
 		return p.Elem()
@@ -1345,10 +1283,12 @@ func restPrefix(segs []segment) ([]segment, bool) {
 	return segs[:len(segs)-1], true
 }
 
-// checkUses finds every call of tifa.Use in the loaded packages. Its function argument must be
-// a package-level function, because the runtime tells Loads apart by code address and closures
-// of one literal or method values of one method would share results. It must also be the Layout
-// function of a Layout that wraps the calling package: in its directory or above it.
+// checkUses finds every call of tifa.Use in the loaded packages. A function literal or a method
+// value as its argument is refused, because the runtime tells Loads apart by code address and
+// closures of one literal or method values of one method would share results. A package-level
+// function must be the Layout function of a Layout that wraps the calling package: in its directory
+// or above it. Any other argument, such as a variable, is left alone: the build cannot see what it
+// holds.
 func (a *analyzer) checkUses(layouts []*layout) {
 	layoutByPkg := map[string]*layout{}
 	for _, l := range layouts {
@@ -1393,8 +1333,7 @@ func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string,
 	}
 	fn := packageFunc(info, arg)
 	if fn == nil {
-		a.errorAt(arg.Pos(), "%s, got %s", need, text)
-		return
+		return // a variable or the result of a call: the build cannot see which function it holds
 	}
 	l := layoutByPkg[fn.Pkg().Path()]
 	if l == nil || fn.Name() != "Layout" {

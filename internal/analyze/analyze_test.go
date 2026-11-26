@@ -338,7 +338,6 @@ func TestViolations(t *testing.T) {
 			{"app/api/route.go:31:", "c.Writer", "Validate"},
 			{"app/api/route.go:32:", "c.SetReadTimeout", "Validate"},
 			{"app/helper/route.go:11:", "c.SetCookie", "Validate"},
-			{"app/helper/route.go:20:", "assigned to an existing variable", "the Ctx may only be"},
 		}},
 		{"badupload", [][]string{
 			{"app/get/route.go:13:", "GET input", "Input.File", "request body", "POST, PUT or PATCH"},
@@ -438,26 +437,9 @@ func TestViolations(t *testing.T) {
 			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}" conflicts`, `"/{a}/b/c"`},
 			{"app/declared/route.go:5:", "Path is not declared"},
 		}},
+		// A name the build can see is checked against the path, one it cannot is read when the page runs.
 		{"paramname", [][]string{
 			{"app/items/key+/route.go:11:", `"id"`, `"/items/{key}"`},
-			{"app/items/key+/route.go:11:", "c.Param must", "constant"},
-		}},
-		{"indirect", [][]string{
-			{"app/page/route.go:17:", "c.Param", "called directly"},
-			{"app/page/route.go:18:", "(*tifa.Ctx).Param", "method expression"},
-			{"app/page/route.go:19:", "tifa.Use", "called directly"},
-			{"app/page/route.go:20:", "tifa.Use", "called directly"},
-			{"app/page/route.go:21:", "use", "function value"},
-			{"app/page/route.go:27:", "c.Param", "called directly"},
-		}},
-		{"ifacectx", [][]string{
-			{"app/page/route.go:18:", "converted to interface{Query(string) string}", "call its methods directly"},
-			{"app/page/route.go:19:", "variable of type page.querier"},
-			{"app/page/route.go:20:", "passed as page.querier to page.read"},
-			{"app/page/route.go:21:", "returned"},
-			{"app/page/route.go:22:", "element of []page.querier"},
-			{"app/page/route.go:23:", "variable of type any"},
-			{"app/page/route.go:24:", "converted to interface{Context() context.Context}"},
 		}},
 		{"escape", [][]string{
 			{"app/page/route.go:11:", "c.Request", "second parameter"},
@@ -467,8 +449,8 @@ func TestViolations(t *testing.T) {
 		}},
 		// c.Query in Load, Layout and the functions they call is refused, also through a struct that embeds the Ctx.
 		{"embeddedctx", [][]string{{"app/page/route.go:10:", "c.Query", "second parameter", "func Load(c *tifa.Ctx, q Filter)"}}},
-		// The Ctx goes where it may go (a method receiver, an argument, a field of a struct literal, a new
-		// local variable): the walk reaches every call on it, and each one is refused as a read of the query string.
+		// The walk follows the Ctx as an argument and as the receiver of a method, a struct that embeds it
+		// included, and each call it reaches is refused as a read of the query string.
 		{"ctxallowed", [][]string{
 			{"app/page/route.go:16:", "c.Query", "second parameter"},
 			{"app/page/route.go:17:", "c.Query", "second parameter"},
@@ -485,7 +467,6 @@ func TestViolations(t *testing.T) {
 		{"ownprefix", [][]string{{"filters/filters.go:6:", "c.Query", "second parameter"}}},
 		{"queryinload", [][]string{
 			{"app/route.go:10:", "c.QueryValues", "func Layout(c *tifa.Ctx, q Filter)"},
-			{"app/items/id+/route.go:14:", "method Query taken as a value"},
 			{"db/db.go:8:", "c.Query", "func Load(c *tifa.Ctx, q Filter)"},
 			{"db/db.go:10:", "c.Query"},
 			{"db/db.go:13:", "c.QueryValues"},
@@ -525,36 +506,11 @@ func TestViolations(t *testing.T) {
 			{"app/list/route.go:12:", `"_tifa"`, "reserved", "Load query"},
 			{"app/dup/route.go:12:", `"q"`, "Page and Sort", "one field"},
 		}},
-		{"ctxflow", [][]string{
-			{"app/page/route.go:26:", "element of map[int]*tifa.Ctx"},
-			{"app/page/route.go:27:", "converted to any"},
-			{"app/page/route.go:28:", "variable of type any"},
-			{"app/page/route.go:29:", "element of []*tifa.Ctx"},
-			{"app/page/route.go:30:", "sent on a channel"},
-			{"app/page/route.go:31:", "[]*tifa.Ctx", "may not hold the Ctx"},
-			{"app/page/route.go:33:", "field V of type any"},
-			{"app/page/route.go:34:", "element of page.box[*tifa.Ctx]"},
-			{"app/page/route.go:35:", "address taken"},
-			{"app/page/route.go:37:", "existing variable"},
-			{"app/page/route.go:38:", "existing variable"},
-			{"app/page/route.go:39:", "package-level variable"},
-			{"app/page/route.go:40:", "defer statement"},
-			{"app/page/route.go:41:", "defer statement"},
-			{"app/page/route.go:42:", "several values"},
-			{"app/page/route.go:43:", "returned"},
-			{"app/page/route.go:44:", "passed as any to page.takeAny"},
-			{"app/page/route.go:44:", "generic function page.generic"},
-			{"app/page/route.go:44:", "generic function page.generic"},
-		}},
+		// Where the walk cannot see which function runs (an interface method, a function value, a
+		// function outside the module) it stops without a word. A go statement is followed like any call.
 		{"nofollow", [][]string{
-			{"app/page/route.go:24:", "interface method", "reader.Read", "pass the values"},
-			{"app/page/route.go:25:", "function value", "fn"},
-			{"app/page/route.go:26:", "go statement"},
-			{"app/page/route.go:27:", "fmt.Println", "outside this module"},
-			{"app/page/route.go:28:", "go statement"},
-			{"helpers/helpers.go:16:", "interface method", "sink.Take"},
-			{"helpers/helpers.go:22:", "c.Param", "called directly"},
-			{"helpers/helpers.go:28:", "variable of type helpers.querier"},
+			{"app/page/route.go:20:", "c.Query", "second parameter"},
+			{"app/page/route.go:28:", "c.Query", "second parameter"},
 			{"helpers/helpers.go:34:", "app/other does not wrap app/page"},
 		}},
 		{"typeerror", [][]string{
@@ -588,7 +544,6 @@ func TestViolations(t *testing.T) {
 		}},
 		{"sessiongeneric", [][]string{
 			{"app/page/route.go:7:", "tifa.Session", "type parameter", "generic"},
-			{"app/page/route.go:10:", "generic function", "page.current"},
 		}},
 		{"sessionmissing", [][]string{
 			{"app/page/route.go:8:", "tifa.Session", "no call of tifa.SetSession"},
@@ -1321,5 +1276,17 @@ func TestFollowHelpers(t *testing.T) {
 	// The Layout is used through a helper of the list Load, and the other Load does not reach it.
 	if !reflect.DeepEqual(other.Params, []string{"id"}) || len(other.Uses) != 0 {
 		t.Errorf("other Load = %+v", other)
+	}
+}
+
+// The Ctx goes anywhere a value can, as in an http.Handler: into an interface, a slice, a map, a
+// channel, a generic function, a function value, another goroutine, a variable of the package, a
+// function outside the module, and c.Param and tifa.Use may be taken as values. The build checks
+// what its walk reaches and says nothing of the rest.
+func TestCtxGoesAnywhere(t *testing.T) {
+	for _, app := range []string{"ctxflow", "ifacectx", "indirect"} {
+		if _, err := analyzeApp(t, app); err != nil {
+			t.Errorf("%s: %v", app, err)
+		}
 	}
 }

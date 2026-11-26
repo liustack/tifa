@@ -335,21 +335,17 @@ func decodeProblem(t types.Type, key bool) string {
 	return ""
 }
 
-// walkValidate checks the Validate method fn of an input that takes the Ctx, and the functions it
-// passes the Ctx to. The Ctx goes where the Load rules let it go (checkCtxFlow), and the calls on
-// it are those refusedInValidate lets through. It reports false when it reported an error.
+// walkValidate checks the Validate method fn of an input that takes the Ctx, and the functions of
+// the module it passes the Ctx to: the calls on it are those refusedInValidate lets through. A
+// Validate the build cannot read, outside the module, is not checked. It reports false when it
+// reported an error.
 func (a *analyzer) walkValidate(fn *types.Func) bool {
 	src, found := a.funcs[fn.Origin().FullName()]
-	if !found && fn.Pkg() != nil && a.modulePkgs[fn.Pkg().Path()] {
-		return true // a module package that does not type check, its errors are reported
-	}
 	if !found || src.decl.Body == nil {
-		a.errorAt(fn.Pos(), "%s receives the Ctx and is outside this module, so the analyzer cannot read its source: declare the input type in this module", fn.FullName())
-		return false
+		return true
 	}
 	before := len(a.errs)
 	w := &loadWalk{a: a, load: &Load{}, visited: map[string]bool{fn.Origin().FullName(): true}, validate: true}
-	a.checkCtxFlow(src.pkg.TypesInfo, src.decl.Body)
 	w.body(src.pkg.TypesInfo, src.decl.Body, false)
 	return len(a.errs) == before
 }

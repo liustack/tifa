@@ -17,7 +17,7 @@ func (impl) Read(c *tifa.Ctx) string { return "" }
 
 var fn = func(c *tifa.Ctx) string { return "" }
 
-func background(c *tifa.Ctx) {}
+func background(c *tifa.Ctx) { _ = c.Query("bg") }
 
 func Load(c *tifa.Ctx) (string, error) {
 	var r reader = impl{}
