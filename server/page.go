@@ -350,6 +350,20 @@ func isRegular(fsys fs.FS, name string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
+// uncachedErrors drops the Cache-Control of an answer that is not a copy of the file. ServeContent
+// answers 412 for a failed If-Match or If-Unmodified-Since with the headers the caller set, and a
+// long cache on it would let a shared cache hand the 412 to every client that asks for the file.
+type uncachedErrors struct{ http.ResponseWriter }
+
+func (w uncachedErrors) WriteHeader(code int) {
+	if code != http.StatusOK && code != http.StatusPartialContent && code != http.StatusNotModified {
+		w.Header().Del("Cache-Control")
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w uncachedErrors) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 // serveFile answers with the regular file name of fsys and reports whether it exists. With
 // gz, a GET that accepts gzip gets the file name.gz that tifa build compressed, when there is
 // one, as nginx's gzip_static and Caddy's precompressed do: with the type of name, and a range
@@ -401,7 +415,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name, cache, 
 		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 		return true
 	}
-	http.ServeContent(w, r, info.Name(), info.ModTime(), seeker)
+	http.ServeContent(uncachedErrors{w}, r, info.Name(), info.ModTime(), seeker)
 	return true
 }
 
