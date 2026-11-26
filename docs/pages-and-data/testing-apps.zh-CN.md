@@ -2,7 +2,7 @@
 summary: '怎样用 go test 测试应用：tifatest.NewCtx、tifatest.Start、Load、OnRequest、时钟'
 audience: app
 order: 14
-translatedFrom: 9c87e6e16196
+translatedFrom: e3a155087358
 read_when:
   - '为 Load、布局函数、方法处理函数或 OnRequest 写 Go 测试'
   - '在 go test 里用 tifatest.Start 或 tifatest.StartPages 测试一次完整的请求，比如登录后跟随重定向'
@@ -12,7 +12,7 @@ read_when:
 
 # 测试 {#testing}
 
-测试用 `go test` 运行，和代码放在一起，有两种方式。测试单个函数时，用 `tifatest.NewCtx` 造一个 `Ctx`，去调用 `Load`、方法处理函数或 `OnRequest`。测试整个请求时，用 `tifatest.Start` 启动应用，再给它发 HTTP 请求，这样就能登录、提交表单、跟着重定向走并读取页面。
+测试用 `go test` 运行，和代码放在一起，有两种方式。测试单个函数时，用 `tifatest.NewCtx` 造一个 `Ctx`，去调用 `Load`、方法处理函数或 `OnRequest`。测试整个请求时，用 `tifatest.Start` 启动应用，再给它发 HTTP 请求，这样就能登录、提交表单、跟着重定向走并读取页面。页面的组件和浏览器里的页面见[测试页面](testing-pages.zh-CN.md)。
 
 ## 测试一个函数 {#testing-a-function}
 

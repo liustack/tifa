@@ -11,7 +11,7 @@ read_when:
 
 # Testing
 
-Tests run with `go test`, next to the code, in two ways. A test of one function calls `Load`, a method handler or `OnRequest` with a `Ctx` from `tifatest.NewCtx`. A test of a whole request starts the app with `tifatest.Start` and sends it HTTP requests, so it can sign in, post a form, follow the redirect and read the page.
+Tests run with `go test`, next to the code, in two ways. A test of one function calls `Load`, a method handler or `OnRequest` with a `Ctx` from `tifatest.NewCtx`. A test of a whole request starts the app with `tifatest.Start` and sends it HTTP requests, so it can sign in, post a form, follow the redirect and read the page. The components of the pages and the pages in a browser are in [Testing pages](testing-pages.md).
 
 ## Testing a function
 

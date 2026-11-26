@@ -2,7 +2,7 @@
 summary: '怎样开始写一个 Tifa 应用：route.go、page.tsx、layout.tsx、URL、`public/`、Next.js 或 Remix 代码'
 audience: app
 order: 2
-translatedFrom: 94ccf5175709
+translatedFrom: ce295526ac85
 read_when:
   - '新建 Tifa 应用，或给应用加页面、布局或 API 路由'
   - '往应用里放图片、字体或图标，或者在导入和 `public/` 里的文件之间做选择'
@@ -164,4 +164,5 @@ site:
 - [样式](../pages-and-data/styles.zh-CN.md)：CSS、Tailwind CSS 和 shadcn/ui。
 - [Hooks](../pages-and-data/hooks.zh-CN.md)：`hooks.go` 和 `setup.ts`。
 - [测试](../pages-and-data/testing-apps.zh-CN.md)：用 `go test` 和 `tifatest` 写测试。
+- [测试页面](../pages-and-data/testing-pages.zh-CN.md)：用 Vitest 测页面组件，用 Playwright 在浏览器里测页面。
 - [部署](../build-and-deploy/deploy.zh-CN.md)：你部署新版本时，在浏览器里打开的页面会怎么做。

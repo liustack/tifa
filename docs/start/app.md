@@ -163,4 +163,5 @@ The [guide](../guides/i18n.md) goes through all of it: translating, the language
 - [Styles](../pages-and-data/styles.md): CSS, Tailwind CSS and shadcn/ui.
 - [Hooks](../pages-and-data/hooks.md): `hooks.go` and `setup.ts`.
 - [Testing](../pages-and-data/testing-apps.md): tests with `go test` and `tifatest`.
+- [Testing pages](../pages-and-data/testing-pages.md): page components with Vitest, and pages in a browser with Playwright.
 - [Deploying](../build-and-deploy/deploy.md): what pages open in a browser do when you deploy a new version.
