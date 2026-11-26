@@ -106,6 +106,14 @@ go tool tifa deploy rollback
 
 It starts the newest earlier release that passed its check, checks it the same way, and clears the CDN cache. Run it again to go back further. The next `tifa deploy` makes a new release from your code.
 
+To go to a release you pick, give its ID as `tifa deploy status` lists it:
+
+```sh
+go tool tifa deploy rollback 20261120T110000Z
+```
+
+That release can be older or newer than the one that runs. It must still be on the server and have passed its health check when it was deployed. If it is not, nothing changes and the error lists the releases it can go to. If it is the one that runs already, nothing changes and the command says so.
+
 ## The servers Tifa remembers
 
 After a setup or a deploy that worked, Tifa writes the server in `~/.tifa/config.yaml` (`%USERPROFILE%\.tifa\config.yaml` on Windows), so the next app on this machine needs no `TIFA_DEPLOY_HOST`. A server set up from another machine, or before the file was there, gets its entry on the first deploy from this machine. A deploy in GitHub Actions writes nothing. The file holds no secret, only the servers this machine has set up or deployed to:

@@ -790,3 +790,69 @@ func TestDeployRemembersTheServer(t *testing.T) {
 		t.Errorf("unwritable file: %v\n%s%s", err, out, stderr)
 	}
 }
+
+// A rollback with a release ID goes to that release, older or newer than the current one, when
+// it is kept and passed its health check. The current release and a bad one are told apart.
+func TestDeployRollbackTo(t *testing.T) {
+	s := state("3", []string{"1", "2", "3", "4", "5"}, "1 ok", "2 failed", "3 ok", "4 ok")
+	if got, current, err := rollbackTo(s, "1"); err != nil || current || got.ID != "1" || got.Commit != "c1" {
+		t.Errorf("older: %+v, %v, %v", got, current, err)
+	}
+	if got, current, err := rollbackTo(s, "4"); err != nil || current || got.ID != "4" {
+		t.Errorf("newer: %+v, %v, %v", got, current, err)
+	}
+	if _, current, err := rollbackTo(s, "3"); err != nil || !current {
+		t.Errorf("current: %v, %v", current, err)
+	}
+	for _, id := range []string{"2", "5", "9"} {
+		_, _, err := rollbackTo(s, id)
+		if err == nil || !strings.Contains(err.Error(), "can go to") || !strings.Contains(err.Error(), "1  commit c1") ||
+			!strings.Contains(err.Error(), "4  commit c4") || strings.Contains(err.Error(), "3  commit") {
+			t.Errorf("%s: %v", id, err)
+		}
+	}
+	if _, _, err := rollbackTo(state("", nil), "1"); err == nil || !strings.Contains(err.Error(), "nothing is deployed") {
+		t.Errorf("nothing deployed: %v", err)
+	}
+}
+
+func TestDeployRollbackToFlow(t *testing.T) {
+	root, home := statusApp(t, "ActiveState=active\nActiveEnterTimestamp=Fri 2026-11-20 12:00:05 UTC\nMainPID=1\n")
+	ids := []string{"20261120T100000Z", "20261120T110000Z", "20261120T120000Z"}
+	for _, id := range ids {
+		if err := os.Chmod(filepath.Join(home, "shop", "releases", id, "shop"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current := func() string {
+		c, _ := os.Readlink(filepath.Join(home, "shop", "current"))
+		return c
+	}
+	// The shape is checked before ssh, so a value that is not an ID reaches no server.
+	for _, bad := range []string{"latest", "2026-11-20", "20261120T100000Z; id", "../current"} {
+		if _, _, err := run(t, "deploy", "rollback", bad, "--dir", root); err == nil || !strings.Contains(err.Error(), "release ID") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	if current() != "releases/"+ids[2] {
+		t.Fatalf("current %s", current())
+	}
+	// A release that failed its check is refused, and the others are listed.
+	out, _, err := run(t, "deploy", "rollback", ids[1], "--dir", root)
+	if err == nil || !strings.Contains(err.Error(), ids[0]+"  commit aaa111") || current() != "releases/"+ids[2] {
+		t.Fatalf("failed release: %v, current %s\n%s", err, current(), out)
+	}
+	// The current release is already running: nothing changes and it is no error.
+	out, _, err = run(t, "deploy", "rollback", ids[2], "--dir", root)
+	if err != nil || !strings.Contains(out, "already") || current() != "releases/"+ids[2] {
+		t.Fatalf("current release: %v, current %s\n%s", err, current(), out)
+	}
+	out, stderr, err := run(t, "deploy", "rollback", ids[0], "--dir", root)
+	if err != nil || current() != "releases/"+ids[0] || !strings.Contains(out, "rolled back to "+ids[0]) {
+		t.Fatalf("to the first: %v, current %s\n%s%s", err, current(), out, stderr)
+	}
+	// And forward again, to a newer release.
+	if out, _, err = run(t, "deploy", "rollback", ids[2], "--dir", root); err != nil || current() != "releases/"+ids[2] {
+		t.Fatalf("forward: %v, current %s\n%s", err, current(), out)
+	}
+}

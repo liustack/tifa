@@ -2,7 +2,7 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: 4b41a3481a80
+translatedFrom: 844e759122e7
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -106,6 +106,14 @@ go tool tifa deploy rollback
 ```
 
 它启动最近一个通过了检查的更早发布，用同样的方式检查它，并清除 CDN 缓存。再运行一次就能回到更早的。下一次 `tifa deploy` 会用你的代码做出一个新的发布。
+
+要去你自己挑的发布，给出 `tifa deploy status` 列出的发布 ID：
+
+```sh
+go tool tifa deploy rollback 20261120T110000Z
+```
+
+那个发布可以比正在运行的更旧，也可以更新。它必须还在服务器上，并且部署时通过了健康检查。不满足时什么都不改，错误信息会列出能去的发布。它就是正在运行的那个时，也什么都不改，命令会说明这一点。
 
 ## Tifa 记住的服务器 {#the-servers-tifa-remembers}
 
