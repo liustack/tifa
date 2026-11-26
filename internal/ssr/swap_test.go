@@ -455,12 +455,21 @@ func TestMemorySwapAccumulatedLeak(t *testing.T) {
 	waitReplacements(t, p, 1)
 }
 
-// Proactive swaps must close every retired VM.
+// Proactive swaps must close every retired VM. Each VM loaded in place of a grown one first runs
+// refitRenders renders that keep nothing, so its leak is a new one to replace and not a sign that
+// the app does not fit its limit, which would make the pool wait before it replaces again.
 func TestSoakMemorySwap(t *testing.T) {
 	sizeRule(t)
 	skipUnlessSoak(t)
 	p := newTestPool(t, leakSource, testConfig(1))
 	for cycle := range 16 {
+		if cycle > 0 {
+			for range refitRenders {
+				if _, err := p.Render(context.Background(), Input{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
 		leakRender(t, p)
 		waitReplacements(t, p, cycle+1)
 	}
