@@ -413,6 +413,21 @@ test('literal segments match the URLs ServeMux matches', async () => {
   assert(redirected.redirect?.location === '/e' && redirected.redirect.status === 308, `render /%65: ${JSON.stringify(redirected)}`)
 })
 
+test('a $ in the path goes to the spelling the router writes for it', async () => {
+  // The router writes a parameter $x as %24x. A $ as it is, which a browser keeps in an address,
+  // is the same parameter in another spelling, so it redirects there as /%65 does to /e.
+  const data = { ...appData, 'app/teams/team+/layout': ok('$x'), 'app/teams/team+/one/route': ok('one') }
+  for (const [url, location] of [
+    ['/teams/$x/one', '/teams/%24x/one'],
+    ['/teams/$/one?q=$', '/teams/%24/one?q=$'],
+    ['/teams/a$b$/one', '/teams/a%24b%24/one'],
+  ]) {
+    const redirected = await renderResult(url, data)
+    assert(redirected.redirect?.location === location && redirected.redirect.status === 308, `render ${url}: ${JSON.stringify(redirected)}`)
+  }
+  await render('/teams/%24x/one', data)
+})
+
 test('the document around the React root is written as a string', async () => {
   const html = await render('/teams/x/one', { ...appData, 'app/teams/team+/layout': ok('x'), 'app/teams/team+/one/route': ok('one') })
   assert(

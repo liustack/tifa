@@ -46,6 +46,7 @@ func checkRoutersAgree(t *testing.T, base string) {
 		"/shops/north/items/app%C3%A9",
 		"/shops/north/items/apple?x=1",
 		"/shops/north/items/apple#frag",
+		"/shops/$north/items/apple",
 	} {
 		status, _, body := get(t, base+target)
 		switch {
@@ -57,5 +58,16 @@ func checkRoutersAgree(t *testing.T, base string) {
 			_, shown, _ := strings.Cut(body, "<body")
 			t.Errorf("GET %s: %d, which is no item page and no 404:\n<body%.600s", target, status, shown)
 		}
+	}
+	// A $ as it is goes to the spelling the router writes, %24, and not to a shop called undefined,
+	// whose item page the loop above would take for the right one.
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := noFollow.Get(base + "/shops/$north/items/apple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusPermanentRedirect || resp.Header.Get("Location") != "/shops/%24north/items/apple" {
+		t.Errorf("GET /shops/$north/items/apple: %d to %q, want 308 to /shops/%%24north/items/apple", resp.StatusCode, resp.Header.Get("Location"))
 	}
 }
