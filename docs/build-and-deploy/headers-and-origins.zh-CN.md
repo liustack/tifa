@@ -2,7 +2,7 @@
 summary: '设置安全头和 Content-Security-Policy，并允许跨站写入：`server.csp`、嵌入框架、`cross-origin request detected`'
 audience: app
 order: 20
-translatedFrom: df5f1c2756e5
+translatedFrom: 229876852f4b
 read_when:
   - 'POST、PUT、PATCH 或 DELETE 得到 403，信息是 `cross-origin request detected`，或者必须允许另一个站点的页面或服务商的回调发出这样的请求'
   - '页面必须显示在另一个站点的框架里，或者 Referrer-Policy、Content-Security-Policy 之类的头需要另一个值'
@@ -82,4 +82,6 @@ server:
 要放行一些：
 
 - `server.trusted_origins` 列出允许其页面写入的 origin，比如单独的管理站点，或者开发期间在 `http://localhost:3000` 上的前端。origin 是协议、主机，以及不是该协议默认端口时的端口，没有路径：`https://admin.example.com`。它和 `Origin` 头按文本比较，所以 `http://` 和 `https://` 是不同的 origin。请按浏览器发送的样子写：程序会把 ASCII 字母转成小写，去掉 `:80` 和 `:443`，并拒绝主机的任何其他写法，同时说明该怎么写。也就是说，域名用 ASCII，ASCII 之外的字母写成 `xn--`（`bücher.example` 写成 `https://xn--bcher-kva.example`），IPv4 地址写成四个十进制数，IPv6 地址写成它最短的形式，端口不带前导零。只信任你自己控制的站点，因为受信任 origin 的页面可以替你的用户行事。
-- `server.cross_site_paths` 列出模式，用 `http.ServeMux` 的语法，比如 `POST /auth/apple/callback` 或 `/hooks/{name}`，这些请求完全不检查。用它来放行服务商的浏览器回调，比如从服务商的页面 post 表单的登录。不带方法的模式接受所有方法。ServeMux 只会把它重定向到该模式的请求（比如带结尾斜杠的），不会放行。这种路径上的处理函数必须自己证明请求是真的，比如用它放进 cookie 的 `state`，或者服务商的签名。
+- `server.cross_site_paths` 列出模式，用 `http.ServeMux` 的语法，比如 `POST /auth/apple/callback` 或 `/hooks/{name}`，这些请求完全不检查。用它来放行服务商的浏览器回调，比如从服务商的页面 post 表单的登录。不带方法的模式接受所有方法。ServeMux 只会把它重定向到该模式的请求（比如带结尾斜杠的），不会放行。这种路径上的处理函数必须自己证明请求是真的，比如用它放进 cookie 的 `state`，或者服务商的签名。见 [用 Google 或 GitHub 登录](../guides/oauth.zh-CN.md#a-provider-that-posts-the-callback)。
+
+另一个源的页面在浏览器里调用你的 API 时，还需要 CORS 头，而 Tifa 不发这些头：[来自另一个网站的调用](../guides/cors.zh-CN.md) 展示了回答预检的 `OnRequest`，以及它和 `server.trusted_origins` 的关系。
