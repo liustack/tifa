@@ -148,6 +148,18 @@ function pageHead(matches: Parameters<typeof headTags>[0], input: RenderInput) {
   return pageOwnTags(own, site).concat(alternateTags(own, input.alternates, site))
 }
 
+// dollarSpelled is url with each $ of its path written %24, or undefined when the path has none.
+// The router writes a path parameter $x as %24x, and its check of the canonical URL builds the
+// location from the path as a route template, so a $ as it is, which a browser keeps in an address,
+// would be read as a parameter with no value and redirect to /undefined. Such a URL goes to the
+// spelling the router writes before the router sees it. The query keeps its $.
+function dollarSpelled(url: string) {
+  const end = url.indexOf('?')
+  const path = end < 0 ? url : url.slice(0, end)
+  if (!path.includes('$')) return undefined
+  return path.replaceAll('$', '%24') + (end < 0 ? '' : url.slice(end))
+}
+
 // canonicalStatus is the status of a redirect the router threw. The router throws one for a URL it
 // spells differently (/%61 for /a, /a/ for /a) with the temporary status 307. That URL is only another
 // spelling of the page, so it answers 308: the permanent redirect that keeps the method and that
@@ -188,6 +200,11 @@ export function serve(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = defa
   const bodyStart = headEnd + '</head><body><div id="' + rootElementId + '">'
   globalThis.startRender = (json: string, ...texts: string[]) => {
     const input: RenderInput = JSON.parse(json)
+    const spelled = dollarSpelled(input.url)
+    if (spelled !== undefined) {
+      globalThis.renderResult = JSON.stringify({ redirect: { location: spelled, status: 308 } })
+      return
+    }
     // The i18next instance is in the language of the last render of this VM until it switches here,
     // before the router loads and runs the head functions of the routes.
     toLanguage?.(input.language ?? '')
