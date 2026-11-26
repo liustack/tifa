@@ -2,7 +2,7 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: 1369d71bad87
+translatedFrom: 4b41a3481a80
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -64,6 +64,8 @@ deploy:
 你需要：一台带 systemd 的 Linux 服务器，x86_64 或 aarch64，你能用 `ssh root@<TIFA_DEPLOY_HOST>` 连上它一次，或者能以一个有免密码 sudo 的用户连上它（在 Ubuntu 24.04 上测试过）。在你的机器上，需要 `tifa build` 需要的东西（Go，带页面的应用还要 Node）和 `ssh`。对于 `front: cloudflare` 和 `connect: cloudflare`，需要 [cf](https://developers.cloudflare.com/cf/get-started/)，即 Cloudflare CLI（测试版），并且已安装（`pnpm add --global cf`）、已登录（`cf auth login`）。setup 和 remove 能分清这两种情况：PATH 里没有 cf 时，它们说要先安装，装了 cf 就请你登录。对于 `connect: cloudflare`，你的机器上还需要 [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)：setup 在 macOS 上用 `brew install cloudflared` 安装它，在 Windows 上用 `winget install --id Cloudflare.cloudflared -e`，在 Linux 上，或者没有 brew 和 winget 时，它会告诉你去哪里下载。对于 `front: nginx`，需要一台带 apt 的服务器（Debian 或 Ubuntu），setup 以 root 用 apt 在上面安装 nginx 和 certbot。对于 `auto`，需要已登录的 [gh](https://cli.github.com/)（`gh auth login`），没有 gh 的话，需要把细粒度令牌放在 `TIFA_DEPLOY_GITHUB_TOKEN` 里（见[从 GitHub Actions 部署](deploy-github-actions.zh-CN.md#deploy-from-github-actions)）。对于 `connect: tailscale`，需要一台已在你的 tailnet 里的服务器（装了 Tailscale 并登录），以及一个你在 Tailscale 控制台里创建的 Tailscale 凭证（见 [`connect: tailscale`](deploy-github-actions.zh-CN.md#connect-tailscale)）。你的机器上不需要任何 Tailscale 的东西。在终端里，setup 会替你安装并登录 cf 和 gh（见[按方案设置](deploy-setup.zh-CN.md#set-up-with-a-plan)）。
 
 第一次要先运行 `go tool tifa deploy setup`，见[配好服务器](deploy-setup.zh-CN.md)。之后只需要部署，某个版本有问题时再回滚。
+
+没有终端时（比如 agent 或脚本运行命令），ssh 什么都不问：服务器的主机密钥还不在你的 `known_hosts` 里时，命令会停下，报错里给出接受这个密钥的命令。ssh 直接连到的服务器有 15 秒的应答时间，除非你的 ssh 配置自己设了 `ConnectTimeout`。经过 `ProxyCommand` 或 `ProxyJump` 连到的服务器（比如在浏览器里登录 Cloudflare Access）不限时间，等多久都行。
 
 ## root 登录不了时 {#when-root-cannot-log-in}
 

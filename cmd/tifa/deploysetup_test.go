@@ -1660,6 +1660,7 @@ func TestSetupAdminUser(t *testing.T) {
 	}
 	// Each call of ssh is logged with its script, over several lines.
 	for _, call := range strings.Split(strings.TrimPrefix(srv.argv(), "-l "), "\n-l ") {
+		call = strings.Replace(call, " -o BatchMode=yes", "", 1)
 		switch {
 		case strings.HasPrefix(call, "ubuntu -- vps sh -c "):
 			if !strings.Contains(call, "sudo -n -H sh -c") {

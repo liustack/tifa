@@ -37,7 +37,7 @@ func statusAllWorld(t *testing.T) (tifaDir, machine string) {
 	// The fake ssh refuses the host down, as a server that is off does.
 	inner := sshProgram
 	wrapper := filepath.Join(t.TempDir(), "ssh")
-	writeFile(t, wrapper, "#!/bin/sh\nif [ \"$4\" = down ]; then echo 'ssh: connect to host down port 22: Connection refused' >&2; exit 255; fi\nexec "+shellQuote(inner)+" \"$@\"\n")
+	writeFile(t, wrapper, "#!/bin/sh\nfor a in \"$@\"; do if [ \"$prev\" = -- ]; then host=$a; fi; prev=$a; done\nif [ \"$host\" = down ]; then echo 'ssh: connect to host down port 22: Connection refused' >&2; exit 255; fi\nexec "+shellQuote(inner)+" \"$@\"\n")
 	if err := os.Chmod(wrapper, 0o755); err != nil {
 		t.Fatal(err)
 	}
