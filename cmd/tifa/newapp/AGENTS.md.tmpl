@@ -61,7 +61,6 @@ Never edit `.tifa/`. It is generated.
 - Domain code: plain Go tests next to it. `useTestDB(t)` gives a test a fresh database by replacing `{{.Package}}.DB`, so these tests do not run in parallel.
 - Route code: `tifatest.NewCtx(t, httptest.NewRequest(...))` gives a `*tifa.Ctx`. Set path parameters with `r.SetPathValue`, run `Load` through `tifa.Use(c, Load)`, call handlers directly and test `Validate` on its own.
 - Whole requests: `tifatest.Start(t, tifaapp.App)`, from a test in a package of its own (`package app_test`) that imports `{{.Module}}/.tifa/tifaapp`. Set `{{.Package}}.DBPath` to a file in `t.TempDir()` first, and do not call `t.Parallel`. Pages answer their data as JSON there. `tifatest.StartPages` renders them, after `go tool tifa build`.
-- Page components (Vitest) and pages in a browser (Playwright): `docs/pages-and-data/testing-pages.md`.
 - See `docs/pages-and-data/testing-apps.md`.
 
 ## Settings and data
