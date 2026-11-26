@@ -2,7 +2,7 @@
 summary: '你返回的错误会变成什么，谁能看到它的文字，404 和 ErrorBoundary'
 audience: app
 order: 7
-translatedFrom: d4754856516b
+translatedFrom: 8e36fd351e45
 read_when:
   - '想知道访客能不能看到你返回的错误，以及怎么给他们一句话'
   - '从 `Load` 或处理函数返回错误，比如 `tifa.Fields`、`tifa.Redirect` 或 `tifa.ErrNotFound`'
@@ -98,7 +98,7 @@ app/teams/new/page.tsx
 - `name++` 文件夹里的页面接管它下面的每个 URL，所以这样的 URL 匹配的就是那个页面，由它的 `Load` 决定怎么回答。
 - 对于没有匹配任何页面的 URL，`OnRequest` 运行时 `c.Pattern()` 为空。`next(c)` 运行各布局并返回 `tifa.ErrNotFound`。当 `OnRequest` 自己返回 `tifa.ErrNotFound`、没有调用 `next` 时，不会运行任何布局，页面的显示和那个 URL 最外层的 `Layout` 返回 `tifa.ErrNotFound` 时一样：根布局，或者它上面的 `layout_.tsx` 的布局。
 - 布局的 `ErrorBoundary` 只会显示在它下面某个路由的位置上，也就是布局的 `Outlet` 里，所以它能读到布局的数据和布局组件提供的上下文。布局失败时，显示的是上层布局的 `ErrorBoundary`，根布局或 `layout_.tsx` 里的布局失败时，显示框架的默认页面。
-- 在 `page.tsx` 或 `layout.tsx` 里导出 `NotFound` 会让构建失败。把它显示的内容移到 `ErrorBoundary` 里，放在 `error.status === 404` 下面。导出 `Error` 也会让构建失败：把它改名为 `ErrorBoundary`。
+- Tifa 只读 `page.tsx` 和 `layout.tsx` 导出的 `default`、`head` 和 `ErrorBoundary`（根 `layout.tsx` 还有 `documentHead`），别的导出不管。导出 `NotFound` 或 `Error` 不会显示任何东西：把 404 要显示的内容放进 `ErrorBoundary`，放在 `error.status === 404` 下面。
 
 ## 页面上的错误 {#errors-on-a-page}
 
