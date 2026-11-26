@@ -255,7 +255,7 @@ func parseNginxState(out string) (nginxState, error) {
 // installed them, the sites and certificates of Tifa, and who listens on the ports. It changes
 // nothing and never fails. $etc is /etc.
 const nginxProbeBody = `# tifa: read nginx
-export PATH="$PATH:/usr/sbin:/usr/local/sbin:/sbin"
+export PATH="$PATH${sbin_dirs:+:$sbin_dirs}"
 if command -v apt-get >/dev/null 2>&1; then echo "apt yes"; fi
 if command -v dpkg-query >/dev/null 2>&1; then
 	dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'nginx' 'nginx-*' 2>/dev/null | while read -r st rest; do
@@ -306,7 +306,14 @@ exit 0
 // inet6File exists when the server has IPv6. Tests point it at a file of their own.
 var inet6File = "/proc/net/if_inet6"
 
-func nginxProbeScript() string { return script(nginxProbeBody, "etc", etcDir, "inet6_file", inet6File) }
+// sbinDirs are the folders of system programs the probe adds to the PATH, where apt puts nginx: a
+// shell over SSH may leave them out. Tests empty it, since the machine they run on may have an
+// nginx there.
+var sbinDirs = "/usr/sbin:/usr/local/sbin:/sbin"
+
+func nginxProbeScript() string {
+	return script(nginxProbeBody, "etc", etcDir, "inet6_file", inet6File, "sbin_dirs", sbinDirs)
+}
 
 // nginxLock takes the lock of the nginx of Tifa, which every script that changes its files or its
 // packages holds until it ends. $etc is /etc. Tests run the scripts in a folder, with a flock that

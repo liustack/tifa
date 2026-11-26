@@ -30,9 +30,9 @@ func newNginxBox(t *testing.T) *nginxBox {
 	}
 	b := &nginxBox{t: t, etc: t.TempDir(), bin: t.TempDir(), live: t.TempDir()}
 	b.logf = filepath.Join(t.TempDir(), "calls")
-	old, oldPolicy, oldInet6 := etcDir, policyFile, inet6File
-	etcDir, policyFile, inet6File = b.etc, filepath.Join(b.etc, "policy-rc.d"), filepath.Join(b.etc, "if_inet6")
-	t.Cleanup(func() { etcDir, policyFile, inet6File = old, oldPolicy, oldInet6 })
+	old, oldPolicy, oldInet6, oldSbin := etcDir, policyFile, inet6File, sbinDirs
+	etcDir, policyFile, inet6File, sbinDirs = b.etc, filepath.Join(b.etc, "policy-rc.d"), filepath.Join(b.etc, "if_inet6"), ""
+	t.Cleanup(func() { etcDir, policyFile, inet6File, sbinDirs = old, oldPolicy, oldInet6, oldSbin })
 	log := shellQuote(b.logf)
 	tool := func(name, body string) {
 		writeFile(t, filepath.Join(b.bin, name), "#!/bin/sh\n"+body+"\n")
@@ -92,7 +92,11 @@ esac`)
 	// flock only says it was asked: a test that needs the lock to hold is in the script test below.
 	tool("flock", `echo "flock $*" >> `+log)
 	tool("ss", `cat `+etc+`/ss 2>/dev/null; true`)
-	if _, err := exec.LookPath("sha256sum"); err != nil {
+	// The PATH of the box has no sbin, where macOS keeps its sha256sum, so the box names the one of
+	// this machine, or shasum where there is none.
+	if path, err := exec.LookPath("sha256sum"); err == nil {
+		tool("sha256sum", shellQuote(path)+` "$@"`)
+	} else {
 		tool("sha256sum", `shasum -a 256 "$@"`)
 	}
 	return b
@@ -102,7 +106,8 @@ esac`)
 func (b *nginxBox) run(script string) (stdout, stderr string, err error) {
 	b.t.Helper()
 	cmd := exec.Command("sh", "-c", script)
-	cmd.Env = append(os.Environ(), "PATH="+b.bin+string(os.PathListSeparator)+b.live+string(os.PathListSeparator)+"/usr/bin:/bin:/usr/sbin:/sbin")
+	// No folder of system programs (sbin): the machine of the test may have an nginx there.
+	cmd.Env = append(os.Environ(), "PATH="+b.bin+string(os.PathListSeparator)+b.live+string(os.PathListSeparator)+"/usr/bin:/bin")
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	err = cmd.Run()
@@ -209,6 +214,21 @@ func TestNginxSiteWithoutIPv6(t *testing.T) {
 	}
 	if strings.Count(nginxSiteFile("shop", "shop.example.com", 9527, true, true), "[::]") != 2 {
 		t.Error("with IPv6 each server listens on both")
+	}
+}
+
+// The probe finds an nginx in the folders of system programs, which the PATH of a shell over SSH
+// may leave out. The box hides those of the machine the test runs on, which may have an nginx.
+func TestNginxProbeLooksInSystemFolders(t *testing.T) {
+	b := newNginxBox(t)
+	sbin := t.TempDir()
+	writeFile(t, filepath.Join(sbin, "nginx"), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(sbin, "nginx"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sbinDirs = sbin
+	if ns := b.state(); ns.Bin != filepath.Join(sbin, "nginx") {
+		t.Fatalf("nginx in %s: %+v", sbin, ns)
 	}
 }
 
