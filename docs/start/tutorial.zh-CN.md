@@ -2,7 +2,7 @@
 summary: '入门教程：`tifa new`、`tifa dev`、页面、表单、测试、一个可执行文件'
 audience: app
 order: 1
-translatedFrom: fdcbeeaf3f4f
+translatedFrom: f6746dec36ac
 read_when:
   - '第一次用 Tifa，想从头跟着做一个应用'
   - '编写或检查新用户从 `tifa new` 到跑起可执行文件的步骤'
@@ -28,7 +28,7 @@ pnpm install
 
 `pnpm install` 也会运行 `go tool tifa gen`（`package.json` 里的 `prepare` 脚本），它写出 `.tifa/` 里的类型，编辑器要读它们。请在这之后再打开编辑器：之前，对 `./route.gen` 的 import 会报错。
 
-`tifa new` 只写文件，并打印接下来的步骤。请保留名字 `tutorial-app`，因为下面的代码会 import `tutorial-app/app/todos`。文件夹名就是模块路径，根包叫 `tutorialapp`。像 `todos` 这样的名字会被拒绝，因为应用会 import 同名的包。见 [`tifa new`](../build-and-deploy/build.zh-CN.md#tifa-new)。
+`tifa new` 只写文件，并打印接下来的步骤。请保留名字 `tutorial-app`，因为下面的代码会 import `tutorial-app/app/todos`。文件夹名就是模块路径，根包叫 `tutorialapp`。像 `todos` 这样的名字会被拒绝，因为应用会 import 同名的包。见 [`tifa new`](../build-and-deploy/create-app.zh-CN.md#tifa-new)。
 
 ## 2. 运行并四处看看 {#2-run-it-and-look-around}
 
@@ -345,7 +345,7 @@ func Layout(c *tifa.Ctx) (todos.Counts, error) {
 
 添加一个待办，看导航栏：`Todos (1)`。把它标为完成：`Todos (0)` 和 `Done (1)`。数字会变，是因为第 2 步里的 `router.invalidate` 调用，它们也会重新加载布局。
 
-如果在你保存 `layout.tsx` 之后，`tifa dev` 马上打印出一长段 "Hydration failed" 消息，那是改动期间开着的那个标签页引起的。刷新页面就没了。见[布局](../pages-and-data/layouts.zh-CN.md#the-layout-of-a-folder)和[日志](../build-and-deploy/dev.zh-CN.md#log)。
+如果在你保存 `layout.tsx` 之后，`tifa dev` 马上打印出一长段 "Hydration failed" 消息，那是改动期间开着的那个标签页引起的。刷新页面就没了。见[布局](../pages-and-data/layouts.zh-CN.md#the-layout-of-a-folder)和[日志](../build-and-deploy/dev-errors.zh-CN.md#log)。
 
 ## 6. 测试 {#6-tests}
 
@@ -506,10 +506,10 @@ built /path/to/tutorial-app/bin/tutorial-app (build 2e121916557701e0)
 
 ## 接下来去哪 {#where-to-go-next}
 
-- 放到服务器上：[部署](../build-and-deploy/deploy.zh-CN.md)讲了为 Linux 构建、运行程序、容器、端口和 HTTPS，以及放在代理或 CDN 后面时要设置什么。
+- 放到服务器上：[用 tifa deploy 部署](../build-and-deploy/deploy.zh-CN.md)，或者[手动部署](../build-and-deploy/deploy-by-hand.zh-CN.md)，后者讲了为 Linux 构建、运行程序、容器、端口和 HTTPS。放在代理或 CDN 后面时要设置什么：[在前面放 nginx 或 CDN](../build-and-deploy/deploy-proxy.zh-CN.md)。
 - 设置、HTTPS、已渲染页面的缓存：[配置](../build-and-deploy/config.zh-CN.md)。
 - 让用户登录：[会话](../pages-and-data/sessions.zh-CN.md)。应用把会话存在 `app.db`（`sessions.go`）里，所以重启不会让任何人退出登录。
 - 样式和 shadcn/ui：[样式](../pages-and-data/styles.zh-CN.md)。多语言站点：[编写应用](app.zh-CN.md#a-site-in-several-languages)。缓存页面：[渲染开关和缓存](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns)。
 - 一个可以读的更大的应用：[examples/shop](../../examples/shop)。
-- `tifa dev` 如何对每次改动做出反应，以及如何读它的日志：[开发服务器](../build-and-deploy/dev.zh-CN.md)。
+- `tifa dev` 如何对每次改动做出反应：[每种改动触发什么](../build-and-deploy/dev-reloads.zh-CN.md)。如何读它的日志：[日志](../build-and-deploy/dev-errors.zh-CN.md#log)。
 - 文件夹为什么是这个样子：[应用的结构](structure.zh-CN.md)和[设计理念](philosophy.zh-CN.md)。

@@ -27,7 +27,7 @@ On a machine that has never built a Tifa app, `go mod tidy`, `pnpm install` and 
 
 `pnpm install` also runs `go tool tifa gen` (the `prepare` script of `package.json`), which writes the types of `.tifa/` that your editor reads. Open the editor after it: before, the imports of `./route.gen` show errors.
 
-`tifa new` writes files only and prints the next steps. Keep the name `tutorial-app`, because the code below imports `tutorial-app/app/todos`. The folder name is the module path, and the root package is named `tutorialapp`. Names such as `todos` are refused, since the app imports a package of that name. See [`tifa new`](../build-and-deploy/build.md#tifa-new).
+`tifa new` writes files only and prints the next steps. Keep the name `tutorial-app`, because the code below imports `tutorial-app/app/todos`. The folder name is the module path, and the root package is named `tutorialapp`. Names such as `todos` are refused, since the app imports a package of that name. See [`tifa new`](../build-and-deploy/create-app.md#tifa-new).
 
 ## 2. Run it and look around
 
@@ -344,7 +344,7 @@ And read it in `app/layout.tsx`:
 
 Add a todo and watch the nav: `Todos (1)`. Mark it done: `Todos (0)` and `Done (1)`. The numbers move because of the `router.invalidate` calls from step 2, which load the Layouts again too.
 
-If `tifa dev` prints a long "Hydration failed" message right after you save `layout.tsx`, it came from the tab that was open during the change. Reload the page and it is gone. See [Layout](../pages-and-data/layouts.md#the-layout-of-a-folder) and [Log](../build-and-deploy/dev.md#log).
+If `tifa dev` prints a long "Hydration failed" message right after you save `layout.tsx`, it came from the tab that was open during the change. Reload the page and it is gone. See [Layout](../pages-and-data/layouts.md#the-layout-of-a-folder) and [Log](../build-and-deploy/dev-errors.md#log).
 
 ## 6. Tests
 
@@ -505,10 +505,10 @@ The program keeps its data in `app.db` in the folder it runs in, so run from the
 
 ## Where to go next
 
-- Put it on a server: [Deploying](../build-and-deploy/deploy.md) covers building for Linux, running the program, containers, ports and HTTPS, and what to set behind a proxy or CDN.
+- Put it on a server: [Deploy with tifa deploy](../build-and-deploy/deploy.md), or [Deploy by hand](../build-and-deploy/deploy-by-hand.md), which covers building for Linux, running the program, containers, ports and HTTPS. What to set behind a proxy or CDN: [Put nginx or a CDN in front](../build-and-deploy/deploy-proxy.md).
 - Settings, HTTPS, the cache of rendered pages: [Configuration](../build-and-deploy/config.md).
 - Sign users in: [Sessions](../pages-and-data/sessions.md). The app keeps sessions in `app.db` (`sessions.go`), so a restart signs nobody out.
 - Styles and shadcn/ui: [Styles](../pages-and-data/styles.md). A site in several languages: [Writing an app](app.md#a-site-in-several-languages). Caching a page: [Render switches and caches](../pages-and-data/ssr-and-cache.md#cache-for-cdns).
 - A bigger app to read: [examples/shop](../../examples/shop).
-- How `tifa dev` reacts to each change, and how to read its log: [Dev server](../build-and-deploy/dev.md).
+- How `tifa dev` reacts to each change: [What each change triggers](../build-and-deploy/dev-reloads.md). How to read its log: [Log](../build-and-deploy/dev-errors.md#log).
 - Why the folders look the way they do: [Structuring an app](structure.md) and [Philosophy](philosophy.md).

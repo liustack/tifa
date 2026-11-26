@@ -1,7 +1,7 @@
 ---
 summary: 'What a Tifa app serves on one core and how to size it: Next.js, TanStack Start, `ssr.vms`, memory, overload, compression'
 audience: app
-order: 2
+order: 3
 read_when:
   - Deciding how many CPUs and how much memory a Tifa app needs, or setting `ssr.vms`
   - Requests arrive faster than pages render, or you need to size the render queue
@@ -62,7 +62,7 @@ Latency at 2.75 visits a second, P50 / P99 of one round of 3,060 visits:
 
 A full page load spends most of its CPU on rendering, and one render takes longer than in Node: Tifa renders in beastjs, a pure Go JavaScript engine with no JIT.
 
-- [`ssr.vms`](../build-and-deploy/config.md#settings) defaults to the CPU count Go sees, at most 4. On more than 4 CPUs set it to the CPU count when the memory allows.
+- [`ssr.vms`](settings.md#settings) defaults to the CPU count Go sees, at most 4. On more than 4 CPUs set it to the CPU count when the memory allows.
 - Plan on about 42 page requests a second per physical core for pages like the shop's workbench, with the render memo off so that every request renders. Throughput follows the cores: 1.99 times on two and 2.94 times on three.
 - A cloud vCPU is often one hyperthread. When all hyperthreads are busy, plan on about 0.6 of a physical core per vCPU.
 - More VMs than CPUs add no throughput and slow every render.
@@ -71,7 +71,7 @@ A full page load spends most of its CPU on rendering, and one render takes longe
 
 ### Overload
 
-Keep the usual arrival rate below what the machine renders. By default 32 renders may wait for a VM, each for at most 3 seconds. Past that, Go answers 503 with `Retry-After: 1` without using a VM. See [Render queue](../build-and-deploy/config.md#render-queue).
+Keep the usual arrival rate below what the machine renders. By default 32 renders may wait for a VM, each for at most 3 seconds. Past that, Go answers 503 with `Retry-After: 1` without using a VM. See [Render queue](../build-and-deploy/tuning.md#render-queue).
 
 At 1.5 times its capacity, the shop rejected 34% of the requests and answered the rest with a P50 of about 390 ms. At 3 times, it rejected 68%, the P50 of the rest stayed at about 395 ms, and memory did not grow. Watch the latency of successful requests: the latency of all requests looks low when most are rejected quickly. [The steps](../studies/capacity.md#overload).
 
@@ -80,7 +80,7 @@ At 1.5 times its capacity, the shop rejected 34% of the requests and answered th
 - **The process**: about 47 MiB after the start with one VM, and 9 MiB more for each more VM.
 - **A VM grows as it renders more kinds of pages, then stays.** One VM of the shop holds 9 MB after loading, 17 to 25 MB after all its pages, and up to 39 MB when the data of every render is new. Plan on up to 40 MiB per VM for an app with many pages.
 - **Measured**: one VM serving 525 pages of the shop at 58 requests a second for 40 minutes levels at about 105 MiB for the process (Tifa v0.0.13). At full load on one core, the whole-visits run peaked at 245 MiB with the render memo and 84 MiB without it.
-- **The render memo** keeps up to [`ssr.memo_size`](../build-and-deploy/config.md#settings), 64 MiB by default.
+- **The render memo** keeps up to [`ssr.memo_size`](settings.md#settings), 64 MiB by default.
 - **`ssr.vm_memory`** (128 MiB by default) limits each VM. The pool replaces a VM in the background when it holds more than half of that after a collection, so an app that leaks keeps at most 64 MiB in each VM. Set it lower to replace sooner. If the log says a fresh VM does not fit, raise it.
 - **Idle VMs give free memory back** to the system after a second without a render.
 
@@ -88,7 +88,7 @@ How a VM is collected and replaced, and what each number was measured with: [Mem
 
 ## Compression
 
-[`server.compress`](../build-and-deploy/config.md#settings) is on by default. Compressing a page costs 1% to 2% of its render time and makes it about 6 times smaller. The browser bundle goes out as the gzip files the build wrote, at no CPU. A page from the render memo is kept in its gzip form, so answering it compressed costs less than uncompressed. [The tables](../studies/capacity.md#compression).
+[`server.compress`](settings.md#settings) is on by default. Compressing a page costs 1% to 2% of its render time and makes it about 6 times smaller. The browser bundle goes out as the gzip files the build wrote, at no CPU. A page from the render memo is kept in its gzip form, so answering it compressed costs less than uncompressed. [The tables](../studies/capacity.md#compression).
 
 `server.csp` adds about 0.1% to a render.
 

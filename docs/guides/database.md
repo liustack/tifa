@@ -13,7 +13,7 @@ read_when:
 
 # Keeping data in SQLite
 
-Tifa has no database layer. Your app opens a database in `OnStart` and uses it with `database/sql`, like any Go program. This guide takes the SQLite setup that [`tifa new`](../build-and-deploy/build.md#tifa-new) writes and adds what a real app needs next: a setting for the file, migrations, a transaction, a backup and tests.
+Tifa has no database layer. Your app opens a database in `OnStart` and uses it with `database/sql`, like any Go program. This guide takes the SQLite setup that [`tifa new`](../build-and-deploy/create-app.md#tifa-new) writes and adds what a real app needs next: a setting for the file, migrations, a transaction, a backup and tests.
 
 The code is from a scratch app made with `tifa new`, module `example.com/notes`. Where the files go is in [Structuring an app](../start/structure.md#2-shared-resources-and-other-dependencies).
 
@@ -96,7 +96,7 @@ var DBPath = tifa.String("db.path", "app.db", "SQLite database file")
 ```
 
 - A relative path is resolved against the folder the program runs in. That is the app root under `tifa dev`, and the folder you start the program from on a server.
-- On a server, put the file in a folder meant for data and name it with the environment: `DB_PATH=/var/lib/notes/app.db`. [Deploying](../build-and-deploy/deploy.md#run-it) says to back that folder up or mount it in a container.
+- On a server, put the file in a folder meant for data and name it with the environment: `DB_PATH=/var/lib/notes/app.db`. [Deploying](../build-and-deploy/deploy-by-hand.md#run-it) says to back that folder up or mount it in a container.
 - SQLite in WAL mode keeps two more files next to it, `app.db-wal` and `app.db-shm`. Do not copy the three by hand while the app runs, see the backup below. Keep all three out of git (the `.gitignore` of `tifa new` does).
 - One program owns the file. Two copies of the app on the same file work for a short overlap during a deploy, but a second server needs [Postgres](#when-to-use-postgres).
 
@@ -319,7 +319,7 @@ An app from `tifa new` copies every commit of its database to Cloudflare R2, AWS
 
 1. In the Cloudflare dashboard, open **R2 object storage** and select **Create bucket**. Name it, such as `notes-backup`.
 2. On the **Overview** page of R2, select **Manage** next to **API Tokens**, then **Create Account API token**. Give it **Object Read & Write**, limited to that bucket. Copy the **Access Key ID** and the **Secret Access Key**: the secret is shown once. The page also shows the S3 endpoint of your account, `https://<account>.r2.cloudflarestorage.com` ([R2 API tokens](https://developers.cloudflare.com/r2/api/tokens/)).
-3. On the server, set the two keys first, then the URL of the bucket. Each command asks for the value and restarts the app (see [Settings and secrets on the server](../build-and-deploy/deploy.md#settings-and-secrets-on-the-server)). The app refuses to start with `DB_BACKUP` and no keys, so the order matters:
+3. On the server, set the two keys first, then the URL of the bucket. Each command asks for the value and restarts the app (see [Settings and secrets on the server](../build-and-deploy/deploy-operate.md#settings-and-secrets-on-the-server)). The app refuses to start with `DB_BACKUP` and no keys, so the order matters:
 
    ```sh
    go tool tifa deploy env set AWS_ACCESS_KEY_ID

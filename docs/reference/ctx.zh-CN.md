@@ -1,8 +1,8 @@
 ---
 summary: '*tifa.Ctx 的方法'
 audience: app
-order: 4
-translatedFrom: 0a3ce903acfc
+order: 5
+translatedFrom: 2eeb284075b8
 read_when:
   - '查 `*tifa.Ctx` 的某个方法做什么'
 ---

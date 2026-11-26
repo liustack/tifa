@@ -1,7 +1,7 @@
 ---
 summary: 'What Tifa v0.1 keeps stable for apps and what may change: packages, file conventions, commands'
 audience: app
-order: 3
+order: 4
 read_when:
   - Deciding whether a Tifa upgrade can break your app
   - Putting a CDN, a proxy or monitoring in front of a Tifa program
@@ -23,7 +23,7 @@ From v0.1, a change that breaks anything on the stable list below ships in a min
 
 **Commands and flags.** The commands of `go tool tifa` (`new`, `build`, `dev`, `gen`, `check`, `routes`, `errors`, `docs`, `agents`, `upgrade`) with their flags. The built program's `serve`, `config` and `version`, `-c/--config`, and one flag for every setting.
 
-**`tifa.yaml` keys.** Every key in [config.md](../build-and-deploy/config.md), with its flag and environment variable, its type and its default. A key Tifa drops goes in a minor version, and the changelog says what to write instead.
+**`tifa.yaml` keys.** Every key in [Settings](settings.md), with its flag and environment variable, its type and its default. A key Tifa drops goes in a minor version, and the changelog says what to write instead.
 
 **HTTP names that apps and CDNs touch.**
 

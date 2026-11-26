@@ -492,7 +492,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** Every write passes `http.CrossOriginProtection` of the standard library, which reads `Sec-Fetch-Site` and otherwise compares `Origin` with `Host`, and the session cookie is `SameSite=Lax`.
 
-**Instead.** The check is always on: [Cross-site writes](../build-and-deploy/config.md#cross-site-writes).
+**Instead.** The check is always on: [Cross-site writes](../build-and-deploy/headers-and-origins.md#cross-site-writes).
 
 ### A setting that turns Secure off
 
@@ -554,7 +554,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** It would rest on behavior of the Go scheduler that Go does not promise.
 
-**Instead.** Keep `GOMAXPROCS` above `ssr.vms`. The measured cost of not doing so is in [config.md](../build-and-deploy/config.md) under `ssr.vms`.
+**Instead.** Keep `GOMAXPROCS` above `ssr.vms`. The measured cost of not doing so is in [Settings](../reference/settings.md) under `ssr.vms`.
 
 ### A place for styles collected after the render
 
@@ -803,7 +803,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** A `.env` or a `.git` that was left there by mistake would be published with it.
 
-**Instead.** `build.public_dotfiles` names the dot files and folders to copy, and `tifa build` says which ones it left out: [Configuration](../build-and-deploy/config.md).
+**Instead.** `build.public_dotfiles` names the dot files and folders to copy, and `tifa build` says which ones it left out: [Settings](../reference/settings.md).
 
 ### camelCase or hyphens in the keys of tifa.yaml
 
@@ -875,8 +875,8 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 - The build would need the assets of the build before it, from CI or a folder kept somewhere.
 
 **Instead.**
-- A page of an older build reloads once when it meets the new one: [Pages open while you deploy](../build-and-deploy/deploy.md#pages-open-while-you-deploy). Next.js self-hosted, SvelteKit and Nuxt do the same.
-- Old HTML that a CDN still holds is taken away by clearing the CDN cache on deploy, when the app gives a token: [Clearing the CDN cache](../build-and-deploy/deploy.md#clearing-the-cdn-cache). Without one, the old copy stays until it runs out, which is the accepted cost of a CDN.
+- A page of an older build reloads once when it meets the new one: [Pages open while you deploy](../build-and-deploy/deploy-by-hand.md#pages-open-while-you-deploy). Next.js self-hosted, SvelteKit and Nuxt do the same.
+- Old HTML that a CDN still holds is taken away by clearing the CDN cache on deploy, when the app gives a token: [Clearing the CDN cache](../build-and-deploy/deploy-cloudflare.md#clearing-the-cdn-cache). Without one, the old copy stays until it runs out, which is the accepted cost of a CDN.
 
 **Reopen when** old HTML in a CDN still breaks pages in practice although the cache is cleared on deploy, or an app needs open pages to keep working through a deploy without a reload.
 
@@ -886,7 +886,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** The reload is code in the page's scripts, and the pages that need it most cannot run it. A visitor who opens an old page from the CDN gets HTML whose scripts the new build no longer has: no script runs, so nothing reloads. The idea only helps a tab that was already open and working, which the plain reload already handles once the CDN copy runs out. No framework or CDN removes this gap entirely: Vercel, Netlify and Cloudflare Workers route old pages to old builds only on their own platforms and only for a limited time.
 
-**Instead.** Clear the CDN cache on deploy when the app gives a token. Without one, a page with `Cache` can be up to its `Cache` time old after a deploy, an accepted cost: [Clearing the CDN cache](../build-and-deploy/deploy.md#clearing-the-cdn-cache).
+**Instead.** Clear the CDN cache on deploy when the app gives a token. Without one, a page with `Cache` can be up to its `Cache` time old after a deploy, an accepted cost: [Clearing the CDN cache](../build-and-deploy/deploy-cloudflare.md#clearing-the-cdn-cache).
 
 **Reopen when** a page can recover even when its entry script is gone.
 
@@ -896,7 +896,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** Clearing the cache is a step of a deploy. The program that serves visitors does not do it.
 
-**Instead.** `tifa deploy` clears it after a deploy. The token stays on the server and is read over ssh at that moment: [Clearing the CDN cache](../build-and-deploy/deploy.md#clearing-the-cdn-cache).
+**Instead.** `tifa deploy` clears it after a deploy. The token stays on the server and is read over ssh at that moment: [Clearing the CDN cache](../build-and-deploy/deploy-cloudflare.md#clearing-the-cdn-cache).
 
 ### Hints that tell the user to run gh
 
@@ -964,7 +964,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** A command that acts differently depending on who runs it is hard to predict, for agents and people alike.
 
-**Instead.** An explicit flag: `tifa dev --background`, with `status`, `logs` and `stop` ([Development](../build-and-deploy/dev.md)).
+**Instead.** An explicit flag: `tifa dev --background`, with `status`, `logs` and `stop` ([Run tifa dev from a script or a coding agent](../build-and-deploy/dev-scripts.md)).
 
 ### Agent hooks written by tifa new
 
@@ -972,7 +972,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** How an agent is set up is its user's business. Tifa gives an agent notes and a skill to read, and changes nothing about what the agent runs.
 
-**Instead.** The notes and the skill say to run `go tool tifa gen` once after a batch of Go changes. The `typecheck` script of an app runs it before `tsc`, `go tool tifa check` writes `.tifa/` again before it runs `tsc`, and each `route.gen.ts` names the files it comes from: [`tifa gen`](../build-and-deploy/build.md#tifa-gen).
+**Instead.** The notes and the skill say to run `go tool tifa gen` once after a batch of Go changes. The `typecheck` script of an app runs it before `tsc`, `go tool tifa check` writes `.tifa/` again before it runs `tsc`, and each `route.gen.ts` names the files it comes from: [`tifa gen`](../build-and-deploy/check.md#tifa-gen).
 
 ### Summaries of the docs in the AGENTS.md of an app
 

@@ -409,7 +409,7 @@ One request that reads a collection several times may see both sides of that mom
 
 ## `tifa dev`
 
-`tifa dev` reads the content from `.tifa/dist`, so a change under `content/` needs no go build and no restart (see [What each change triggers](../build-and-deploy/dev.md#what-each-change-triggers)):
+`tifa dev` reads the content from `.tifa/dist`, so a change under `content/` needs no go build and no restart (see [What each change triggers](../build-and-deploy/dev-reloads.md#what-each-change-triggers)):
 
 - A Markdown file changed, added or removed, its body or its front matter: `tifa dev` scans `content/` again, converts that entry, writes `.tifa/dist/content/` and `content.json`, and the running app loads them. The app runs `Validate` on every entry and takes the new data, and a page you load after that shows it. `OnStart` does not run again, and open pages reload.
 - Another file under `content/`, such as an image: the entries in its folder are converted again, and the translations that fall back to that folder.

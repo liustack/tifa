@@ -460,7 +460,7 @@ type appUnits struct{ socket, http, service string }
 // unitsOf writes the units of app for its port: 80 or 443 when it serves visitors itself, else a
 // loopback port behind the Cloudflare Tunnel. domain is the domain it serves HTTPS for, on 443.
 //
-// The sockets hold the ports while the program restarts, see docs/build-and-deploy/deploy.md. With
+// The sockets hold the ports while the program restarts, see docs/build-and-deploy/deploy-by-hand.md. With
 // HTTPS the program gets two, each named by the setting it serves, and the settings of the
 // built-in HTTPS in its environment: the certificates stay in certs, next to the releases.
 func unitsOf(app string, port int, domain string) appUnits {

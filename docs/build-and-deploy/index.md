@@ -6,4 +6,4 @@ audience: app
 
 # Build and deploy
 
-Running an app while you write it, building it, putting it on a server and every setting it has.
+Creating an app, running it while you write it, checking and building it, putting it on a server and the settings that change how it runs.

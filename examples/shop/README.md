@@ -60,7 +60,7 @@ app/
   account.tsx                  who is signed in, in the top bar, and the sign-out button
   login/                       /login: layout_.tsx without the workbench around it, the form, and the POST that signs in
   logout/                      /logout: the POST that signs out
-  metrics/                     /metrics: tifa.Stats for Prometheus, as docs/build-and-deploy/deploy.md of Tifa writes it, for signed-in staff
+  metrics/                     /metrics: tifa.Stats for Prometheus, as docs/build-and-deploy/deploy-by-hand.md of Tifa writes it, for signed-in staff
   styles.css                   Tailwind CSS and the shop's theme
   format.ts                    money and times in English, in the shop's time zone
   animated-number.tsx          numbers that tween when the data changes
@@ -154,4 +154,4 @@ The first answer says `X-Tifa-Render: vm`, the second `X-Tifa-Render: memo`.
 - Open a product page, then the product list. "Recently viewed" shows the product, which the browser fetched from `/store/mine` after the page loaded, while the page itself came from the render memo.
 - Open a journal article. The code blocks are highlighted in the HTML the server sends.
 
-For more conventions, see [Build and generated code](../../docs/build-and-deploy/build.md) and [Writing an app](../../docs/start/app.md).
+For more conventions, see [Generated files and app setup](../../docs/reference/generated-files.md) and [Writing an app](../../docs/start/app.md).

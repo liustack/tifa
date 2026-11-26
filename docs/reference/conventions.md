@@ -1,7 +1,7 @@
 ---
 summary: 'Every convention of a Tifa app on one page: the files and folders, the names route.go reads, the hooks and options at the root, what the build refuses, and the generated files'
 audience: app
-order: 6
+order: 1
 read_when:
   - Looking up what a file, a folder or a name does in a Tifa app, or which one to write
   - The build refuses a folder name, a file or a name in `route.go`, or a name you wrote seems to be ignored
@@ -24,9 +24,9 @@ One line for each thing Tifa reads, with a link to the page that explains it. Na
 | `content/` | The Markdown files of the collections, one folder for each collection. See [Which files are entries](../pages-and-data/content.md#which-files-are-entries) |
 | `setup.ts` | Top-level code that runs once in each VM and in the browser before any page. It exports nothing. See [setup.ts](../pages-and-data/hooks.md#setupts) |
 | `public/` | Files served as they are from `/`, with their names. The folder is `build.public`. See [Static files](../start/app.md#static-files) |
-| `tifa.yaml` | The settings of Tifa, with the flag and the environment variable of each. See [Settings](../build-and-deploy/config.md#settings) |
+| `tifa.yaml` | The settings of Tifa, with the flag and the environment variable of each. See [Settings](settings.md) |
 | `.env` | Settings and options for local runs. See [.env](../build-and-deploy/config.md#env) |
-| `vite.config.ts`, `tsconfig.json` | The Vite config with the `tifa()` plugin, and a tsconfig that extends `.tifa/tsconfig.json`. See [The app's tsconfig and Vite config](../build-and-deploy/build.md#the-apps-tsconfig-and-vite-config) |
+| `vite.config.ts`, `tsconfig.json` | The Vite config with the `tifa()` plugin, and a tsconfig that extends `.tifa/tsconfig.json`. See [The app's tsconfig and Vite config](generated-files.md#the-apps-tsconfig-and-vite-config) |
 | `.tifa/` | Written by `tifa build`, `tifa gen` and `tifa dev`. Do not edit or commit it. See [Generated files](#generated-files) |
 
 Other files at the root, such as `db.go`, `mail.go`, `schema.sql` or `sessions.go`, are the app's own, and `tifa new` writes some of them. Tifa reads none of them. The root package may hold the hooks and what the whole app shares, and no domain code. See [Structuring an app](../start/structure.md).
@@ -134,7 +134,7 @@ Everything in `.tifa/` is written by Tifa. These are the names an app may refer 
 | `.tifa/app/<folder>/route.gen.ts` | One for each folder with a page, a Layout or a method handler. Pages import it as `./route.gen` for `page`, `layout`, `PageData`, `Params` and a function for each method handler. See [page.tsx](../pages-and-data/loading-data.md#pagetsx) |
 | `.tifa/session.gen.ts` | The type of what the session shows the browser. See [In the browser](../pages-and-data/sessions.md#in-the-browser) |
 
-The rest of `.tifa/` may change in any release. See [Files in .tifa/](../build-and-deploy/build.md#files-in-tifa).
+The rest of `.tifa/` may change in any release. See [Files in .tifa/](generated-files.md#files-in-tifa).
 
 ## Imports in a page
 

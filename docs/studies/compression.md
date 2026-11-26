@@ -11,7 +11,7 @@ versions: 'Tifa from 6723300 to f8c3283, quickjs v0.26.14, github.com/klauspost/
 
 # Compression
 
-[Compression in Build](../build-and-deploy/build.md#compression) says what `server.compress` does. [Compression in Performance](../reference/performance.md#compression) has the summary and the whole request table. This page adds every input, the CPU per request and the cache before and after.
+[Compression in Build](../reference/server-program.md#compression) says what `server.compress` does. [Compression in Performance](../reference/performance.md#compression) has the summary and the whole request table. This page adds every input, the CPU per request and the cache before and after.
 
 ## Question
 

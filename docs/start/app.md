@@ -14,7 +14,7 @@ read_when:
 
 This page covers how a Tifa app is laid out: how folders under `app/` become URLs, which files Tifa reads, how static files are served, and what to write in place of habits from other frameworks.
 
-For a complete example, see [examples/shop](../../examples/shop). For the build, the generated files and how to set up go.mod, see [build.md](../build-and-deploy/build.md).
+For a complete example, see [examples/shop](../../examples/shop). For the build, the generated files and how to set up go.mod, see [Build the program](../build-and-deploy/build.md) and [Generated files and app setup](../reference/generated-files.md).
 
 ## Folders
 
@@ -61,7 +61,7 @@ A folder has at most three convention files: `route.go`, `page.tsx`, and `layout
 A file is in one of two classes, and one question decides which: does the URL change when the content changes?
 
 - **Import it. The file is in the bundle under `/assets/`.** Vite gives it a name with a content hash, and Tifa serves it with `Cache-Control: public, max-age=31536000, immutable`. The browser keeps it for good, and a new version has a new URL, so it is never stale. Images, fonts and icons that your pages use belong here.
-- **Put it in `public/`.** The file keeps its name, and Tifa serves it with `Cache-Control: no-cache` and an ETag, so each use asks the server and gets a 304 when nothing changed. With a fixed name, any cache time N means up to N of old content, so it is checked every time. Files and folders whose names start with a dot, such as `.DS_Store` and `.env`, are not copied into the program, except `.well-known`. To copy one, such as `.nojekyll`, list it in `build.public_dotfiles` ([Configuration](../build-and-deploy/config.md)). `tifa build` says which ones it left out, apart from `.DS_Store`.
+- **Put it in `public/`.** The file keeps its name, and Tifa serves it with `Cache-Control: no-cache` and an ETag, so each use asks the server and gets a 304 when nothing changed. With a fixed name, any cache time N means up to N of old content, so it is checked every time. Files and folders whose names start with a dot, such as `.DS_Store` and `.env`, are not copied into the program, except `.well-known`. To copy one, such as `.nojekyll`, list it in `build.public_dotfiles` ([Settings](../reference/settings.md)). `tifa build` says which ones it left out, apart from `.DS_Store`.
 
 Import what a page uses:
 
@@ -164,4 +164,4 @@ The [guide](../guides/i18n.md) goes through all of it: translating, the language
 - [Hooks](../pages-and-data/hooks.md): `hooks.go` and `setup.ts`.
 - [Testing](../pages-and-data/testing-apps.md): tests with `go test` and `tifatest`.
 - [Testing pages](../pages-and-data/testing-pages.md): page components with Vitest, and pages in a browser with Playwright.
-- [Deploying](../build-and-deploy/deploy.md): what pages open in a browser do when you deploy a new version.
+- [Deploy by hand](../build-and-deploy/deploy-by-hand.md#pages-open-while-you-deploy): what pages open in a browser do when you deploy a new version.

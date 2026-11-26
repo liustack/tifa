@@ -2,7 +2,7 @@
 
 Contents: what to return, what the user sees, writing `ErrorBoundary`, how a 404 is placed, render failures, `OnError`.
 
-Full docs (in the folder `go tool tifa docs` prints): `docs/pages-and-data/errors.md#404` and `docs/build-and-deploy/build.md#page-requests`.
+Full docs (in the folder `go tool tifa docs` prints): `docs/pages-and-data/errors.md#404` and `docs/reference/page-requests.md`.
 
 ## What to return from Load, Layout and handlers
 

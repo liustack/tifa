@@ -1,8 +1,8 @@
 ---
 summary: '在 tifa dev 下调试应用：通过 `tifa dev status` 里的进程 ID 用 Delve 调试 Go 一侧，在浏览器里调试 React 组件，以及服务端渲染会打印什么'
 audience: app
-order: 5
-translatedFrom: 56a61d8d1893
+order: 6
+translatedFrom: 5b1a36b92888
 read_when:
   - '`tifa dev` 运行时，用调试器单步调试路由、Load 或处理函数的 Go 代码'
   - '想知道组件在服务端渲染时做了什么，或者页面为什么在服务端渲染得不一样'
@@ -47,7 +47,7 @@ go run github.com/go-delve/delve/cmd/dlv@latest attach 41290
 
 ## 浏览器里的 React {#react-in-the-browser}
 
-浏览器从 Vite 的开发服务器取你页面的模块，带着 source map，所以浏览器的 Sources 面板里能看到你的 `.tsx` 文件，在组件里下的断点会停在你设的地方。React Developer Tools 能显示组件和它们的 props。`tifa dev` 会在页面上用一个覆盖层显示浏览器里的错误，`tifa errors` 会把它们打印出来（见[浏览器里的错误](dev.zh-CN.md#errors-in-the-browser)）。
+浏览器从 Vite 的开发服务器取你页面的模块，带着 source map，所以浏览器的 Sources 面板里能看到你的 `.tsx` 文件，在组件里下的断点会停在你设的地方。React Developer Tools 能显示组件和它们的 props。`tifa dev` 会在页面上用一个覆盖层显示浏览器里的错误，`tifa errors` 会把它们打印出来（见[浏览器里的错误](dev-errors.zh-CN.md#errors-in-the-browser)）。
 
 ## 服务端的 React {#react-on-the-server}
 
@@ -58,4 +58,4 @@ go run github.com/go-delve/delve/cmd/dlv@latest attach 41290
 2026/11/26 08:00:00 INFO GET /about 200 28ms /about memo miss
 ```
 
-它下面那一行是 `tifa dev` 的请求行：路由，以及渲染记忆里有没有这个页面。打印了什么、怎么打印，见 [`tifa dev` 里的 console](../pages-and-data/server-render.zh-CN.md#console-in-tifa-dev)，请求行见[日志](dev.zh-CN.md#log)。
+它下面那一行是 `tifa dev` 的请求行：路由，以及渲染记忆里有没有这个页面。打印了什么、怎么打印，见 [`tifa dev` 里的 console](../pages-and-data/server-render.zh-CN.md#console-in-tifa-dev)，请求行见[日志](dev-errors.zh-CN.md#log)。

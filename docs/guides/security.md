@@ -19,7 +19,7 @@ Tifa turns on the checks it can make without knowing your business, and leaves t
 
 A POST, PUT, PATCH or DELETE that a browser sends from another site gets a 403 before `OnRequest` and before any handler runs. A page on another site cannot make a browser post a form to your app with your visitor's cookies. It is always on. A request that has no `Sec-Fetch-Site` and no `Origin` header, such as curl or a webhook, is not a browser and passes. GET, HEAD and OPTIONS are never checked, so a GET must not change anything: sign out with a POST.
 
-To let a site you control write, list it in `server.trusted_origins`. For a provider's callback, `server.cross_site_paths` skips the check for a path, and then your handler must prove the request is real. See [Cross-site writes](../build-and-deploy/config.md#cross-site-writes).
+To let a site you control write, list it in `server.trusted_origins`. For a provider's callback, `server.cross_site_paths` skips the check for a path, and then your handler must prove the request is real. See [Cross-site writes](../build-and-deploy/headers-and-origins.md#cross-site-writes).
 
 ### The session cookie is hard to steal and to forge
 
@@ -39,7 +39,7 @@ A request body may be 1 MiB (`server.body_limit`), and a bigger one gets 413. A 
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Content-Security-Policy` | `frame-ancestors 'self'`, so other sites cannot show a page in a frame |
 
-Pages, JSON, errors and static files all carry them. They are set before `OnRequest`, so `OnRequest` can change them for a path, such as pages a partner shows in a frame. See [Security headers](../build-and-deploy/config.md#security-headers).
+Pages, JSON, errors and static files all carry them. They are set before `OnRequest`, so `OnRequest` can change them for a path, such as pages a partner shows in a frame. See [Security headers](../build-and-deploy/headers-and-origins.md#security-headers).
 
 ### Data in a page cannot close its script
 
@@ -71,11 +71,11 @@ Keep passwords as a slow hash, such as argon2id, and say the same thing for an u
 
 ### Turn on HTTPS and HSTS
 
-The program serves HTTPS itself with a certificate from Let's Encrypt: set `server.tls_domains`. `tifa deploy` with `front: none` does this for you, `front: cloudflare` puts a Cloudflare Tunnel in front, and `front: nginx` an nginx that Tifa installs, with a certificate from certbot. Once HTTPS works, set `server.hsts: true`, which is off by default, so browsers keep to HTTPS for a year. See [HTTPS](../build-and-deploy/config.md#https), [Port 80 and HSTS](../build-and-deploy/config.md#port-80-and-hsts) and [The app serves visitors itself](../build-and-deploy/deploy.md#the-app-serves-visitors-itself).
+The program serves HTTPS itself with a certificate from Let's Encrypt: set `server.tls_domains`. `tifa deploy` with `front: none` does this for you, `front: cloudflare` puts a Cloudflare Tunnel in front, and `front: nginx` an nginx that Tifa installs, with a certificate from certbot. Once HTTPS works, set `server.hsts: true`, which is off by default, so browsers keep to HTTPS for a year. See [HTTPS](../build-and-deploy/https.md#https), [Port 80 and HSTS](../build-and-deploy/https.md#port-80-and-hsts) and [The app serves visitors itself](../build-and-deploy/deploy-setup.md#the-app-serves-visitors-itself).
 
 ### Turn on a Content-Security-Policy
 
-With `server.csp: on`, scripts load only from your site, and a script that gets into a page through data does not run. It is off by default. Try it first with `server.csp: report-only`. Tifa adds the hashes of its own inline scripts to the policy of each page. Leave `'strict-dynamic'` out of it, or pages stop hydrating. See [Content-Security-Policy](../build-and-deploy/config.md#content-security-policy).
+With `server.csp: on`, scripts load only from your site, and a script that gets into a page through data does not run. It is off by default. Try it first with `server.csp: report-only`. Tifa adds the hashes of its own inline scripts to the policy of each page. Leave `'strict-dynamic'` out of it, or pages stop hydrating. See [Content-Security-Policy](../build-and-deploy/headers-and-origins.md#content-security-policy).
 
 ### Keep secrets out of what `Load` returns
 
@@ -95,7 +95,7 @@ A sign-in page that sends the visitor on to `?next=...` is an open door to any s
 
 ### Slow down guessing and floods
 
-Tifa has no rate limiter. `OnRequest` sees every request with its method and path, so it is the place to limit by address. With `deploy.front: none`, the address is the host part of `c.Request().RemoteAddr`. Behind a proxy, `RemoteAddr` is the proxy, so read the one header your own proxy sets, and never the leftmost value of `X-Forwarded-For`, which the visitor writes. See [The client address](../build-and-deploy/deploy.md#behind-a-cdn-or-proxy). Slow down wrong passwords too, as the sign-in guide shows. If visitors who are not signed in may start a session, limit that at the entry, since a flood pushes real sessions out of the memory store. See [Sessions](../pages-and-data/sessions.md#where-to-store-sessions).
+Tifa has no rate limiter. `OnRequest` sees every request with its method and path, so it is the place to limit by address. With `deploy.front: none`, the address is the host part of `c.Request().RemoteAddr`. Behind a proxy, `RemoteAddr` is the proxy, so read the one header your own proxy sets, and never the leftmost value of `X-Forwarded-For`, which the visitor writes. See [The client address](../build-and-deploy/deploy-proxy.md#behind-a-cdn-or-proxy). Slow down wrong passwords too, as the sign-in guide shows. If visitors who are not signed in may start a session, limit that at the entry, since a flood pushes real sessions out of the memory store. See [Sessions](../pages-and-data/sessions.md#where-to-store-sessions).
 
 Limit public pages the same way. A query parameter that no `Load` or Layout declares is dropped before the memo key, so any number of values for it hit the same entry and cost nothing. A declared parameter whose values have no bound, such as a search word `q` or a page number `page`, is another matter: each new value runs the `Load` and takes a render on a VM, and it may push other pages out of the memo. Put the limit in `OnRequest`. See [Query parameters](../reference/memo.md#query-parameters).
 
@@ -168,12 +168,12 @@ Tifa has no database layer. Your app uses `database/sql`, so pass values as argu
 
 - `tifa.SetHTTPHandler` wraps everything, the cross-site check too. A path your wrapper answers itself, such as `/debug/pprof/`, has no `OnRequest` and no check. Put it behind your own check or on another listener. See [Setting up in OnStart](../pages-and-data/hooks.md#setting-up-in-onstart).
 - Cookies you set with `c.SetCookie` go out as you write them. Set `HttpOnly`, `Secure` and `SameSite` yourself.
-- Compression can leak a secret over HTTPS when an answer repeats something from the request and also holds a secret. See [Compression](../build-and-deploy/build.md#compression).
-- `tifa dev` shows internal errors and listens on `127.0.0.1`. Do not open it to a network you do not trust. See [When a page fails to render](../build-and-deploy/dev.md#when-a-page-fails-to-render).
+- Compression can leak a secret over HTTPS when an answer repeats something from the request and also holds a secret. See [Compression](../reference/server-program.md#compression).
+- `tifa dev` shows internal errors and listens on `127.0.0.1`. Do not open it to a network you do not trust. See [When a page fails to render](../build-and-deploy/dev-errors.md#when-a-page-fails-to-render).
 
 ### Keep the program and its packages current
 
-Fixes for Tifa land in the latest release, and `go tool tifa upgrade` moves your app to it (see [Upgrading Tifa](../build-and-deploy/build.md#upgrading-tifa)). Tifa does not check your Go modules or npm packages for known holes, so update them on your own schedule.
+Fixes for Tifa land in the latest release, and `go tool tifa upgrade` moves your app to it (see [Upgrading Tifa](../build-and-deploy/upgrade.md#upgrading-tifa)). Tifa does not check your Go modules or npm packages for known holes, so update them on your own schedule.
 
 `net/http` is compiled into your program, so a Go security release reaches the app only when you build and deploy it again. The CI that `tifa new` writes installs the newest patch of the Go minor in `go.mod` and runs `govulncheck`. The workflow of `tifa deploy` installs the newest patch too, so a fix is in the next deploy.
 

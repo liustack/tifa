@@ -2,7 +2,7 @@
 summary: 'POST 等方法处理函数：带类型的输入、文件、请求体上限、从页面调用'
 audience: app
 order: 4
-translatedFrom: 7040eb583e28
+translatedFrom: 525b7aca39e6
 read_when:
   - '在 route.go 里编写 API 路由或方法处理函数'
   - '在方法处理函数里接收文件，或者用 `c.SetBodyLimit` 和 `c.SetReadTimeout` 给某条路由单独设置请求体上限或读取时间'
@@ -27,7 +27,7 @@ func POST(c *tifa.Ctx, in ShipInput) (Shipment, error)
 - 字段按它们的 `json` 标签命名，表单体和查询字符串里也一样。`form` 标签如果给字段起了与它的 `json` 标签不同的名字，会让构建失败，传给 `c.Bind` 或 `c.BindQuery` 的结构体里也一样。名字相同的（`json:"email" form:"email"`，和别的框架共用的类型常常这样写）没有问题，也不起任何作用。路径参数、请求头和 cookie 仍然从 `c` 里取。
 - 输入和结果遵循 [JSON 规则](../reference/json.zh-CN.md)，和 `Load` 的结果一样。输入还必须能从它的 TypeScript 类型所描述的 JSON 读回来：因 `MarshalText` 而成为字符串的类型，还需要 `UnmarshalText([]byte) error`，有 `UnmarshalText` 的类型在 TypeScript 里必须是字符串，除非它是 map 的键（键永远是 JSON 字符串），而 `UnmarshalJSON` 不被接受（`time.Time` 除外）。
 - 当输入类型有 `Validate` 方法时（必须是 `func() error` 或 `func(c *tifa.Ctx) error`），它在解码之后、处理函数之前运行。返回 `nil` 就继续。有了 Ctx，`Validate` 可以读取请求：用 `c.Language()` 给出访问者所用语言的消息（见[校验消息](../guides/i18n.zh-CN.md#validation-messages)），还有 `c.Param`、`c.Query`、`c.QueryValues`、`c.Header`、`c.Cookie`、`c.Path()`、`c.Context()`、`c.Request()` 和 `tifa.Session`。它只做检查，只用返回的错误来回答，所以当 `Validate`，或它把 Ctx 传进去的函数，写响应（`c.JSON`、`c.Text`、`c.NoContent`、`c.SetHeader`、`c.SetCookie`、`c.Writer`）、再次读取请求体（`c.Bind`、`c.BindQuery`、`c.SetBodyLimit`、`c.SetReadTimeout`）、调用 `tifa.SetSession` 或 `tifa.ClearSession`，或调用 `tifa.Use` 时，构建会失败。Ctx 可以去 `Load` 里允许它去的地方（见 [Load 如何使用 Ctx](loading-data.zh-CN.md#how-load-may-use-ctx)）。`tifa.Error` 或 `tifa.Fields` 会原样作为响应，所以要标记单个字段，就返回 `tifa.Fields`。把它们收集到一个 `tifa.Fields{}` 里，最后 `return fields.Err()`，没有添加任何内容时它是 nil（空的 `tifa.Fields` 仍然是一个错误）。其他任何错误和处理函数返回的一样，算应用自己出的错：交给 `OnError`，没有 `OnError` 时以 500 响应，用户看不到它的文字（见[你返回的错误会变成什么](errors.zh-CN.md#what-an-error-you-return-becomes)）。
-- 浏览器从另一个站点发来的 POST、PUT、PATCH 或 DELETE（包括表单和 multipart），会在处理函数运行之前被以 403 响应，所以处理函数不需要为此做自己的检查。`server.trusted_origins` 和 `server.cross_site_paths` 可以放行指定的来源和路径（见[跨站写入](../build-and-deploy/config.zh-CN.md#cross-site-writes)）。
+- 浏览器从另一个站点发来的 POST、PUT、PATCH 或 DELETE（包括表单和 multipart），会在处理函数运行之前被以 403 响应，所以处理函数不需要为此做自己的检查。`server.trusted_origins` 和 `server.cross_site_paths` 可以放行指定的来源和路径（见[跨站写入](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes)）。
 - 无法解码的请求体或查询字符串，会以 400 响应（请求体超过限制是 413，内容类型不对或没有、或把 JSON 发给含文件的输入是 415，请求体没有按时到达是 408），并且处理函数不会运行。
 - 自己写响应的处理函数，用 `c.Bind(&in)` 解码请求体，用 `c.BindQuery(&in)` 解码查询字符串。它们按字段的 `json` 标签命名，再按 Go 名，和有类型的输入一样。传给它们的结构体里有名字不同的 `form` 标签，会让构建失败，和有类型的输入一样（构建看不到类型的值，比如在接口后面的，不会检查，标签被忽略）。`c.Bind` 也会从 multipart 表单填充 `*multipart.FileHeader` 和 `[]*multipart.FileHeader` 字段。
 
@@ -148,10 +148,10 @@ async function ship() {
 ```
 
 - 函数接受一个对象。`params` 放路径参数，文件夹没有路径参数时可以省略。`name++` 文件夹的键是 `_splat`。会让请求发到别的路径的值，在发出任何请求之前就会被拒绝，并让 promise 被 reject：`name+` 参数的空值、`.` 或 `..`，以及 `_splat` 的 `.` 或 `..` 段，或者结尾之前的空段。空的 `_splat` 没问题。`input` 是处理函数的输入，处理函数没有输入时可以省略。`signal` 用来中止请求。
-- GET 和 DELETE 把输入放在查询字符串里，其他方法放在 JSON 请求体里，输入里有文件时用 multipart 表单（见[输入里的文件](handlers.zh-CN.md#files-in-the-input)）。结果的类型来自 Go 的结果，遇到重定向（见下）时是 `| undefined`：`func(c, in) (Out, error)` 得到 `Promise<POSTOutput | undefined>`。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，所以它的函数原样返回 `Response`，错误状态也一样。
+- GET 和 DELETE 把输入放在查询字符串里，其他方法放在 JSON 请求体里，输入里有文件时用 multipart 表单（见[输入里的文件](#files-in-the-input)）。结果的类型来自 Go 的结果，遇到重定向（见下）时是 `| undefined`：`func(c, in) (Out, error)` 得到 `Promise<POSTOutput | undefined>`。`func(c, in) error` 得到 `void`。`func(c) error` 自己写响应，所以它的函数原样返回 `Response`，错误状态也一样。
 - 一次调用只发送它的请求，如果响应带着会话，就应用它（见下）。无论成功还是失败、无论哪种方法，它都从不重新加载页面的数据。页面需要显示这次写入的改动时，在它之后调用 `router.invalidate()`（见下面的例子）。
 - Tifa 从不替你重新加载页面数据。在一次写入（处理函数或你自己的 `fetch`）之后，页面显示的还是原来的内容，直到你提出要求：调用 TanStack 的 `router.invalidate()`，重新加载当前页面及其所有布局的数据，合并成一个请求。`await router.invalidate({ sync: true })` 在页面显示新数据之后才完成。普通的 `await router.invalidate()` 会立刻完成，页面在后台更新。
-- 错误响应会抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，否则为空）。网络故障的抛法和 `fetch` 一样。来自比服务器更旧的构建的页面发起的调用，会以状态 409 失败，见[部署期间打开的页面](../build-and-deploy/deploy.zh-CN.md#pages-open-while-you-deploy)。
+- 错误响应会抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，否则为空）。网络故障的抛法和 `fetch` 一样。来自比服务器更旧的构建的页面发起的调用，会以状态 409 失败，见[部署期间打开的页面](../build-and-deploy/deploy-by-hand.zh-CN.md#pages-open-while-you-deploy)。
 - 当处理函数或 `OnRequest` 返回 `tifa.Redirect(url, status)` 时，浏览器会前往那个 URL：本站的 URL 通过路由器，不重新加载页面，其他站点则整页加载。新页面显示路由器已有的内容，并加载缺少的部分，和任何导航之后一样。重定向到正在显示的页面时，停留在原处，什么也不加载。路径、hash 和查询值都一致时，就算同一个页面，不管查询的顺序和编码。promise 在导航结束后以 `undefined` resolve，有结果的处理函数也一样。一次调用有没有被重定向，只有看了响应才知道，因为 `OnRequest` 可以重定向任何请求，所以每个带结果的处理函数的函数，其结果类型都包含 `undefined`。自己写响应的处理函数，它的函数拿到的是重定向的 `Response`（`ok`，状态在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，而不是按页面的 URL。处理函数自己通过 `c.Writer()` 写的 3xx，或者代理写的 3xx，在浏览器里读不到，会让 promise 以一个 `Error` reject。
 - 让某人登录或退出的调用，会在响应里带回新的会话，浏览器里的会话副本随之更新（见[浏览器里的会话](sessions.zh-CN.md#in-the-browser)）。
 - 请在事件处理函数或 effect 里调用这些函数。在页面于服务器上渲染时调用会抛错。

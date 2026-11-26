@@ -1,8 +1,8 @@
 ---
 summary: 'Tifa 应用在一个核上能提供多少，以及怎样估算资源：Next.js、TanStack Start、`ssr.vms`、内存、过载、压缩'
 audience: app
-order: 2
-translatedFrom: ed52a781d609
+order: 3
+translatedFrom: 16ab900d1769
 read_when:
   - '决定 Tifa 应用需要多少 CPU 和内存，或者设置 `ssr.vms`'
   - '请求到达的速度比页面渲染的速度快，或者需要给渲染队列定大小'
@@ -63,7 +63,7 @@ shop 用三种方式构建：Tifa，以及 Next.js 和 TanStack Start 应用，�
 
 整页加载的 CPU 大部分花在渲染上，而一次渲染比在 Node 里慢：Tifa 在 beastjs 里渲染，beastjs 是一个没有 JIT 的纯 Go JavaScript 引擎。
 
-- [`ssr.vms`](../build-and-deploy/config.zh-CN.md#settings) 默认是 Go 看到的 CPU 数，最多 4。超过 4 个 CPU 时，内存够的话就把它设成 CPU 数。
+- [`ssr.vms`](settings.zh-CN.md#settings) 默认是 Go 看到的 CPU 数，最多 4。超过 4 个 CPU 时，内存够的话就把它设成 CPU 数。
 - 对像 shop 工作台这样的页面，每个物理核心每秒大约按 42 个页面请求来规划，并关掉渲染记忆 memo 让每个请求都渲染。吞吐量跟着核数走：两核是 1.99 倍，三核是 2.94 倍。
 - 云上的一个 vCPU 往往是一个超线程。所有超线程都忙的时候，每个 vCPU 大约按 0.6 个物理核心来规划。
 - VM 比 CPU 多不会增加吞吐量，反而让每次渲染变慢。
@@ -72,7 +72,7 @@ shop 用三种方式构建：Tifa，以及 Next.js 和 TanStack Start 应用，�
 
 ### 过载 {#overload}
 
-让平时的到达速率低于机器的渲染能力。默认最多有 32 个渲染可以等 VM，每个最多等 3 秒。超过之后，Go 不占用 VM，直接响应 503，带 `Retry-After: 1`。见 [渲染队列](../build-and-deploy/config.zh-CN.md#render-queue)。
+让平时的到达速率低于机器的渲染能力。默认最多有 32 个渲染可以等 VM，每个最多等 3 秒。超过之后，Go 不占用 VM，直接响应 503，带 `Retry-After: 1`。见 [渲染队列](../build-and-deploy/tuning.zh-CN.md#render-queue)。
 
 在 1.5 倍于它容量的负载下，shop 拒绝了 34% 的请求，其余请求的 P50 大约是 390 ms。在 3 倍下，它拒绝了 68%，其余请求的 P50 仍约为 395 ms，内存没有增长。要看成功请求的延迟：大多数请求被很快拒绝时，所有请求的延迟看起来会很低。[具体步骤](../studies/capacity.md#overload)。
 
@@ -81,7 +81,7 @@ shop 用三种方式构建：Tifa，以及 Next.js 和 TanStack Start 应用，�
 - **进程**：启动后带一个 VM 时大约 47 MiB，每多一个 VM 多 9 MiB。
 - **VM 渲染的页面种类越多就越大，然后稳定下来。** shop 的一个 VM 加载后占 9 MB，渲染完它所有页面之后占 17 到 25 MB，每次渲染的数据都是新的时最多占 39 MB。页面很多的应用，每个 VM 按最多 40 MiB 来规划。
 - **实测**：一个 VM 以每秒 58 个请求服务 shop 的 525 个页面，持续 40 分钟，进程的内存稳定在大约 105 MiB（Tifa v0.0.13）。在一个核心满负载下，整次访问的测试里，带渲染记忆 memo 时峰值是 245 MiB，不带时是 84 MiB。
-- **渲染记忆 memo** 最多保存 [`ssr.memo_size`](../build-and-deploy/config.zh-CN.md#settings)，默认 64 MiB。
+- **渲染记忆 memo** 最多保存 [`ssr.memo_size`](settings.zh-CN.md#settings)，默认 64 MiB。
 - **`ssr.vm_memory`**（默认 128 MiB）限制每个 VM。一次回收之后，VM 占用超过它的一半时，池会在后台替换这个 VM，所以泄漏内存的应用，每个 VM 里最多保留 64 MiB。设得更低，就会更早替换。如果日志说新的 VM 放不下，就把它调高。
 - **空闲的 VM 会把空闲内存还给系统**，在一秒没有渲染之后。
 
@@ -89,7 +89,7 @@ VM 是怎么被回收和替换的，以及每个数字是用什么测的：[内�
 
 ## 压缩 {#compression}
 
-[`server.compress`](../build-and-deploy/config.zh-CN.md#settings) 默认开启。压缩一个页面花掉它渲染时间的 1% 到 2%，让它变小约 6 倍。浏览器的包以构建时写好的 gzip 文件发出，不占 CPU。来自渲染记忆 memo 的页面以它的 gzip 形式保存，所以以压缩形式响应比不压缩还省。[这些表格](../studies/capacity.md#compression)。
+[`server.compress`](settings.zh-CN.md#settings) 默认开启。压缩一个页面花掉它渲染时间的 1% 到 2%，让它变小约 6 倍。浏览器的包以构建时写好的 gzip 文件发出，不占 CPU。来自渲染记忆 memo 的页面以它的 gzip 形式保存，所以以压缩形式响应比不压缩还省。[这些表格](../studies/capacity.md#compression)。
 
 `server.csp` 会给一次渲染增加约 0.1%。
 

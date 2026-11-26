@@ -1,7 +1,7 @@
 ---
 summary: 'Go types Load and handlers may take and return, and their TypeScript types'
 audience: app
-order: 5
+order: 6
 read_when:
   - Deciding which Go types a Load or a handler may take and return, or the build rejects one
   - The build reports an error about a Load return type and you want to fix it
@@ -17,14 +17,14 @@ The value `Load` or a `Layout` function returns, and the input and result of a m
 | `bool` | `boolean` |
 | integers, floats, `json.Number` | `number` |
 | `string`, `time.Time` | `string` |
-| `tifa.HTML` | `HTML` of `tifa/client`, see [Showing HTML the app trusts](loading-data.md#showing-html-the-app-trusts). Not a map key, a handler input, in the session or a whole result |
+| `tifa.HTML` | `HTML` of `tifa/client`, see [Showing HTML the app trusts](../pages-and-data/loading-data.md#showing-html-the-app-trusts). Not a map key, a handler input, in the session or a whole result |
 | `*multipart.FileHeader`, `[]*multipart.FileHeader` | `Blob \| null`, `Blob[]`. Only in a field of the input of a POST, PUT or PATCH handler, see [Files in the input](../pages-and-data/handlers.md#files-in-the-input) |
 | pointer | `T \| null` |
 | slice | `T[]`. A nil slice is written as `[]` |
 | `[]byte`, `[N]byte` (the element is exactly `byte` or `uint8`) | `string`, written as base64. A nil `[]byte` is `""`. A slice or array of a named byte type is an ordinary array of numbers |
 | array | `T[]`, or `[]` when the length is 0 |
 | map | `Record<string, V>`. A nil map is written as `{}` |
-| struct | an object of its exported fields. A named struct is also declared in `route.gen` under its Go name, see [page.tsx](loading-data.md#pagetsx) |
+| struct | an object of its exported fields. A named struct is also declared in `route.gen` under its Go name, see [page.tsx](../pages-and-data/loading-data.md#pagetsx) |
 
 - Map keys are written in sorted order, so the same value always gives the same text. They must be string or integer types, or types that output a string under the `MarshalText` rule below. Interfaces and pointers cannot be keys.
 - An exported embedded struct (a pointer works too) without a json name has its fields promoted to the outer object. Fields reached through an embedded pointer are optional. When fields of different structs have the same name, the shallowest wins, then the one with a json tag, and if that still leaves several, all of them are dropped. An embedded field needs a json name when its type is not a struct, and an embedded struct may not have json tag options or a method named `MarshalJSON`, `MarshalJSONTo`, `MarshalText`, `AppendText`, `UnmarshalJSON`, `UnmarshalJSONFrom` or `UnmarshalText`. Unexported embedded fields are not accepted unless tagged `json:"-"`.

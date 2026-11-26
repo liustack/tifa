@@ -2,7 +2,7 @@
 summary: '应用怎样把文字作为 Markdown 放在 content/ 下：content.go、front matter、slug、草稿、remark'
 audience: app
 order: 9
-translatedFrom: 5b02fd93ec20
+translatedFrom: c5c6a26c89c4
 read_when:
   - '给 Tifa 应用加博客、文档或其他 Markdown 内容'
   - '编写或修改 content.go，或者嵌入 content.Entry 的 schema 类型'
@@ -410,7 +410,7 @@ tifa: content: blog zh-CN/202611/launch and en/202611/release-notes are publishe
 
 ## `tifa dev` {#tifa-dev}
 
-`tifa dev` 从 `.tifa/dist` 读取内容，所以改动 `content/` 下的内容不需要 go build，也不需要重启（见[每种改动会触发什么](../build-and-deploy/dev.zh-CN.md#what-each-change-triggers)）：
+`tifa dev` 从 `.tifa/dist` 读取内容，所以改动 `content/` 下的内容不需要 go build，也不需要重启（见[每种改动会触发什么](../build-and-deploy/dev-reloads.zh-CN.md#what-each-change-triggers)）：
 
 - Markdown 文件被修改、添加或删除，不管是正文还是 front matter：`tifa dev` 会重新扫描 `content/`，转换那个条目，写入 `.tifa/dist/content/` 和 `content.json`，运行中的应用加载它们。应用对每个条目运行 `Validate` 并取用新数据，之后你加载的页面会显示它。`OnStart` 不会再运行，打开的页面会重新加载。
 - `content/` 下的其他文件，比如图片：它所在文件夹里的条目会重新转换，回退到那个文件夹的翻译也一样。

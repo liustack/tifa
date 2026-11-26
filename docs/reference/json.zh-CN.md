@@ -1,8 +1,8 @@
 ---
 summary: 'Load 和处理函数可以接收和返回的 Go 类型，以及对应的 TypeScript 类型'
 audience: app
-order: 5
-translatedFrom: bbd6942d107d
+order: 6
+translatedFrom: fdd74f44b2bc
 read_when:
   - '决定 Load 或处理函数可以接收和返回哪些 Go 类型，或者构建拒绝了某个类型'
   - '构建报出关于 Load 返回类型的错误，想把它修好'
@@ -18,14 +18,14 @@ read_when:
 | `bool` | `boolean` |
 | 整数、浮点数、`json.Number` | `number` |
 | `string`、`time.Time` | `string` |
-| `tifa.HTML` | `tifa/client` 的 `HTML`，见[显示应用信任的 HTML](loading-data.zh-CN.md#showing-html-the-app-trusts)。不能作为 map 的键、处理函数的输入、会话，也不能作为整个结果 |
+| `tifa.HTML` | `tifa/client` 的 `HTML`，见[显示应用信任的 HTML](../pages-and-data/loading-data.zh-CN.md#showing-html-the-app-trusts)。不能作为 map 的键、处理函数的输入、会话，也不能作为整个结果 |
 | `*multipart.FileHeader`、`[]*multipart.FileHeader` | `Blob \| null`、`Blob[]`。只能出现在 POST、PUT 或 PATCH 处理函数输入的字段里，见[输入里的文件](../pages-and-data/handlers.zh-CN.md#files-in-the-input) |
 | 指针 | `T \| null` |
 | 切片 | `T[]`。nil 切片写成 `[]` |
 | `[]byte`、`[N]byte`（元素恰好是 `byte` 或 `uint8`） | `string`，以 base64 写出。nil 的 `[]byte` 是 `""`。命名的字节类型的切片或数组，是普通的数字数组 |
 | 数组 | `T[]`，长度为 0 时是 `[]` |
 | map | `Record<string, V>`。nil 的 map 写成 `{}` |
-| 结构体 | 由它的导出字段组成的对象。具名结构体还会在 `route.gen` 里按它的 Go 名字声明，见 [page.tsx](loading-data.zh-CN.md#pagetsx) |
+| 结构体 | 由它的导出字段组成的对象。具名结构体还会在 `route.gen` 里按它的 Go 名字声明，见 [page.tsx](../pages-and-data/loading-data.zh-CN.md#pagetsx) |
 
 - map 的键按排序后的顺序写出，所以同一个值总是得到同样的文本。键必须是字符串或整数类型，或者按下面的 `MarshalText` 规则输出字符串的类型。接口和指针不能做键。
 - 没有 json 名的导出嵌入结构体（指针也可以），它的字段会提升到外层对象里。通过嵌入指针到达的字段是可选的。不同结构体的字段同名时，层级最浅的胜出，然后是带 json 标签的，如果这样还剩下多个，就全部丢弃。嵌入字段的类型不是结构体时，需要一个 json 名。嵌入的结构体不能带 json 标签选项，也不能有名为 `MarshalJSON`、`MarshalJSONTo`、`MarshalText`、`AppendText`、`UnmarshalJSON`、`UnmarshalJSONFrom` 或 `UnmarshalText` 的方法。未导出的嵌入字段不被接受，除非标成 `json:"-"`。

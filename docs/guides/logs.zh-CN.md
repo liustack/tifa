@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的日志在哪里，以及怎样写日志：`tifa dev`、`log/slog`、格式、级别'
 audience: app
 order: 11
-translatedFrom: 2cbdaa81d07b
+translatedFrom: a1c654a73053
 read_when:
   - '想找应用的日志，在 `tifa dev`、服务器或容器里'
   - '想知道 Tifa 自己记了什么，或者为什么一个请求没留下日志行'
@@ -12,7 +12,7 @@ read_when:
 
 # 日志 {#logs}
 
-Tifa 用 `log/slog` 写自己的消息，你的代码用同一个 logger。在 `OnStart` 里调用一次 `slog.SetDefault`，就能改变所有日志的去向、格式和起始级别。构建出的程序不记录每个请求，Tifa 自己也没有日志级别的设置。下面的[请求日志](#logging-each-request)是大约二十行你自己的代码。在 `tifa dev` 下，应用不用它也会给每个请求写一行，见[日志](../build-and-deploy/dev.zh-CN.md#log)。
+Tifa 用 `log/slog` 写自己的消息，你的代码用同一个 logger。在 `OnStart` 里调用一次 `slog.SetDefault`，就能改变所有日志的去向、格式和起始级别。构建出的程序不记录每个请求，Tifa 自己也没有日志级别的设置。下面的[请求日志](#logging-each-request)是大约二十行你自己的代码。在 `tifa dev` 下，应用不用它也会给每个请求写一行，见[日志](../build-and-deploy/dev-errors.zh-CN.md#log)。
 
 ## Tifa 记了什么 {#what-tifa-logs}
 
@@ -21,7 +21,7 @@ Tifa 用 `log/slog` 写自己的消息，你的代码用同一个 logger。在 `
 - `ERROR` `tifa: request failed`，带 `method`、`path` 和 `err`：路由返回了错误，而应用没有 `OnError`。有 `OnError` 时，Tifa 对这个错误什么都不记，请在 `OnError` 里上报（见[钩子](../pages-and-data/hooks.zh-CN.md)）。
 - `ERROR` `tifa: request failed after the response was written`，带 `method`、`path` 和 `err`：错误来得太晚，已经改不了响应。不管有没有 `OnError`，这一条都会记。
 - `ERROR` 行：某个页面谁都渲染不出来（`a render failed and no request waits for it`、`the page with the error failed too`），会话写不进响应，以及 `tifa.SetSitemap` 里的错误（`SetSitemap: <kind>`）。
-- `WARN` `tifa: refused a cross-site write`，带 `method`、`path`、`reason`、`origin`、`sec_fetch_site` 和 `host`。见[跨站写入](../build-and-deploy/config.zh-CN.md#cross-site-writes)。
+- `WARN` `tifa: refused a cross-site write`，带 `method`、`path`、`reason`、`origin`、`sec_fetch_site` 和 `host`。见[跨站写入](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes)。
 - `WARN` `tifa: dropping a session`，带 `why`、`method` 和 `path`：请求里存下来的会话用不了（已过期、已损坏，或和读它的类型对不上），访客因此被退出登录。
 - `WARN`，只记一次：登录请求走的是明文 HTTP，浏览器会丢掉 Secure cookie。
 - 渲染产生的 `WARN` 和 `ERROR` 行（`tifa: ssr:`）：调用 `Intl` 时没有给 locale（见[`tifa dev` 里的警告](../pages-and-data/server-render.zh-CN.md#warnings-in-tifa-dev)），以及某个 VM 被替换了（带原因），是 `WARN`。某个 VM 的垃圾回收失败，或者 VM 没能替换，是 `ERROR`。
@@ -73,7 +73,7 @@ func OnStart(ctx context.Context) error {
 
 ## 记录每个请求 {#logging-each-request}
 
-构建出的程序没有请求日志（`tifa dev` 有它自己的行，见[日志](../build-and-deploy/dev.zh-CN.md#log)）。在 `OnStart` 里用 `tifa.SetHTTPHandler` 给应用包一层（见[钩子](../pages-and-data/hooks.zh-CN.md#setting-up-in-onstart)）。这一层给请求计时，并在应用答完之后从 `r.Pattern` 读出路由模板：
+构建出的程序没有请求日志（`tifa dev` 有它自己的行，见[日志](../build-and-deploy/dev-errors.zh-CN.md#log)）。在 `OnStart` 里用 `tifa.SetHTTPHandler` 给应用包一层（见[钩子](../pages-and-data/hooks.zh-CN.md#setting-up-in-onstart)）。这一层给请求计时，并在应用答完之后从 `r.Pattern` 读出路由模板：
 
 ```go
 type statusWriter struct {
@@ -114,7 +114,7 @@ func logRequests(app http.Handler) http.Handler {
 
 ## 日志去哪了 {#where-the-logs-go}
 
-- **`tifa dev`**：终端。用 `--background` 时，所有输出进 `.tifa/dev.log`：用 `go tool tifa dev logs` 读，加 `-f` 跟随（见[日志](../build-and-deploy/dev.zh-CN.md#logs)）。
-- **用 `tifa deploy` 设置的服务器**：stdout 和 stderr 进 systemd 的 journal。`go tool tifa deploy logs` 打印最后 100 行，`-n 500` 看更多，`-f` 看新的行。在服务器上，以用户 `tifa` 身份运行 `journalctl --user -u tifa-<app>` 效果一样（见[日志、状态和移除](../build-and-deploy/deploy.zh-CN.md#logs-status-and-remove)）。
+- **`tifa dev`**：终端。用 `--background` 时，所有输出进 `.tifa/dev.log`：用 `go tool tifa dev logs` 读，加 `-f` 跟随（见[日志](../build-and-deploy/dev-scripts.zh-CN.md#logs)）。
+- **用 `tifa deploy` 设置的服务器**：stdout 和 stderr 进 systemd 的 journal。`go tool tifa deploy logs` 打印最后 100 行，`-n 500` 看更多，`-f` 看新的行。在服务器上，以用户 `tifa` 身份运行 `journalctl --user -u tifa-<app>` 效果一样（见[日志、状态和移除](../build-and-deploy/deploy-operate.zh-CN.md#logs-status-and-remove)）。
 - **服务器保留多久**：这取决于服务器的 journald 配置，不归 Tifa 管。限制写在 `/etc/systemd/journald.conf` 里，比如 `SystemMaxUse` 管能用多少磁盘，`MaxRetentionSec` 管保留多久。`journalctl --disk-usage` 显示它现在占了多少。只放在内存里的 journal（`Storage=volatile`）在服务器重启后就没了。
 - **容器**：stdout 和 stderr。容器的运行时，比如 Docker 或 Kubernetes，会收集它们。把日志写到 stdout，就像[格式和级别](#format-and-level)的示例那样，不要写进容器里的文件。

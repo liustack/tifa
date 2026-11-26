@@ -180,10 +180,12 @@ go tool tifa agents
 | 应用的各个部分：[路由](docs/pages-and-data/routing.zh-CN.md)、[布局](docs/pages-and-data/layouts.zh-CN.md)、[加载数据](docs/pages-and-data/loading-data.zh-CN.md)、[方法处理函数](docs/pages-and-data/handlers.zh-CN.md)、[链接和导航](docs/pages-and-data/navigation.zh-CN.md)、[head](docs/pages-and-data/head.zh-CN.md)、[错误](docs/pages-and-data/errors.zh-CN.md)、[渲染开关与缓存](docs/pages-and-data/ssr-and-cache.zh-CN.md)、[服务端渲染](docs/pages-and-data/server-render.zh-CN.md)、[样式](docs/pages-and-data/styles.zh-CN.md)、[钩子](docs/pages-and-data/hooks.zh-CN.md)、[测试](docs/pages-and-data/testing-apps.zh-CN.md)、[测试页面](docs/pages-and-data/testing-pages.zh-CN.md) | 写路由的 Go 和 React 代码、Layout、404、head 标签、给 CDN 用的 `Cache`、服务端有什么、CSS、启动代码、Go 测试和页面的测试 |
 | [会话](docs/pages-and-data/sessions.zh-CN.md) | 让用户登录登出，把会话放到 Redis 或 SQL，或者在页面里显示谁登录了 |
 | [内容](docs/pages-and-data/content.zh-CN.md) | 把博客或文档写成 Markdown 文件，在 Go 里读它们 |
-| [构建与运行](docs/build-and-deploy/build.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
+| [构建与运行](docs/build-and-deploy/build.zh-CN.md) | 用 `tifa build` 构建程序，为另一个系统构建，或者核对要附上什么 |
+| [生成的文件和应用的配置](docs/reference/generated-files.zh-CN.md) | 想知道 `tifa build` 生成了什么，程序怎么回答请求 |
 | [开发服务器](docs/build-and-deploy/dev.zh-CN.md) | 在本地跑 `tifa dev`，或者改了代码没有刷新 |
 | [部署](docs/build-and-deploy/deploy.zh-CN.md) | 把程序放到服务器或容器里，或者放在 CDN 或代理后面 |
-| [配置](docs/build-and-deploy/config.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时、渲染记忆和带 `Cache` 的页面的 Cache-Control |
+| [配置](docs/build-and-deploy/config.zh-CN.md) | 设置从哪里来：`tifa.yaml`、参数、环境变量和 `.env`，以及你自己应用的选项 |
+| [设置](docs/reference/settings.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时、渲染记忆和带 `Cache` 的页面的 Cache-Control |
 | [内部结构](docs/internals/architecture.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和渲染记忆在内部是怎么工作的（英文） |
 | [约定](docs/reference/conventions.zh-CN.md) | 想在一页里查完 Tifa 读取的每个文件、文件夹和名字：`page.tsx`、`route.go`、`Load`、`Cache`、hooks 和生成的文件 |
 | [渲染记忆](docs/reference/memo.zh-CN.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地复用 |

@@ -2,7 +2,7 @@
 summary: 'Tifa 为什么是这样：文件夹就是 URL，每次写入一个地址，没有藏起来的东西'
 audience: app
 order: 3
-translatedFrom: e0455f65dc1d
+translatedFrom: 5c3d372f24c6
 read_when:
   - '新建 Tifa 应用，想知道它为什么是这样的布局'
   - '在新增一层、一个包或一个辅助函数之前，对照 Tifa 应用应有的样子权衡'
@@ -124,6 +124,6 @@ Tifa 照代码说的做，不靠猜。它需要知道的，从你写下的名字
 | `error.tsx`、`not-found.tsx`、`layout.go` 或更多的约定文件 | 一个文件夹里最多三个约定文件才好记，404 也只是众多状态之一 | `ErrorBoundary` 显示每一种状态，`route.go` 放这个文件夹所有的 Go 名字：[文件夹里的文件](../pages-and-data/routing.zh-CN.md#the-files-of-a-folder) |
 | 静态生成和预渲染 | 静态导出需要另一套规则来对付一切需要服务器的东西，而 Tifa 是给服务器上的 Go 程序用的 | 带 `Cache` 的页面：[没有静态生成](app.zh-CN.md#no-static-generation) |
 | 内置的登录、用户账号、Redis 或 SQL 的会话存储 | 会话只做一件事，把页面和人分开。它存在哪里、用户是谁，都是应用自己的事 | 自己写一个只有三个方法的存储，登录看指南：[会话](../pages-and-data/sessions.zh-CN.md#where-to-store-sessions)和[登录](../guides/sign-in.zh-CN.md) |
-| 每个表单里的 CSRF 令牌 | 每次写入都已经过 Go 的 `http.CrossOriginProtection`，会话 cookie 是 `SameSite=Lax`。令牌是又一套可能出错的机制 | 一直开着的检查：[跨站写入](../build-and-deploy/config.zh-CN.md#cross-site-writes) |
+| 每个表单里的 CSRF 令牌 | 每次写入都已经过 Go 的 `http.CrossOriginProtection`，会话 cookie 是 `SameSite=Lax`。令牌是又一套可能出错的机制 | 一直开着的检查：[跨站写入](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes) |
 | 依赖注入容器 | 包级变量已经能做这件事，运行时也没有查找 | 在 `OnStart` 里设置的包级变量：[手工连接依赖](#wire-dependencies-by-hand) |
 | 定时任务的 API | Go 有 goroutine 和 `time.Ticker`，一个任务不需要只有框架才知道的东西 | 在 `OnStart` 里启动的 goroutine：[后台任务](../guides/jobs.zh-CN.md) |

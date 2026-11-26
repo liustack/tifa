@@ -491,7 +491,7 @@ type layout struct {
 	uses  []paramUse
 }
 
-// reservedQuery is the query parameter of the navigation data requests (see docs/build-and-deploy/build.md). The
+// reservedQuery is the query parameter of the navigation data requests (see docs/reference/data-protocol.md). The
 // server takes it off the URL, so a Load could never read it.
 const reservedQuery = "_tifa"
 

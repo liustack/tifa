@@ -68,7 +68,7 @@ Then point the aliases of `components.json` into `components/`, so the app root 
 
 `add` places files and rewrites their imports by these aliases: `add sidebar` writes `components/hooks/use-mobile.ts`. When `lib/utils.ts` only re-exports `cn` from the `cn` package, as with shadcn 4, delete it and import `cn` from `cn` in page code too, as the components do. Otherwise move it to `components/lib/utils.ts`.
 
-`@/` is the app root, set by `paths` in the app's tsconfig (see [build.md](../build-and-deploy/build.md#the-apps-tsconfig-and-vite-config)). Components render on the server like any other React code.
+`@/` is the app root, set by `paths` in the app's tsconfig (see [Generated files and app setup](../reference/generated-files.md#the-apps-tsconfig-and-vite-config)). Components render on the server like any other React code.
 
 ## Other UI libraries
 

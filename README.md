@@ -180,10 +180,12 @@ More in [Use Tifa with a coding agent](docs/start/agents.md).
 | The parts of an app: [routing](docs/pages-and-data/routing.md), [layouts](docs/pages-and-data/layouts.md), [loading data](docs/pages-and-data/loading-data.md), [method handlers](docs/pages-and-data/handlers.md), [links and navigation](docs/pages-and-data/navigation.md), [head](docs/pages-and-data/head.md), [errors](docs/pages-and-data/errors.md), [render switches and caches](docs/pages-and-data/ssr-and-cache.md), [server render](docs/pages-and-data/server-render.md), [styles](docs/pages-and-data/styles.md), [hooks](docs/pages-and-data/hooks.md), [testing](docs/pages-and-data/testing-apps.md), [testing pages](docs/pages-and-data/testing-pages.md) | Writing the Go and React code of a route, Layouts, 404 pages, head tags, `Cache` for CDNs, what the server render has, CSS, startup code, Go tests and tests of pages |
 | [Sessions](docs/pages-and-data/sessions.md) | Signing users in and out, keeping sessions in Redis or SQL, or showing who is signed in |
 | [Content](docs/pages-and-data/content.md) | Keeping a blog or docs as Markdown files and reading them in Go |
-| [Build and run](docs/build-and-deploy/build.md) | You want to know what `tifa build` generates and how the program answers requests |
+| [Build and run](docs/build-and-deploy/build.md) | Building the program with `tifa build`, building it for another system, or checking what to ship with it |
+| [Generated files and app setup](docs/reference/generated-files.md) | You want to know what `tifa build` generates and how the program answers requests |
 | [Dev server](docs/build-and-deploy/dev.md) | Running `tifa dev` locally, or a change did not reload |
 | [Deploying](docs/build-and-deploy/deploy.md) | Putting the program on a server or in a container, or behind a CDN or proxy |
-| [Configuration](docs/build-and-deploy/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout, the render memo and the Cache-Control of pages with `Cache` |
+| [Configuration](docs/build-and-deploy/config.md) | Where settings come from: `tifa.yaml`, flags, the environment and `.env`, and the options of your app |
+| [Settings](docs/reference/settings.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout, the render memo and the Cache-Control of pages with `Cache` |
 | [Architecture](docs/internals/architecture.md) | You want to know how a request, `tifa build`, `tifa dev`, the VM pool and the render memo work inside |
 | [Conventions](docs/reference/conventions.md) | You want every file, folder and name Tifa reads on one page: `page.tsx`, `route.go`, `Load`, `Cache`, hooks and the generated files |
 | [Render memo](docs/reference/memo.md) | You want to know why pages, signed-in ones included, are reused safely with nothing to set up |

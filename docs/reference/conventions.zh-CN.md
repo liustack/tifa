@@ -1,8 +1,8 @@
 ---
 summary: '一页看完 Tifa 应用的全部约定：文件和文件夹、route.go 认的名字、根目录的 hooks 和选项、构建拒绝的写法，以及生成的文件'
 audience: app
-order: 6
-translatedFrom: 15a453d1ebbc
+order: 1
+translatedFrom: 09c3ce7d714f
 read_when:
   - '查一个文件、一个文件夹或一个名字在 Tifa 应用里做什么，或者该写哪一个'
   - '构建拒绝了一个文件夹名、一个文件或 `route.go` 里的一个名字，或者你写的名字好像被忽略了'
@@ -25,9 +25,9 @@ Tifa 读取的每样东西占一行，后面链到讲它的那一页。名字按
 | `content/` | 集合的 Markdown 文件，每个集合一个文件夹。见[哪些文件是条目](../pages-and-data/content.zh-CN.md#which-files-are-entries) |
 | `setup.ts` | 顶层代码，在每个 VM 里和浏览器里、任何页面之前运行一次。它不导出任何东西。见 [setup.ts](../pages-and-data/hooks.zh-CN.md#setupts) |
 | `public/` | 原样从 `/` 提供的文件，文件名不变。这个文件夹由 `build.public` 指定。见[静态文件](../start/app.zh-CN.md#static-files) |
-| `tifa.yaml` | Tifa 的设置，以及每项对应的参数和环境变量。见[设置](../build-and-deploy/config.zh-CN.md#settings) |
+| `tifa.yaml` | Tifa 的设置，以及每项对应的参数和环境变量。见[设置](settings.zh-CN.md) |
 | `.env` | 本地运行用的设置和选项。见 [.env](../build-and-deploy/config.zh-CN.md#env) |
-| `vite.config.ts`、`tsconfig.json` | 带 `tifa()` 插件的 Vite 配置，以及继承 `.tifa/tsconfig.json` 的 tsconfig。见[应用的 tsconfig 和 Vite 配置](../build-and-deploy/build.zh-CN.md#the-apps-tsconfig-and-vite-config) |
+| `vite.config.ts`、`tsconfig.json` | 带 `tifa()` 插件的 Vite 配置，以及继承 `.tifa/tsconfig.json` 的 tsconfig。见[应用的 tsconfig 和 Vite 配置](generated-files.zh-CN.md#the-apps-tsconfig-and-vite-config) |
 | `.tifa/` | 由 `tifa build`、`tifa gen` 和 `tifa dev` 写出。不要改它，也不要提交它。见[生成的文件](#generated-files) |
 
 根目录的其他文件，比如 `db.go`、`mail.go`、`schema.sql` 或 `sessions.go`，是应用自己的，`tifa new` 会写出其中一些。Tifa 一个都不读。根包可以放 hooks 和整个应用共享的东西，不放业务域的代码。见[应用的结构](../start/structure.zh-CN.md)。
@@ -135,7 +135,7 @@ hook 是根包里的包级函数，签名必须完全一致：
 | `.tifa/app/<folder>/route.gen.ts` | 每个有页面、布局或方法处理函数的文件夹一份。页面用 `./route.gen` 导入它，得到 `page`、`layout`、`PageData`、`Params` 和每个方法处理函数对应的函数。见 [page.tsx](../pages-and-data/loading-data.zh-CN.md#pagetsx) |
 | `.tifa/session.gen.ts` | 会话向浏览器展示的内容的类型。见[在浏览器里](../pages-and-data/sessions.zh-CN.md#in-the-browser) |
 
-`.tifa/` 里的其余部分，任何一个版本都可能改变。见 [.tifa/ 里的文件](../build-and-deploy/build.zh-CN.md#files-in-tifa)。
+`.tifa/` 里的其余部分，任何一个版本都可能改变。见 [.tifa/ 里的文件](generated-files.zh-CN.md#files-in-tifa)。
 
 ## 页面里的导入 {#imports-in-a-page}
 

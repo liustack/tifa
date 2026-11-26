@@ -1,7 +1,7 @@
 ---
 summary: 'Debug an app under tifa dev: Delve on the Go side through the process ID in `tifa dev status`, React components in the browser, and what a server render prints'
 audience: app
-order: 5
+order: 6
 read_when:
   - Stepping through the Go code of a route, a Load or a handler with a debugger while `tifa dev` runs
   - Finding what a component did while it rendered on the server, or why a page renders differently on the server
@@ -46,7 +46,7 @@ go run github.com/go-delve/delve/cmd/dlv@latest attach 41290
 
 ## React in the browser
 
-The browser gets the modules of your pages from Vite's dev server, with source maps, so the Sources panel of the browser shows your `.tsx` files and a breakpoint in a component stops where you set it. React Developer Tools shows the components and their props. `tifa dev` shows errors of the browser in an overlay on the page, and `tifa errors` prints them (see [Errors in the browser](dev.md#errors-in-the-browser)).
+The browser gets the modules of your pages from Vite's dev server, with source maps, so the Sources panel of the browser shows your `.tsx` files and a breakpoint in a component stops where you set it. React Developer Tools shows the components and their props. `tifa dev` shows errors of the browser in an overlay on the page, and `tifa errors` prints them (see [Errors in the browser](dev-errors.md#errors-in-the-browser)).
 
 ## React on the server
 
@@ -57,4 +57,4 @@ The server render runs in a JavaScript VM with no debugger, so you cannot set a 
 2026/11/26 08:00:00 INFO GET /about 200 28ms /about memo miss
 ```
 
-The line below it is the request line of `tifa dev`: the route and whether the render memo had the page. See [Console in `tifa dev`](../pages-and-data/server-render.md#console-in-tifa-dev) for what is printed and how, and [Log](dev.md#log) for the request lines.
+The line below it is the request line of `tifa dev`: the route and whether the render memo had the page. See [Console in `tifa dev`](../pages-and-data/server-render.md#console-in-tifa-dev) for what is printed and how, and [Log](dev-errors.md#log) for the request lines.
