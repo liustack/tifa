@@ -1243,7 +1243,7 @@ func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string,
 		a.errorAt(arg.Pos(), "%s, got a closure: tifa.Use tells Loads apart by code address, so closures of one literal would share results", need)
 		return
 	case *ast.SelectorExpr:
-		if info.Selections[e] != nil {
+		if s := info.Selections[e]; s != nil && s.Kind() != types.FieldVal { // a field is a function value
 			a.errorAt(arg.Pos(), "%s, got the method value %s: method values of one method share a code address and would share results", need, text)
 			return
 		}
