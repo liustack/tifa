@@ -128,6 +128,6 @@ It covers `Date`, `Temporal.Now` and Intl formatting without a date for the whol
 3. For hydration and clicks, open the page in a browser tool and watch the console. A hydration mismatch is reported there.
 4. A POST from `curl` has no `Sec-Fetch-Site` or `Origin`, so it passes the cross-site check. A POST from a page on another origin gets 403.
 
-On a page with `Cache`, the server hands `OnRequest` and `Load` an anonymous request, which `tifatest.NewCtx` does not do: it gives your function the request as you built it. The build already fails when such a `Load` or Layout reads a cookie, header or session. Check the page with two `curl -si` requests, the second with a `Cookie` header, which must give the same body.
+On a page with `Cache`, the server hands `OnRequest` and `Load` an anonymous request, which `tifatest.NewCtx` does not do: it gives your function the request as you built it. The build already fails when such a `Load`, or a Layout whose pages all have `Cache`, reads a cookie, header or session. Check the page with two `curl -si` requests, the second with a `Cookie` header, which must give the same body.
 
 Test cases worth writing for a new route: the not found path, the validation failure (422 with `fields`), the unauthorized path, and a second visit with `If-None-Match` for a page that should answer 304.
