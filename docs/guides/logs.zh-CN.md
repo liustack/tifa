@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的日志在哪里，以及怎样写日志：`tifa dev`、`log/slog`、格式、级别'
 audience: app
 order: 11
-translatedFrom: d08ab2a78557
+translatedFrom: 2cbdaa81d07b
 read_when:
   - '想找应用的日志，在 `tifa dev`、服务器或容器里'
   - '想知道 Tifa 自己记了什么，或者为什么一个请求没留下日志行'
@@ -12,7 +12,7 @@ read_when:
 
 # 日志 {#logs}
 
-Tifa 用 `log/slog` 写自己的消息，你的代码用同一个 logger。在 `OnStart` 里调用一次 `slog.SetDefault`，就能改变所有日志的去向、格式和起始级别。Tifa 不记录每个请求，自己也没有日志级别的设置。下面的[请求日志](#logging-each-request)是大约二十行你自己的代码。
+Tifa 用 `log/slog` 写自己的消息，你的代码用同一个 logger。在 `OnStart` 里调用一次 `slog.SetDefault`，就能改变所有日志的去向、格式和起始级别。构建出的程序不记录每个请求，Tifa 自己也没有日志级别的设置。下面的[请求日志](#logging-each-request)是大约二十行你自己的代码。在 `tifa dev` 下，应用不用它也会给每个请求写一行，见[日志](../build-and-deploy/dev.zh-CN.md#log)。
 
 ## Tifa 记了什么 {#what-tifa-logs}
 
@@ -73,7 +73,7 @@ func OnStart(ctx context.Context) error {
 
 ## 记录每个请求 {#logging-each-request}
 
-Tifa 没有请求日志。在 `OnStart` 里用 `tifa.SetHTTPHandler` 给应用包一层（见[钩子](../pages-and-data/hooks.zh-CN.md#setting-up-in-onstart)）。这一层给请求计时，并在应用答完之后从 `r.Pattern` 读出路由模板：
+构建出的程序没有请求日志（`tifa dev` 有它自己的行，见[日志](../build-and-deploy/dev.zh-CN.md#log)）。在 `OnStart` 里用 `tifa.SetHTTPHandler` 给应用包一层（见[钩子](../pages-and-data/hooks.zh-CN.md#setting-up-in-onstart)）。这一层给请求计时，并在应用答完之后从 `r.Pattern` 读出路由模板：
 
 ```go
 type statusWriter struct {

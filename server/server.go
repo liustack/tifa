@@ -274,6 +274,9 @@ func (s *server) redirectLocation(r *http.Request, url string, code int) string 
 // page, or no route matched.
 func (s *server) serve(w http.ResponseWriter, r *http.Request, pattern string, page bool, route func(*tifa.Ctx) error) {
 	tw := &writer{ResponseWriter: w, plain: !s.cfg.Compress}
+	if s.devErrors != nil && pattern != sessionPath {
+		defer s.logDevRequest(tw, r, pattern, time.Now())
+	}
 	// The same template as c.Pattern(), for a middleware of tifa.SetHTTPHandler that reads it from
 	// the request it passed on. ServeMux sets its own spelling, such as /{$} for the home page.
 	if pattern != "" {
@@ -574,7 +577,9 @@ const defaultCacheControl = "private, no-cache"
 type writer struct {
 	http.ResponseWriter
 	wrote bool
-	plain bool // server.compress is off: No-Gzip-Compression goes, as gzhttp removes it when it is on
+	// status is the first final status the app wrote, 0 before it wrote one. Only tifa dev reads it.
+	status int
+	plain  bool // server.compress is off: No-Gzip-Compression goes, as gzhttp removes it when it is on
 	// noStore reports that the answer sets the session cookie or answers a failed session store: it
 	// goes out as no-store, without validators.
 	noStore func() bool
@@ -632,6 +637,9 @@ func (w *writer) commit(final bool, call func() bool) {
 // WriteHeader commits on final statuses. Like net/http, 1xx other than 101 is informational and may
 // precede the real response.
 func (w *writer) WriteHeader(code int) {
+	if code >= 200 && w.status == 0 {
+		w.status = code
+	}
 	w.commit(code >= 200, func() bool {
 		w.ResponseWriter.WriteHeader(code)
 		return code < 100 || code > 199 || code == http.StatusSwitchingProtocols
@@ -640,6 +648,7 @@ func (w *writer) WriteHeader(code int) {
 
 // Write commits once it succeeds, even with no bytes since that sends the header, or once any byte went out.
 func (w *writer) Write(b []byte) (n int, err error) {
+	w.implicitStatus()
 	w.commit(true, func() bool {
 		n, err = w.ResponseWriter.Write(b)
 		return err == nil || n > 0
@@ -650,6 +659,7 @@ func (w *writer) Write(b []byte) (n int, err error) {
 // WriteString hands s on whole to a writer that takes strings, as net/http's does, so a page
 // is not copied into a byte slice on the way.
 func (w *writer) WriteString(s string) (n int, err error) {
+	w.implicitStatus()
 	w.commit(true, func() bool {
 		n, err = io.WriteString(w.ResponseWriter, s)
 		return err == nil || n > 0
@@ -662,6 +672,7 @@ func (w *writer) WriteString(s string) (n int, err error) {
 func (w *writer) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *writer) FlushError() (err error) {
+	w.implicitStatus()
 	w.commit(true, func() bool {
 		err = http.NewResponseController(w.ResponseWriter).Flush()
 		return err == nil

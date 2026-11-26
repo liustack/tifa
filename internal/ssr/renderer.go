@@ -143,6 +143,9 @@ func Load(bytecode *beastjs.SharedBytecode, memory, stack uintptr, timeout time.
 	if err == nil && dev {
 		_, err = vm.Eval(readCheck, beastjs.EvalGlobal)
 	}
+	if err == nil && dev {
+		_, err = vm.Eval(consoleCheck, beastjs.EvalGlobal)
+	}
 	if err == nil {
 		_, err = vm.EvalSharedBytecode(bytecode)
 	}
@@ -150,8 +153,12 @@ func Load(bytecode *beastjs.SharedBytecode, memory, stack uintptr, timeout time.
 		err = vm.takeFunctions()
 	}
 	if err == nil && dev {
-		// What the bundle read as it loaded is the same for every render.
+		// What the bundle read as it loaded is the same for every render, and what it printed is
+		// not printed again by each VM of the pool.
 		_, err = vm.Eval(takeReads, beastjs.EvalGlobal)
+		if err == nil {
+			_, err = vm.Eval(takeConsole, beastjs.EvalGlobal)
+		}
 	}
 	if err != nil {
 		return nil, errors.Join(err, vm.VM.Close())
@@ -196,6 +203,12 @@ var intlCheck string
 //
 //go:embed readcheck.js
 var readCheck string
+
+// consoleCheck is what tifa dev runs on each VM to collect what the page prints with console.log
+// and the like, see logConsole.
+//
+//go:embed consolecheck.js
+var consoleCheck string
 
 // VM is a VM of the bundle, made by Load, with the functions RenderVM calls.
 type VM struct {

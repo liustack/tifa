@@ -199,7 +199,7 @@ func (d *dev) serveStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tifa dev answers only under localhost or an IP address", http.StatusForbidden)
 		return
 	}
-	st := deverrors.Status{State: deverrors.OK}
+	st := deverrors.Status{State: deverrors.OK, AppPID: d.appPID()}
 	select {
 	case <-d.first:
 		if _, building := d.buildState(); building != nil {

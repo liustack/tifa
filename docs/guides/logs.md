@@ -11,7 +11,7 @@ read_when:
 
 # Logs
 
-Tifa writes its own messages with `log/slog`, and your code uses the same logger. One call to `slog.SetDefault` in `OnStart` changes where all of it goes, in what format and from which level. Tifa does not log each request and has no log level setting of its own. The [request log](#logging-each-request) below is about twenty lines of your own.
+Tifa writes its own messages with `log/slog`, and your code uses the same logger. One call to `slog.SetDefault` in `OnStart` changes where all of it goes, in what format and from which level. A built program does not log each request, and Tifa has no log level setting of its own. The [request log](#logging-each-request) below is about twenty lines of your own. Under `tifa dev` the app writes a line for each request without it, see [Log](../build-and-deploy/dev.md#log).
 
 ## What Tifa logs
 
@@ -72,7 +72,7 @@ func OnStart(ctx context.Context) error {
 
 ## Logging each request
 
-Tifa has no request log. Wrap the app with `tifa.SetHTTPHandler` in `OnStart` (see [Hooks](../pages-and-data/hooks.md#setting-up-in-onstart)). The wrapper times the request and reads the route template from `r.Pattern` once the app has answered:
+A built program has no request log (`tifa dev` writes lines of its own, see [Log](../build-and-deploy/dev.md#log)). Wrap the app with `tifa.SetHTTPHandler` in `OnStart` (see [Hooks](../pages-and-data/hooks.md#setting-up-in-onstart)). The wrapper times the request and reads the route template from `r.Pattern` once the app has answered:
 
 ```go
 type statusWriter struct {

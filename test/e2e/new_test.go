@@ -28,6 +28,8 @@ func createNewApp(t *testing.T, args ...string) string {
 	if !found {
 		t.Fatalf("tifa new printed no next steps:\n%s", out)
 	}
+	// A note on the editor follows the steps, after a blank line.
+	next, _, _ = strings.Cut(next, "\n\n")
 	// The workflow of the app ends with the command that the tests of this package run on the app.
 	workflow, err := os.ReadFile(filepath.Join(dir, ".github", "workflows", "ci.yml"))
 	if err != nil || !strings.HasSuffix(string(workflow), "      - run: go tool tifa check\n") {

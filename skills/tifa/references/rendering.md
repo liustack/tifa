@@ -17,7 +17,7 @@ A VM renders one page after another. A render that throws, times out or runs out
 
 ## What the server has and lacks
 
-Has: the JavaScript language, `URL`, `URLSearchParams`, `TextEncoder`/`TextDecoder` (UTF-8 only), `AbortController`, `Headers`, `Response`, `queueMicrotask`, `atob`/`btoa`, `crypto.getRandomValues` and `crypto.randomUUID`, `structuredClone`, `AsyncLocalStorage` (global and `node:async_hooks`), `Intl`, `Temporal`, `Date.now()`, `Math.random()`, and a `console` where `log`, `info`, `debug` and `warn` print nothing and `error` and a failed `assert` throw.
+Has: the JavaScript language, `URL`, `URLSearchParams`, `TextEncoder`/`TextDecoder` (UTF-8 only), `AbortController`, `Headers`, `Response`, `queueMicrotask`, `atob`/`btoa`, `crypto.getRandomValues` and `crypto.randomUUID`, `structuredClone`, `AsyncLocalStorage` (global and `node:async_hooks`), `Intl`, `Temporal`, `Date.now()`, `Math.random()`, and a `console` where `log`, `info`, `debug` and `warn` print nothing in a built program and to the log under `tifa dev` (read it with `go tool tifa dev logs`), `error` and a failed `assert` throw, and `table`, `dir`, `group`, `time`, `count` and `trace` do not throw.
 
 Lacks:
 

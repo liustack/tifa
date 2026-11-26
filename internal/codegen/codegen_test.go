@@ -656,6 +656,7 @@ func TestSessionGen(t *testing.T) {
 // SessionEnabled is true when the app calls tifa.SetSession.
 export type SessionEnabled = true
 
+/** Go: example.com/session/app/login.Public (app/login/route.go:13) */
 export type Public = {
   name: string
   admin: boolean

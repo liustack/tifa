@@ -20,6 +20,15 @@ import { AsyncLocalStorage, AsyncResource } from './async-local-storage'
 Reflect.deleteProperty(globalThis, 'fetch')
 Reflect.deleteProperty(globalThis, 'Request')
 
+// Under tifa dev, internal/ssr/consolecheck.js defines __tifa_console__ before this script runs, and
+// the calls of log, info, debug and warn go to it, so that the host (Go) can print them. In a built
+// app there is none, and they do nothing. The VM never prints or touches a file or the network.
+function dev(level: string, args: unknown[]): undefined {
+  const hook = (globalThis as { __tifa_console__?: (level: string, args: unknown[]) => void }).__tifa_console__
+  if (typeof hook === 'function') hook(level, args)
+  return undefined
+}
+
 Object.assign(globalThis, {
   AsyncLocalStorage,
   crypto,
@@ -35,10 +44,22 @@ Object.assign(globalThis, {
     void Promise.resolve().then(callback)
   },
   console: {
-    log() {},
-    info() {},
-    debug() {},
-    warn() {},
+    log: (...args: unknown[]) => dev('log', args),
+    info: (...args: unknown[]) => dev('info', args),
+    debug: (...args: unknown[]) => dev('debug', args),
+    warn: (...args: unknown[]) => dev('warn', args),
+    // table and dir print as log under tifa dev. group prints its label, if it has one.
+    table: (...args: unknown[]) => dev('log', args.slice(0, 1)),
+    dir: (...args: unknown[]) => dev('log', args.slice(0, 1)),
+    group: (...args: unknown[]) => args.length > 0 && dev('log', args),
+    groupCollapsed: (...args: unknown[]) => args.length > 0 && dev('log', args),
+    groupEnd() {},
+    time() {},
+    timeEnd() {},
+    timeLog() {},
+    count() {},
+    countReset() {},
+    trace() {},
     assert(condition: unknown, ...args: unknown[]) {
       if (!condition) throw new Error(`Assertion failed: ${args.map(String).join(' ')}`)
     },

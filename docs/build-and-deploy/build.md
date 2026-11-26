@@ -1,11 +1,12 @@
 ---
-summary: 'Create, build, check and upgrade an app: `tifa new`, `build`, `check`, `gen`, `upgrade`, .tifa/, go.mod'
+summary: 'Create, build, check and upgrade an app: `tifa new`, `build`, `check`, `gen`, `upgrade`, `version`, `info`, .tifa/, go.mod'
 audience: app
 order: 2
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Changing `tifa check`, or finding out which steps it runs and what it needs
   - Changing `tifa upgrade`, or upgrading an app to a newer Tifa
+  - Finding out which version of Tifa, Go, Node or pnpm an app builds with, or writing a bug report
   - Changing `tifa docs` or the `AGENTS.md` that `tifa new` writes, or the part of it that Tifa manages
   - Changing `tifa agents`, the skill in `skills/tifa` or the `.claude/skills/tifa` an app gets, or an agent works from files that are out of date
   - Creating a Tifa app, or adding an app to test/apps
@@ -54,7 +55,7 @@ Writes a small working app into `dir`, which must be missing or empty: a todo li
 - The root package is named after the last element of the module path (not counting a major version suffix such as `/v2`), lowercased, with only its letters and digits kept. It must be a Go identifier that is not a keyword, `main` or `init` (Go does not take `init` as the name of an imported package). The Go files under `app/` import it by that name, so it may not be a name that means something else where they use it: a package they import, such as the domain `todos` or `tifa`, a predeclared name they use, such as `error`, or a parameter or variable in whose scope they use the root package, such as `db` or `ctx`. `tifa new` keeps a list of these names and refuses them, so `tifa new todos` fails and asks for another folder name or `--module`, and `--module example.com/todos` fails and asks for another last element of `--module`. Other names they use, such as `c` or `rows`, are fine. The name in `package.json` is the same, cut to 214 characters, the npm limit.
 - `go.mod` requires the version of the Tifa command that ran when the go command downloaded it: `go run github.com/liustack/tifa/cmd/tifa@<version> new myapp`, or `go tool tifa new` in an app. A command built in a Tifa checkout, or replaced by one, writes `v0.0.0` and adds a step that points `go.mod` at the checkout with `go mod edit -replace`.
 - `go.mod` pins a `github.com/liustack/sqlite` release. The SQLite driver is pure Go and needs no C compiler.
-- `tifa new` writes files only. It runs no go or npm commands and needs no network. It prints the next steps: `cd` into the folder, `go mod tidy`, `pnpm install` and `go tool tifa dev`, which serves the app at http://127.0.0.1:9527.
+- `tifa new` writes files only. It runs no go or npm commands and needs no network. It prints the next steps: `cd` into the folder, `go mod tidy`, `pnpm install` and `go tool tifa dev`, which serves the app at http://127.0.0.1:9527. It also says to open the editor after the install, which runs `go tool tifa gen` and writes the types of `.tifa/` that the editor reads.
 - It looks for `pnpm` on PATH, without running it. When pnpm is there, the install step and the commands in `README.md` and `AGENTS.md` use pnpm (`pnpm install`, and `pnpm typecheck` in `README.md`). Otherwise they use npm (`npm install`, and `npm run typecheck` in `README.md`). `package.json` has no `packageManager` field, so both work on the same app.
 - `pnpm-workspace.yaml` sets `minimumReleaseAge: 4320` (minutes, so 3 days) for pnpm 10.16 or later, and pnpm 11 has a day by default. Compromised npm packages are usually found and pulled within days, and the age keeps a new version, also one that a package you use depends on, out of your install until then. `package.json` pins exact versions, and `pnpm install` writes `pnpm-lock.yaml`, which you commit and install from with `pnpm install --frozen-lockfile`. If an install fails because a version you need is too new, wait, or list the package in `minimumReleaseAgeExclude`. Older pnpm and npm ignore the file. npm has `min-release-age` in `.npmrc` (in days) for the same purpose.
 
@@ -126,7 +127,7 @@ build:
   debug_info: true
 ```
 
-`tifa dev` always keeps the debug info.
+`tifa dev` always keeps the debug info, see [Debugging](debugging.md).
 
 `go build` takes several `-ldflags`, each for a package pattern or, without one, for the packages named on the command line. For each package it uses the last one that matches it, and the command line comes after `GOFLAGS`, so a `-ldflags` there replaces the one in `GOFLAGS`. So Tifa puts the flags of the last `-ldflags` in `GOFLAGS` (set in the environment or with `go env -w`) in front of `-w`: with `GOFLAGS=-ldflags=-X=main.version=v1`, Tifa passes `-ldflags=-X=main.version=v1 -w`. It adds nothing when those flags already have `-w` or `-s`, which then decide. It also adds nothing when an `-ldflags` in `GOFLAGS` is for a package pattern, such as `-ldflags=all=-X=main.version=v1`: write `-w` there yourself.
 
@@ -219,6 +220,8 @@ pnpm and npm run the `prepare` script of the project after `pnpm install` and `n
 
 The `typecheck` script of the same file is `go tool tifa gen && tsc --noEmit`. The types in `.tifa/` come from `route.go`, so they are old after a change to a route's return type or after a page or Layout is added or removed. Running `gen` first makes `tsc` read the new ones, and when the Go code does not compile it stops there and prints the Go file and line. `tifa check` already generates before it runs `tsc`, so it does not need the script. An app made before this can change its `typecheck` script to the same line.
 
+Each type that a `route.gen.ts` or `session.gen.ts` declares from a Go struct has a comment in front of it that names where it comes from: the import path of the Go package, the name and the file and line, for example `/** Go: example.com/app/projects.Project (projects/project.go:12) */`. The editor shows it when you hover over the type, and the file is the one to change. A type of another module has the package and the name only, since a path in the module cache is not the same on every machine. The comment is in the generated file only: types leave no trace in the bundles, and the build ID comes from the files of the bundle, so moving a struct to another line changes `.tifa/` and not the build.
+
 ## Tifa docs
 
 ```sh
@@ -239,6 +242,29 @@ docs/build-and-deploy/config.md - Every setting and where to set it: tifa.yaml, 
 ```
 
 With `--all --when` the index has the format of `scripts/docs-list.sh` in the Tifa repository: one line per doc with its summary, then a line with the `read_when` entries of its front matter joined with ` | `. Docs are sorted by path. A doc says who it is for in its front matter, `audience: app` or `audience: dev`, and `scripts/docs-list.sh --check` fails for a doc without one. A Tifa version from before the field lists every doc as one for apps. `docs/research/` is left out, and a doc without a summary is left out with a warning on stderr.
+
+## Version and info
+
+```sh
+tifa version
+tifa --version
+tifa info [--dir app-root] [--json]
+```
+
+`tifa version` prints `tifa v0.6.0`, and `tifa --version` prints the same line. Run as `go tool tifa` in an app, it is the version the `go.mod` of the app requires. A `tifa` that you installed globally hands the command to the one the app pins (see [Installing the command globally](#installing-the-command-globally)), so it prints that version too. A build made in a checkout of Tifa, or with a `replace` for the module, prints `tifa devel`.
+
+`tifa info` prints what a bug report or a coding agent needs to know about the machine:
+
+```text
+Tifa       v0.6.0
+Go         go1.26.1
+Node       v24.13.0
+pnpm       10.33.0
+System     darwin/arm64
+tifa.yaml  found
+```
+
+The versions of Go, Node and pnpm are those of the programs on the `PATH`, which are the ones `tifa build` and `tifa dev` run. A program that is not there, or that does not answer within 5 seconds, is `not found` and does not fail the command. An app without pages needs no Node, so `not found` there is fine. `tifa.yaml` says whether the folder `--dir` names, the current one by default, has that file. With `--json` the command prints one object with the keys `tifa`, `go`, `node`, `pnpm`, `os`, `arch` and `tifaYaml`, which is `true` or `false`. A program that is missing is the string `"not found"` there too.
 
 ## Upgrading Tifa
 
@@ -419,7 +445,7 @@ Vite writes no source maps for the browser bundle. If the app sets `build.source
 
 The build prints what Vite and Rolldown warn about the app's own code. Tifa turns off two notes an app cannot act on: Rolldown's PLUGIN_TIMINGS list of the slowest plugin callbacks, and Vite's chunk size warning below 1000 kB for the browser bundle, which Tifa makes one file on purpose. A browser entry past 1000 kB still gets the warning. An app can set `build.chunkSizeWarningLimit` or `build.rolldownOptions.checks` in its own Vite config to change either.
 
-The SSR bundle starts by importing `runtime/host.js`, which adds what beastjs lacks: `TextEncoder`/`TextDecoder`, `AbortController`, `Headers`, `Response`, `queueMicrotask`, `atob`, `btoa`, `DOMException`, `structuredClone`, `crypto.getRandomValues`, `crypto.randomUUID`, `AsyncLocalStorage` and a `console` that prints nothing and throws on `error`. Before running bundle modules, the SSR loader registers `URL` and `URLSearchParams` of the engine (`github.com/liustack/beastjs/url`, which parses in Go), Go functions for fresh random bytes and for the async context of the engine, an object that promise jobs carry, in which `AsyncLocalStorage` keeps its stores. `crypto` and `AsyncLocalStorage` are therefore ready for dependencies that use them at module load time. Cloning runs entirely in JS, using intrinsic brand checks and `Error.isError`, without reading private engine fields. It does not provide `crypto.subtle`, `fetch` or `Request`. [What the server render has](../pages-and-data/server-render.md#what-the-server-render-has) lists everything a page finds there. The script is prebundled into the program, so apps do not need to install the packages it is made from. How it is built and why two of those packages are patched: [The host script](../internals/ssr-bundle-rewrites.md#the-host-script).
+The SSR bundle starts by importing `runtime/host.js`, which adds what beastjs lacks: `TextEncoder`/`TextDecoder`, `AbortController`, `Headers`, `Response`, `queueMicrotask`, `atob`, `btoa`, `DOMException`, `structuredClone`, `crypto.getRandomValues`, `crypto.randomUUID`, `AsyncLocalStorage` and a `console` that prints nothing (under `tifa dev`, to the log) and throws on `error`. Before running bundle modules, the SSR loader registers `URL` and `URLSearchParams` of the engine (`github.com/liustack/beastjs/url`, which parses in Go), Go functions for fresh random bytes and for the async context of the engine, an object that promise jobs carry, in which `AsyncLocalStorage` keeps its stores. `crypto` and `AsyncLocalStorage` are therefore ready for dependencies that use them at module load time. Cloning runs entirely in JS, using intrinsic brand checks and `Error.isError`, without reading private engine fields. It does not provide `crypto.subtle`, `fetch` or `Request`. [What the server render has](../pages-and-data/server-render.md#what-the-server-render-has) lists everything a page finds there. The script is prebundled into the program, so apps do not need to install the packages it is made from. How it is built and why two of those packages are patched: [The host script](../internals/ssr-bundle-rewrites.md#the-host-script).
 
 The Tifa plugin adapts many npm packages in the SSR bundle, such as React DOM, TanStack Router, i18next and the libraries that style and draw components, so they render faster in beastjs. It finds the code it changes by its form or its text, not by the version of the package, so `pnpm update` does not break the build. When a release changes that code, the build prints a warning with the package version and the file, and leaves that code as it is. Pages still render, only more slowly. A React DOM release whose string renderer the plugin has not read in full gets a warning that says so, and pages render the same and take longer. Every such warning starts with `tifa rewrite not recognized: `, so `grep` finds them all. The changes to React DOM keep each line of its files where it was, so the stack trace of a render error gives the lines of React DOM as they are in `node_modules`. There is no setting to turn the changes off: none of them changes the HTML, except the key of a server action, which Tifa does not have. What each change does, and how a maintainer reviews a new release: [SSR bundle rewrites](../internals/ssr-bundle-rewrites.md).
 

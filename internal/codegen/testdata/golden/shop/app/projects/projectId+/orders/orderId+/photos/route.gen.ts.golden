@@ -2,13 +2,16 @@
 // Generated from app/projects/projectId+/orders/orderId+/photos/route.go and the Go types it uses. After a change, run `go tool tifa gen`.
 import { call, segment, type CallOptions } from "../../../../../../runtime/call"
 
+/** Go: example.com/shop/app/projects/projectId+/orders/orderId+/photos.UploadInput (app/projects/projectId+/orders/orderId+/photos/route.go:13) */
 export type UploadInput = {
   caption: string
   photo: Blob | null
 }
+/** Go: example.com/shop/app/projects/projectId+/orders/orderId+/photos.Photo (app/projects/projectId+/orders/orderId+/photos/route.go:9) */
 export type Photo = {
   name: string
 }
+/** Go: example.com/shop/app/projects/projectId+/orders/orderId+/photos.AlbumInput (app/projects/projectId+/orders/orderId+/photos/route.go:20) */
 export type AlbumInput = {
   photos: Blob[]
 }

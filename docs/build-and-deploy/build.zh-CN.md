@@ -1,12 +1,13 @@
 ---
-summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、.tifa/、go.mod'
+summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、`version`、`info`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: 970098ffbf09
+translatedFrom: 6065e65bfa51
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
   - '修改 `tifa upgrade`，或者把应用升级到更新的 Tifa'
+  - '想知道应用用哪个版本的 Tifa、Go、Node 或 pnpm 构建，或者要写 bug 报告'
   - '修改 `tifa docs` 或 `tifa new` 写出的 `AGENTS.md`，或者其中由 Tifa 管理的那一块'
   - '修改 `tifa agents`、`skills/tifa` 里的技能或应用得到的 `.claude/skills/tifa`，或者某个 agent 在用过期的文件工作'
   - '新建 Tifa 应用，或者往 test/apps 里加一个应用'
@@ -55,7 +56,7 @@ tifa new <dir> [--module module-path] [--empty]
 - 根包以模块路径的最后一个元素命名（不算 `/v2` 这样的主版本后缀），转成小写，只保留字母和数字。它必须是一个 Go 标识符，且不能是关键字、`main` 或 `init`（Go 不接受把 `init` 作为被导入包的名字）。`app/` 下的 Go 文件用这个名字导入它，所以这个名字不能在它们使用的地方另有含义：不能是它们导入的某个包（比如领域包 `todos` 或 `tifa`），不能是它们用到的预声明名字（比如 `error`），也不能是它们在使用根包的作用域里的某个参数或变量（比如 `db` 或 `ctx`）。`tifa new` 保存了一份这类名字的清单并拒绝它们，所以 `tifa new todos` 会失败，并要求换一个文件夹名或用 `--module`，`--module example.com/todos` 也会失败，并要求为 `--module` 换一个最后的元素。它们用到的其他名字，比如 `c` 或 `rows`，没有问题。`package.json` 里的名字与此相同，只是截到 214 个字符，这是 npm 的上限。
 - `go.mod` 要求的 Tifa 版本，就是 go 命令下载时运行的那个 Tifa 命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<version> new myapp`，或在应用里运行 `go tool tifa new`。在 Tifa 检出目录里构建的命令，或被替换成这样的命令，会写下 `v0.0.0`，并多加一步，用 `go mod edit -replace` 把 `go.mod` 指向这个检出目录。
 - `go.mod` 固定了一个 `github.com/liustack/sqlite` 版本。这个 SQLite 驱动是纯 Go 的，不需要 C 编译器。
-- `tifa new` 只写文件。它不运行任何 go 或 npm 命令，也不需要网络。它会打印接下来的步骤：`cd` 进文件夹，`go mod tidy`，`pnpm install` 和 `go tool tifa dev`，后者会在 http://127.0.0.1:9527 提供应用。
+- `tifa new` 只写文件。它不运行任何 go 或 npm 命令，也不需要网络。它会打印接下来的步骤：`cd` 进文件夹，`go mod tidy`，`pnpm install` 和 `go tool tifa dev`，后者会在 http://127.0.0.1:9527 提供应用。它还会说明要在安装之后再打开编辑器，因为安装会运行 `go tool tifa gen`，写出编辑器要读的 `.tifa/` 里的类型。
 - 它会在 PATH 里查找 `pnpm`，但不运行它。找到 pnpm 时，安装步骤以及 `README.md` 和 `AGENTS.md` 里的命令都用 pnpm（`pnpm install`，`README.md` 里还有 `pnpm typecheck`）。否则用 npm（`npm install`，`README.md` 里还有 `npm run typecheck`）。`package.json` 里没有 `packageManager` 字段，所以同一个应用两种都能用。
 - `pnpm-workspace.yaml` 为 pnpm 10.16 或更高版本设置了 `minimumReleaseAge: 4320`（单位是分钟，即 3 天），pnpm 11 默认就有一天。被入侵的 npm 包通常在几天内就会被发现并撤下，这个时间限制会让新版本一直进不了你的安装，你用的包所依赖的包也一样。`package.json` 固定了精确的版本，`pnpm install` 会写出 `pnpm-lock.yaml`，你把它提交，并用 `pnpm install --frozen-lockfile` 来安装。如果安装因为你需要的版本太新而失败，就等一等，或把这个包列进 `minimumReleaseAgeExclude`。更旧的 pnpm 和 npm 会忽略这个文件。npm 在 `.npmrc` 里有 `min-release-age`（单位是天），作用相同。
 
@@ -127,7 +128,7 @@ build:
   debug_info: true
 ```
 
-`tifa dev` 总是保留调试信息。
+`tifa dev` 总是保留调试信息，见[调试](debugging.zh-CN.md)。
 
 `go build` 可以接受多个 `-ldflags`，每个针对一个包模式，没有模式时针对命令行上指定的包。对每个包，它使用最后一个匹配的，而命令行在 `GOFLAGS` 之后，所以命令行上的 `-ldflags` 会替换 `GOFLAGS` 里的。因此 Tifa 把 `GOFLAGS`（在环境里设置，或用 `go env -w` 设置）里最后一个 `-ldflags` 的参数放在 `-w` 前面：如果 `GOFLAGS=-ldflags=-X=main.version=v1`，Tifa 传的是 `-ldflags=-X=main.version=v1 -w`。当这些参数里已经有 `-w` 或 `-s` 时，它什么也不加，由它们决定。当 `GOFLAGS` 里的某个 `-ldflags` 是针对包模式的，比如 `-ldflags=all=-X=main.version=v1`，它也什么都不加：请在那里自己写上 `-w`。
 
@@ -220,6 +221,8 @@ pnpm 和 npm 会在 `pnpm install` 和 `npm install` 之后运行项目的 `prep
 
 同一个文件里的 `typecheck` 脚本是 `go tool tifa gen && tsc --noEmit`。`.tifa/` 里的类型来自 `route.go`，所以改了路由的返回类型，或者增删了页面和布局之后，它们就旧了。先运行 `gen`，`tsc` 读到的就是新类型，而且 Go 代码编译不过时它会停在这一步，并打印 Go 文件和行号。`tifa check` 在运行 `tsc` 之前已经会生成，所以不需要这个脚本。更早做出来的应用可以把自己的 `typecheck` 脚本改成同样的一行。
 
+`route.gen.ts` 或 `session.gen.ts` 里每个由 Go 结构体生成的类型，前面都有一行注释，写明它来自哪里：Go 包的导入路径、类型名，以及文件和行号，比如 `/** Go: example.com/app/projects.Project (projects/project.go:12) */`。在编辑器里把鼠标放到类型上就能看到，要改的就是那个文件。别的模块里的类型只写包和名字，因为模块缓存里的路径在每台机器上不一样。这行注释只在生成的文件里：类型不会留在包里，构建 ID 来自包里的文件，所以把一个结构体挪到另一行，只会改变 `.tifa/`，不会改变这次构建。
+
 ## Tifa docs {#tifa-docs}
 
 ```sh
@@ -240,6 +243,29 @@ docs/build-and-deploy/config.md - Every setting and where to set it: tifa.yaml, 
 ```
 
 带 `--all --when` 时，索引使用 Tifa 仓库里 `scripts/docs-list.sh` 的格式：每篇文档一行，写着它的摘要，然后一行是它 front matter 里的 `read_when` 各项，用 ` | ` 连接。文档按路径排序。文档在它的 front matter 里说明自己是写给谁的，`audience: app` 或 `audience: dev`，没有这个字段的文档会让 `scripts/docs-list.sh --check` 失败。这个字段出现之前的 Tifa 版本，会把每篇文档都列为面向应用的。`docs/research/` 不在其中，没有摘要的文档也会被排除，并在 stderr 上给出一条警告。
+
+## 版本和环境 {#version-and-info}
+
+```sh
+tifa version
+tifa --version
+tifa info [--dir app-root] [--json]
+```
+
+`tifa version` 打印 `tifa v0.6.0`，`tifa --version` 打印同样的一行。在应用里以 `go tool tifa` 运行时，它是应用的 `go.mod` 所要求的版本。你全局安装的 `tifa` 会把命令交给应用锁定的那个 `tifa`（见[全局安装命令](#installing-the-command-globally)），所以它打印的也是那个版本。在 Tifa 的检出里构建的，或者给这个模块写了 `replace` 的构建，打印 `tifa devel`。
+
+`tifa info` 打印写 bug 报告或者让编码 agent 了解这台机器时需要的信息：
+
+```text
+Tifa       v0.6.0
+Go         go1.26.1
+Node       v24.13.0
+pnpm       10.33.0
+System     darwin/arm64
+tifa.yaml  found
+```
+
+Go、Node 和 pnpm 的版本是 `PATH` 上那几个程序的版本，也就是 `tifa build` 和 `tifa dev` 运行的那几个。找不到的程序，或者 5 秒内没有回答的程序，写成 `not found`，不会让命令失败。没有页面的应用不需要 Node，所以那里写 `not found` 没有问题。`tifa.yaml` 一行说的是 `--dir` 指的文件夹（默认是当前文件夹）里有没有这个文件。加 `--json` 时命令打印一个对象，键是 `tifa`、`go`、`node`、`pnpm`、`os`、`arch` 和 `tifaYaml`（值为 `true` 或 `false`）。缺少的程序在那里同样是字符串 `"not found"`。
 
 ## 升级 Tifa {#upgrading-tifa}
 
@@ -420,7 +446,7 @@ Vite 默认不给浏览器包写 source map。应用如果在 `vite.config.ts` �
 
 构建会打印 Vite 和 Rolldown 对应用自己的代码给出的警告。Tifa 关掉了应用无法处理的两条提示：Rolldown 对最慢的插件回调给出的 PLUGIN_TIMINGS 列表，以及 Vite 对浏览器包在 1000 kB 以下的代码块大小警告，Tifa 有意把浏览器包做成一个文件。超过 1000 kB 的浏览器入口仍然会得到警告。应用可以在自己的 Vite 配置里设置 `build.chunkSizeWarningLimit` 或 `build.rolldownOptions.checks` 来改变其中任何一条。
 
-SSR 包一开始会导入 `runtime/host.js`，它补上 beastjs 缺少的东西：`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么都不打印、调用 `error` 时会抛出异常的 `console`。在运行包里的模块之前，SSR 加载器会注册引擎的 `URL` 和 `URLSearchParams`（`github.com/liustack/beastjs/url`，它在 Go 里解析），注册用于取新鲜随机字节的 Go 函数，以及用于引擎的异步上下文的 Go 函数，后者是 promise 任务携带的一个对象，`AsyncLocalStorage` 把它的存储放在里面。所以对于在模块加载时就用到 `crypto` 和 `AsyncLocalStorage` 的依赖，它们已经准备好了。克隆完全在 JS 里运行，使用内置的品牌检查和 `Error.isError`，不读引擎的私有字段。它不提供 `crypto.subtle`、`fetch` 或 `Request`。[服务端渲染里有什么](../pages-and-data/server-render.zh-CN.md#what-the-server-render-has)列出了页面在那里能找到的一切。这个脚本已经预先打包进程序，所以应用不用安装构成它的那些包。它怎么构建，以及为什么其中两个包打了补丁，见 [宿主脚本](../internals/ssr-bundle-rewrites.md#the-host-script)。
+SSR 包一开始会导入 `runtime/host.js`，它补上 beastjs 缺少的东西：`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么都不打印（在 `tifa dev` 下打印到日志）、调用 `error` 时会抛出异常的 `console`。在运行包里的模块之前，SSR 加载器会注册引擎的 `URL` 和 `URLSearchParams`（`github.com/liustack/beastjs/url`，它在 Go 里解析），注册用于取新鲜随机字节的 Go 函数，以及用于引擎的异步上下文的 Go 函数，后者是 promise 任务携带的一个对象，`AsyncLocalStorage` 把它的存储放在里面。所以对于在模块加载时就用到 `crypto` 和 `AsyncLocalStorage` 的依赖，它们已经准备好了。克隆完全在 JS 里运行，使用内置的品牌检查和 `Error.isError`，不读引擎的私有字段。它不提供 `crypto.subtle`、`fetch` 或 `Request`。[服务端渲染里有什么](../pages-and-data/server-render.zh-CN.md#what-the-server-render-has)列出了页面在那里能找到的一切。这个脚本已经预先打包进程序，所以应用不用安装构成它的那些包。它怎么构建，以及为什么其中两个包打了补丁，见 [宿主脚本](../internals/ssr-bundle-rewrites.md#the-host-script)。
 
 Tifa 插件会改写 SSR 包里的许多 npm 包，比如 React DOM、TanStack Router、i18next，以及给组件加样式和绘图的库，让它们在 beastjs 里渲染得更快。它按代码的形态或文本找到要改的代码，而不是按包的版本，所以 `pnpm update` 不会弄坏构建。当某个发布版本改变了那段代码时，构建会打印一条警告，带上包的版本和文件，并让那段代码保持原样。页面仍然能渲染，只是慢一些。如果 React DOM 的某个发布版本，其字符串渲染器插件没有完整读过，会收到一条这样说明的警告，页面渲染结果相同，只是更慢。每条这样的警告都以 `tifa rewrite not recognized: ` 开头，所以 `grep` 能找到所有的警告。对 React DOM 的改动让它的文件里每一行都保持在原来的位置，所以渲染错误的堆栈给出的是 `node_modules` 里 React DOM 的原样行号。没有设置可以关掉这些改动：它们都不改变 HTML，只有服务器动作的键例外，而 Tifa 没有服务器动作。每处改动做什么，以及维护者怎样审查新版本，见 [SSR 包的改写](../internals/ssr-bundle-rewrites.md)。
 

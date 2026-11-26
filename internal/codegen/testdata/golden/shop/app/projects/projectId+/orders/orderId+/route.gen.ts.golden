@@ -3,10 +3,12 @@
 import { getRouteApi } from "@tanstack/react-router"
 import { call, segment, type CallOptions } from "../../../../../runtime/call"
 
+/** Go: example.com/shop/app/projects/projectId+/orders/orderId+.Order (app/projects/projectId+/orders/orderId+/route.go:5) */
 export type Order = {
   id: string
   total: number
 }
+/** Go: example.com/shop/app/projects/projectId+/orders/orderId+.ShipInput (app/projects/projectId+/orders/orderId+/route.go:14) */
 export type ShipInput = {
   carrier: string
 }

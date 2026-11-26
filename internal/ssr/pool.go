@@ -365,9 +365,18 @@ func (p *Pool) renderInVM(ctx context.Context, in Input) (string, error) {
 	html, err := RenderVM(vm.VM, input, in.Texts, timeout)
 	var redirect *RedirectError
 	if err != nil && !errors.As(err, &redirect) {
+		if p.dev {
+			// What the page printed before it failed helps to find why. A VM that cannot say is
+			// retired anyway.
+			_ = p.logConsole(ctx, vm.VM.VM, in.URL)
+		}
 		return "", p.sources.explain(err, false)
 	}
 	if p.dev {
+		if consoleErr := p.logConsole(ctx, vm.VM.VM, in.URL); consoleErr != nil {
+			core.Logger().Warn("tifa: ssr: could not read what the render printed", "err", consoleErr)
+			return html, err
+		}
 		// A warning must not fail the page. A VM that cannot list them is replaced.
 		if warnErr := p.warnIntl(vm.VM.VM); warnErr != nil {
 			core.Logger().Warn("tifa: ssr: could not read the Intl warnings", "err", warnErr)

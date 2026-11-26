@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"go/token"
 	"go/types"
 	"io/fs"
 	"maps"
@@ -13,9 +14,11 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/liustack/tifa/internal/analyze"
+	"github.com/liustack/tifa/internal/realpath"
 	"github.com/liustack/tifa/internal/symwalk"
 	"github.com/liustack/tifa/js"
 )
@@ -197,9 +200,10 @@ func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, v
 	// A directory has one module for its page, its Layout and its method handlers. An API route
 	// is no route of the tree: its part of the module holds only the handler functions.
 	modules := map[string]*routeGen{}
+	where := goPlace(root, m.Fset)
 	moduleOf := func(dir string, segs []pathSeg) *routeGen {
 		if modules[dir] == nil {
-			modules[dir] = &routeGen{dir: dir, pkg: m.Module + "/" + dir, segs: segs}
+			modules[dir] = &routeGen{dir: dir, pkg: m.Module + "/" + dir, segs: segs, where: where}
 		}
 		return modules[dir]
 	}
@@ -226,7 +230,7 @@ func generateTS(root string, m *analyze.Manifest, dev bool, exportsOf Exports, v
 		}
 		files[dir+"/route.gen.ts"] = module
 	}
-	session, err := sessionModule(m.Session)
+	session, err := sessionModule(m.Session, where)
 	if err != nil {
 		return nil, err
 	}
@@ -1037,6 +1041,38 @@ func subtree(r *tsRoute) string {
 	return r.variable + ".addChildren([" + strings.Join(children, ", ") + "])"
 }
 
+// goPlace returns the function that names the place of a Go type as "file:line", the file relative
+// to the application root with forward slashes. It names none for a type of another module, since
+// its path is the path on this machine, and none when the positions are not known.
+func goPlace(root string, fset *token.FileSet) func(*types.TypeName) string {
+	if fset == nil {
+		return func(*types.TypeName) string { return "" }
+	}
+	if r, err := realpath.Resolve(root); err == nil {
+		root = r
+	}
+	real := map[string]string{} // the real name of each file met
+	return func(obj *types.TypeName) string {
+		pos := fset.Position(obj.Pos())
+		if !pos.IsValid() {
+			return ""
+		}
+		file, ok := real[pos.Filename]
+		if !ok {
+			file = pos.Filename
+			if r, err := realpath.Resolve(file); err == nil {
+				file = r
+			}
+			real[pos.Filename] = file
+		}
+		rel, err := filepath.Rel(root, file)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return ""
+		}
+		return filepath.ToSlash(rel) + ":" + strconv.Itoa(pos.Line)
+	}
+}
+
 // routeGen is what the route.gen module of one directory holds: the page and the Layout of the
 // directory, as nodes of the route tree, and its method handlers.
 type routeGen struct {
@@ -1046,6 +1082,9 @@ type routeGen struct {
 	page     *tsNode // nil without page.tsx
 	layout   *tsNode // nil without a Layout
 	handlers []analyze.Handler
+	// where names the place of a Go type in the sources for its comment in the module, see
+	// goPlace. It may be nil.
+	where func(*types.TypeName) string
 	// languages are those of the area the route is in, nil outside every area. A handler function
 	// of such a route calls the URL with the prefix of the page's language.
 	languages []string
@@ -1114,7 +1153,7 @@ func routeModule(g *routeGen) ([]byte, error) {
 			}
 		}
 	}
-	shapes, decls, html, err := analyze.TSShapes(goTypes, analyze.TSScope{Own: g.pkg, Exports: exports})
+	shapes, decls, html, err := analyze.TSShapes(goTypes, analyze.TSScope{Own: g.pkg, Exports: exports, Where: g.where})
 	if err != nil {
 		return nil, fmt.Errorf("codegen: %s: %w", g.dir, err)
 	}
@@ -1273,7 +1312,7 @@ func urlTemplate(segs []pathSeg) string {
 
 // sessionModule writes session.gen.ts: SessionData is the JSON of what the Exposed method of the
 // session type returns, and never when the app has no session or the type has no such method.
-func sessionModule(s *analyze.Session) ([]byte, error) {
+func sessionModule(s *analyze.Session, where func(*types.TypeName) string) ([]byte, error) {
 	var b strings.Builder
 	from := "the calls of tifa.SetSession, of which the app has none"
 	if s != nil {
@@ -1289,7 +1328,7 @@ func sessionModule(s *analyze.Session) ([]byte, error) {
 	if s.ExposedResult == nil {
 		return nil, fmt.Errorf("codegen: the manifest carries no Exposed result type, analyze the application in this process")
 	}
-	shape, decls, html, err := analyze.TSShape(s.ExposedResult, analyze.TSScope{Own: s.Package, Exports: []string{"SessionData"}})
+	shape, decls, html, err := analyze.TSShape(s.ExposedResult, analyze.TSScope{Own: s.Package, Exports: []string{"SessionData"}, Where: where})
 	if err != nil {
 		return nil, fmt.Errorf("codegen: session Exposed result: %w", err)
 	}

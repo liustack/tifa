@@ -8,6 +8,11 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - A `Validate` method on the struct a `Load` or `Layout` takes as its second parameter now runs once the query is decoded and before the function, with the signature of the `Validate` of a handler input, `Validate() error` or `Validate(c *tifa.Ctx) error`. Its error is the error of the function: a `tifa.Error` or `tifa.Fields` as it is, any other error through `OnError` as a 500. It failed the build before, so a page and a handler can now share one filter type.
 - A [Breadcrumbs and the current page](docs/pages-and-data/layouts.md#breadcrumbs-and-the-current-page) section shows how a Layout follows the page below it, with `useRouterState` in `layout.tsx`. The build error for `c.Path()` in a `Layout` points to it.
+- Under `tifa dev`, what a page prints with `console.log`, `info`, `debug` and `warn` while it renders on the server goes to the log of the app, with the page and the place of the call in your sources, and `tifa dev logs` shows it. A built program prints nothing. `console.table`, `dir`, `group` and `groupCollapsed` print as `log` under `tifa dev`. See [Console in `tifa dev`](docs/pages-and-data/server-render.md#console-in-tifa-dev).
+- `tifa dev` writes a line for each request of a route: the method, the URL, the status, the time, the route and what the render memo did (`memo hit`, `memo miss`, `memo shared`, `memo off`), or `data` for navigation data. Files of the bundle and `public/` and the requests of `tifa dev` get none, and a built program has no request log, as before. See [Log](docs/build-and-deploy/dev.md#log).
+- `tifa version`, `tifa --version` and `tifa info`. `info` prints the versions of Tifa, Go, Node and pnpm, the system, and whether the folder has a `tifa.yaml`, with `--json` for scripts and agents. A program that is missing is `not found`. See [Version and info](docs/build-and-deploy/build.md#version-and-info).
+- `tifa dev status` prints `app pid`, and `--json` has `appPid`: the process ID of the app, which a debugger such as Delve attaches to. New docs: [Debugging](docs/build-and-deploy/debugging.md) and [Testing pages](docs/pages-and-data/testing-pages.md), which covers Vitest and Testing Library for a page component and Playwright against `tifatest.StartPages`.
+- Each type that `route.gen.ts` and `session.gen.ts` declare from a Go struct has a comment that names the Go package, the type and the file and line, such as `/** Go: example.com/app/projects.Project (projects/project.go:12) */`. The comment is not in the bundles, and it does not change the build ID. A `tifa gen` after a struct moved to another line writes the file again.
 
 ### Changed
 
@@ -20,6 +25,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - `tifa routes --json` no longer has `params`, `uses` and `allQuery` in a `load`. `query` lists the query parameters the data depends on.
 - The render memo drops pages differently when it is full. A page seen once goes first, and a page that was hit more than once is kept, so a run of addresses that come once, such as search terms or page numbers nobody asked before, no longer pushes the home page and popular pages out of `ssr.memo_size`. Nothing to change in an app.
 - The warning about `import.meta.env.VITE_*` is one line for a build, with every name it found and the place of the first read, instead of a line for each name.
+- `console.time`, `timeEnd`, `timeLog`, `table`, `dir`, `group`, `groupCollapsed`, `groupEnd`, `count`, `countReset` and `trace` no longer throw a `TypeError` in a server render. They do nothing in a built program. `console.error` and a failed `console.assert` still throw, in both modes.
+- The next steps that `tifa new` prints, the READMEs and the tutorial say that `pnpm install` runs `go tool tifa gen`, which writes the types the editor reads, so open the editor after it.
 
 ### Removed
 

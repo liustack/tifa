@@ -2,7 +2,7 @@
 summary: '怎样使用 `tifa dev`：页面、构建错误、`tifa errors`、`--background`、`status`、`logs`、`stop`'
 audience: app
 order: 1
-translatedFrom: 0cc0ac1958ea
+translatedFrom: d70c31541086
 read_when:
   - '第一次在本地运行 Tifa 应用'
   - '修改 internal/devserver、cmd/tifa 里的 dev 命令，或者 internal/bundle 里的 dev 构建'
@@ -100,9 +100,22 @@ tifa dev: 07:36:30 ready in 58.3s, open http://127.0.0.1:9527
 
 步骤的名字是 `static analysis`、`code generation`、`bundle`、`styles`、`content` 和 `go build`。静态分析之后还有一行 `route manifest changed` 或 `route manifest unchanged`。Vite 的警告和错误也会打印成 `tifa dev:` 行。应用自己的输出照常打印，但没有构建出来的程序那行 `tifa: listening on`，因为应用监听的端口只有 `tifa dev` 会连。它的 stderr 经过 `tifa dev`，`tifa dev` 会留下最后几行用于覆盖层（见下），所以只在终端里才给输出上色的日志库，在这里写的是纯文本。
 
+在 `tifa dev` 下，应用还会在每个路由请求答完之后写一行：方法、URL、状态码、耗时、路由，以及[渲染记忆](../pages-and-data/ssr-and-cache.zh-CN.md#ssr-and-cache)做了什么：
+
+```text
+2026/11/26 08:00:00 INFO GET /projects/studio 200 38ms /projects/{project} memo miss
+2026/11/26 08:00:01 INFO GET /projects/studio 200 1ms /projects/{project} memo hit
+2026/11/26 08:00:03 INFO GET /projects/studio?page=2 200 9ms /projects/{project} data
+2026/11/26 08:00:04 INFO POST /api/orders 201 4ms /api/orders
+```
+
+`memo miss` 是在 VM 里渲染的页面，`memo hit` 是记忆里已有的页面，`memo shared` 是等了另一个请求已经开始的渲染的页面，`memo off` 是记忆不保存的页面（`Memo = false`、404 或错误页）。`data` 是客户端跳转请求的导航数据，它不渲染任何东西。路由是页面或处理函数的模板，没有路由匹配时就没有这一项。浏览器包的文件、`public/` 里的文件、`tifa dev` 自己的请求和 Vite 的模块都没有这一行。构建出的程序不写这些行，`tifa dev` 也不给响应加任何头：memo 那个词读自页面本来就带着的 `X-Tifa-Render`。想在构建出的程序里记请求，见[记录每个请求](../guides/logs.zh-CN.md#logging-each-request)。
+
 当一次渲染不带 locale 调用 Intl 或 `toLocale*` 方法，或者对日期不带 `timeZone` 时，应用会记一条 `tifa: ssr:` 警告，写出你源码里的位置，每个位置一次。页面照常渲染。见 [`tifa dev` 里的警告](../pages-and-data/server-render.zh-CN.md#warnings-in-tifa-dev)。
 
 `tifa dev` 把每个页面渲染两次，第二次把时钟拨快 36 小时。当同样的数据两次渲染结果不同，说明页面在渲染时读了时间或随机数，渲染记忆 memo 会把这个值冻住。终端和页面上的覆盖层都会指出这一点，附上两次渲染最先分开的位置周围的 HTML，以及你代码里读时间（`Date.now()`、`new Date()`、`Date()`）或随机数（`Math.random()`、`crypto`）的位置。包内部的读取会记在调用它们的那一行你的代码上，React、TanStack Router 和 Tifa 的读取不列出。请修改组件，或者在该页面的 `route.go` 里写 `Memo = false`（见 [SSR 与缓存](../pages-and-data/ssr-and-cache.zh-CN.md#ssr-and-cache)）。这样的页面在修好之前不会被缓存。构建出来的程序不会渲染两次。
+
+在 `tifa dev` 下，页面在服务器上渲染时用 `console.log` 和其他 console 方法打印的内容也会被记录，带着页面和它在你源码中的位置。见 [`tifa dev` 里的 console](../pages-and-data/server-render.zh-CN.md#console-in-tifa-dev)。想单步调试 Go 代码或某个组件，见[调试](debugging.zh-CN.md)。
 
 ## 构建失败时 {#when-a-build-fails}
 
@@ -173,11 +186,12 @@ tifa dev is running in this app
   url:     http://127.0.0.1:9527
   pid:     41231
   started: 2026-11-16 22:22:50 (2m3s ago)
+  app pid: 41290
   build:   failed: go build: app/store.go:3:2: undefined: x
   log:     /work/shop/.tifa/dev.log
 ```
 
-`--json` 打印一个对象。`build.state` 是 `starting`（第一次构建在跑）、`building`、`ok`、`failed`（这时 `build.error` 是错误的第一行）或 `unknown`（服务器没有响应，`build.error` 说明原因）。对于打印到自己终端的 `tifa dev`，`log` 为空。没有运行时它打印 `{"running": false}`。
+`app pid` 是 `tifa dev` 所运行的应用的进程 ID，调试器要附加到它上面（见[调试](debugging.zh-CN.md)）。每次因为改了 Go 代码而重新启动应用，它都会变，没有应用在运行时则不显示。`--json` 打印一个对象。`build.state` 是 `starting`（第一次构建在跑）、`building`、`ok`、`failed`（这时 `build.error` 是错误的第一行）或 `unknown`（服务器没有响应，`build.error` 说明原因）。对于打印到自己终端的 `tifa dev`，`log` 为空。没有运行时它打印 `{"running": false}`。
 
 ```json
 {
@@ -186,6 +200,7 @@ tifa dev is running in this app
   "url": "http://127.0.0.1:9527",
   "started": "2026-11-16T14:22:50Z",
   "build": {"state": "ok"},
+  "appPid": 41290,
   "log": "/work/shop/.tifa/dev.log"
 }
 ```

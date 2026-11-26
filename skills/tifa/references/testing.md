@@ -1,6 +1,6 @@
 # Testing a Tifa app
 
-Contents: the check command, testing domain code, testing route code with `tifatest`, middleware, signed-in requests, the render clock, checking the real HTML.
+Contents: the check command, testing domain code, testing route code with `tifatest`, middleware, signed-in requests, the render clock, checking the real HTML, testing page components and pages in a browser.
 
 Full docs (in the folder `go tool tifa docs` prints): `docs/pages-and-data/testing-apps.md#testing`. The `docs/internals/testing.md` of the Tifa repository is about developing Tifa itself, not about testing an app.
 
@@ -127,6 +127,8 @@ It covers `Date`, `Temporal.Now` and Intl formatting without a date for the whol
 2. `curl -si http://127.0.0.1:9600/path` shows the status, headers (`ETag`, `X-Tifa-Render`, and `Cache-Control` with `s-maxage` on a page with `Cache`) and the HTML a crawler sees. For the navigation data a page fetches, add the query parameter `_tifa=<build ID>.<digits>` to the page URL, with a digit for each `Load` on the chain of the page from the root Layout down (`1` asks for it, `011` skips the root Layout). The build ID is in `.tifa/dist/build.json`. The answer is `{"routes": {route ID: result}}`, with a `session` next to `routes` in an app that has sessions (see the data protocol in `docs/build-and-deploy/build.md#data-protocol`).
 3. For hydration and clicks, open the page in a browser tool and watch the console. A hydration mismatch is reported there.
 4. A POST from `curl` has no `Sec-Fetch-Site` or `Origin`, so it passes the cross-site check. A POST from a page on another origin gets 403.
+
+To test a page component or a page in a browser as part of the test suite, see `docs/pages-and-data/testing-pages.md` (Vitest and Testing Library, with `./route.gen` mocked, and Playwright against the address of `tifatest.StartPages`, started from a Go test).
 
 On a page with `Cache`, the server hands `OnRequest` and `Load` an anonymous request, which `tifatest.NewCtx` does not do: it gives your function the request as you built it. The build already fails when such a `Load`, or a Layout whose pages all have `Cache`, reads a cookie, header or session. Check the page with two `curl -si` requests, the second with a `Cookie` header, which must give the same body.
 

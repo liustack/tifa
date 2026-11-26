@@ -126,6 +126,7 @@ table, a root Layout and a home page of one line.`,
 				fmt.Fprintf(out, "  go mod edit -replace %s=<path to your tifa checkout>\n", tifaModule)
 			}
 			fmt.Fprintf(out, "  go mod tidy\n  %s\n  go tool tifa dev     # http://%s\n", app.Install, config.DefaultAddr)
+			fmt.Fprintf(out, "\n%s runs go tool tifa gen, which writes the types of .tifa/. Open the editor after it: before, the imports of ./route.gen show errors.\n", app.Install)
 			return nil
 		},
 	}

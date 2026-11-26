@@ -777,3 +777,24 @@ func TestNewEmptyWritesTheSkeleton(t *testing.T) {
 		}
 	}
 }
+
+// The install step runs the prepare script, which runs go tool tifa gen and writes the types of
+// .tifa/, so the next steps say to open the editor after it: before, the imports of ./route.gen are red.
+func TestNewSaysWhenToOpenTheEditor(t *testing.T) {
+	for _, pnpm := range []bool{true, false} {
+		withPnpm(t, pnpm)
+		out, _, err := run(t, "new", filepath.Join(t.TempDir(), "app"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		install := "pnpm install"
+		if !pnpm {
+			install = "npm install"
+		}
+		note := install + " runs go tool tifa gen"
+		steps, rest, ok := strings.Cut(out, "\n\n"+install+" runs")
+		if !ok || !strings.Contains(steps, "\n  "+install+"\n") || !strings.Contains(rest, "Open the editor after it") {
+			t.Errorf("pnpm %v: the output does not say %q before the editor:\n%s", pnpm, note, out)
+		}
+	}
+}

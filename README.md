@@ -137,6 +137,8 @@ go tool tifa dev     # http://127.0.0.1:9527
 
 On a machine that has never built a Tifa app, `go mod tidy`, `npm install` and the first `tifa dev` also download Go and npm packages, which can take a few minutes. The compile itself takes about 7 seconds on an Apple M4 (an empty build cache, the whole app). Later builds use the caches.
 
+The install also runs `go tool tifa gen` (the `prepare` script of `package.json`), which writes the types of `.tifa/` that your editor reads. Open the editor after it: before, the imports of `./route.gen` show errors.
+
 `tifa new` writes a small todo list stored in SQLite to replace with your own domain: a home page with a Go `Load`, a `POST` the page calls from the browser, a page per todo, sessions kept in the database, tests, and a GitHub Actions workflow that runs `go tool tifa check`. The module path is the folder name unless you pass `--module example.com/myapp`.
 
 ## Try the example
@@ -175,7 +177,7 @@ More in [Use Tifa with a coding agent](docs/start/agents.md).
 | [Structuring an app](docs/start/structure.md) | Deciding where domain code, storage and shared resources go, and which way packages may import each other |
 | [Use Tifa with a coding agent](docs/start/agents.md) | Working on an app with Claude Code, Codex, Cursor or another coding agent |
 | [Writing an app](docs/start/app.md) | Laying out folders, how they become URLs, and which doc to read next |
-| The parts of an app: [routing](docs/pages-and-data/routing.md), [layouts](docs/pages-and-data/layouts.md), [loading data](docs/pages-and-data/loading-data.md), [method handlers](docs/pages-and-data/handlers.md), [links and navigation](docs/pages-and-data/navigation.md), [head](docs/pages-and-data/head.md), [errors](docs/pages-and-data/errors.md), [render switches and caches](docs/pages-and-data/ssr-and-cache.md), [server render](docs/pages-and-data/server-render.md), [styles](docs/pages-and-data/styles.md), [hooks](docs/pages-and-data/hooks.md), [testing](docs/pages-and-data/testing-apps.md) | Writing the Go and React code of a route, Layouts, 404 pages, head tags, `Cache` for CDNs, what the server render has, CSS, startup code and Go tests |
+| The parts of an app: [routing](docs/pages-and-data/routing.md), [layouts](docs/pages-and-data/layouts.md), [loading data](docs/pages-and-data/loading-data.md), [method handlers](docs/pages-and-data/handlers.md), [links and navigation](docs/pages-and-data/navigation.md), [head](docs/pages-and-data/head.md), [errors](docs/pages-and-data/errors.md), [render switches and caches](docs/pages-and-data/ssr-and-cache.md), [server render](docs/pages-and-data/server-render.md), [styles](docs/pages-and-data/styles.md), [hooks](docs/pages-and-data/hooks.md), [testing](docs/pages-and-data/testing-apps.md), [testing pages](docs/pages-and-data/testing-pages.md) | Writing the Go and React code of a route, Layouts, 404 pages, head tags, `Cache` for CDNs, what the server render has, CSS, startup code, Go tests and tests of pages |
 | [Sessions](docs/pages-and-data/sessions.md) | Signing users in and out, keeping sessions in Redis or SQL, or showing who is signed in |
 | [Content](docs/pages-and-data/content.md) | Keeping a blog or docs as Markdown files and reading them in Go |
 | [Build and run](docs/build-and-deploy/build.md) | You want to know what `tifa build` generates and how the program answers requests |
