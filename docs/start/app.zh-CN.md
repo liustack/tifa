@@ -2,7 +2,7 @@
 summary: '怎样开始写一个 Tifa 应用：route.go、page.tsx、layout.tsx、URL、`public/`、Next.js 或 Remix 代码'
 audience: app
 order: 2
-translatedFrom: 94ccf5175709
+translatedFrom: 5b7e02b9c26a
 read_when:
   - '新建 Tifa 应用，或给应用加页面、布局或 API 路由'
   - '往应用里放图片、字体或图标，或者在导入和 `public/` 里的文件之间做选择'
@@ -96,7 +96,7 @@ Vite 说的是同一件事：优先导入资源，`public/` 给源码里从不�
 
 | 你写的 | 在 Tifa 里 | |
 | --- | --- | --- |
-| 导入 `next` 或 `next/*`、`react-router`、`react-router-dom`、`@remix-run/*`、`@tanstack/react-start`、`@tanstack/start`、`$app/*`、`@sveltejs/kit` 或 `astro:*` | `Link` 和 `useNavigate` 来自 `@tanstack/react-router`。数据来自 `route.go` 里的 `Load`，用 `page.useLoaderData()` 读取。重定向是 Go 里的 `return tifa.Redirect(url, status)`。`next/head` 是 `head` 导出，`next/dynamic` 是 `clientOnly`，`next/headers` 是 `c.Cookie` 和 `c.Header`，`next/server` 是方法处理函数或 `OnRequest` | 错误 |
+| 导入 `next` 或 `next/*`、`react-router`、`react-router-dom`、`@remix-run/react`、`@remix-run/node` 以及 Remix 框架和它的适配器的其他包（独立的包不算，比如 `@remix-run/headers`）、`@tanstack/react-start`、`@tanstack/start`、SvelteKit 的模块（`$app/navigation`、`$app/stores` 等）、`@sveltejs/kit` 或 `astro:*` | `Link` 和 `useNavigate` 来自 `@tanstack/react-router`。数据来自 `route.go` 里的 `Load`，用 `page.useLoaderData()` 读取。重定向是 Go 里的 `return tifa.Redirect(url, status)`。`next/head` 是 `head` 导出，`next/dynamic` 是 `clientOnly`，`next/headers` 是 `c.Cookie` 和 `c.Header`，`next/server` 是方法处理函数或 `OnRequest` | 错误 |
 | `'use client'` | 不需要：每个组件都在服务器上渲染，并在浏览器里水合。需要浏览器的组件放进 `*.client.tsx` 文件，用 `clientOnly` 加载 | 警告 |
 | `'use server'` | 没有 server action，这个函数会在浏览器里运行。在 `route.go` 里写一个方法处理函数，从 `./route.gen` 调用它的函数 | 错误 |
 | `export const getServerSideProps`、`getStaticProps`、`loader`、`clientLoader` | `route.go` 里的 `Load` | 警告 |
@@ -107,7 +107,7 @@ Vite 说的是同一件事：优先导入资源，`public/` 给源码里从不�
 | `export const revalidate`、`dynamic` | `route.go` 里的 `const Cache` 让 CDN 保存一个页面。每个页面本来就在每个请求上加载和渲染 | 警告 |
 | 在页面或布局里调用 `createFileRoute`、`createRootRoute`、`createServerFn` | 文件夹就是路由，`./route.gen` 把它导出为 `page`，服务器函数就是方法处理函数 | 警告 |
 | 名为 `[id]`、`[...slug]`、`$id`、`:id`、`(group)` 或 `@slot` 的文件夹 | `id+` 和 `slug++`（见 [URL 来自文件夹](#urls-come-from-folders)）。没有路由分组，也没有并行路由 | 错误 |
-| `+page.svelte`、`+page.server.ts`、`_index.tsx` | `page.tsx`、`layout.tsx` 和 `route.go`（见 [一个文件夹里的文件](#the-files-of-a-folder)） | 错误 |
+| `+page.svelte`、`+page.server.ts`、`_index.tsx`（只在没有 `page.tsx` 的文件夹里）| `page.tsx`、`layout.tsx` 和 `route.go`（见 [一个文件夹里的文件](#the-files-of-a-folder)） | 错误 |
 | `page.js`、`layout.jsx`、旁边没有 `page.tsx`、`layout.tsx` 或 `route.go` 的 `route.ts`、`$id.tsx` | 同上 | 警告 |
 | `middleware.ts`，以及路由文件夹里的 `loading`、`error` 或 `not-found` 文件 | `hooks.go` 里的 `OnRequest`，以及 `ErrorBoundary` 导出（见 [404](../pages-and-data/errors.zh-CN.md#404)） | 警告 |
 | 在 `route.go` 里，接收 `http.ResponseWriter`、`*http.Request`、`*gin.Context`、`echo.Context` 或 `*fiber.Ctx` 的函数 `GET`、`POST`、`PUT`、`PATCH`、`DELETE`、`Load` 或 `Layout` | `func POST(c *tifa.Ctx, in AddInput) (Todo, error)`，或 `func POST(c *tifa.Ctx) error` 加 `c.Writer()` 和 `c.Request()`（见 [带输入和结果的方法处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result)） | 错误 |

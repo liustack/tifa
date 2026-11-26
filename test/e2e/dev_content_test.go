@@ -50,16 +50,16 @@ func TestDevContent(t *testing.T) {
 	expectBody(t, d.base+"/en/blog/winter", "<p>Snow.</p>")
 
 	// A broken front matter shows the message of tifa build, and the old content keeps serving.
-	mark := d.edit(t, post, "tags: [DeepSeek, 联网搜索]", "tag: [DeepSeek]")
+	mark := d.edit(t, post, "tags: [DeepSeek, 联网搜索]", "tags: DeepSeek")
 	failed := d.waitStatus(t, func(st devStatus) bool { return st.Error != "" })
-	if failed.Title != "Build failed" || !strings.Contains(failed.Error, post+`:6:1: "tag" is not a field of contenttest.Post. Did you mean "tags"?`) {
+	if failed.Title != "Build failed" || !strings.Contains(failed.Error, post+`:6:7: tags: want a list of strings, got a string`) {
 		t.Fatalf("overlay %q: %s", failed.Title, failed.Error)
 	}
 	if names, _ := steps(d.log.String()[mark:]); len(names) > 0 {
 		t.Fatalf("a broken front matter ran %v", names)
 	}
 	expectBody(t, d.base+"/zh-CN/blog/free-search", `<h1 id="title">免费联网搜索</h1>`)
-	change("fixed front matter", func() { d.edit(t, post, "tag: [DeepSeek]", "tags: [DeepSeek, 联网搜索]") })
+	change("fixed front matter", func() { d.edit(t, post, "tags: DeepSeek", "tags: [DeepSeek, 联网搜索]") })
 
 	// An entry that fails Validate, in the same edit as its body: the app keeps the content it
 	// has, with the old body.

@@ -40,6 +40,17 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - New in the docs: [Security](docs/guides/security.md) lists what Tifa guards by default (writes from other sites, the session cookie, request limits, security headers, escaped page data, anonymous pages with `Cache`, error messages) and what is left to the app (who may do what, HTTPS and HSTS, Content-Security-Policy, secrets in `Load`, user HTML, uploads, redirects, rate limits, SQL, dependencies), with where to read more for each.
 
+- The warning about `import.meta.env.VITE_*` is one line for a build, with every name it found and the place of the first read, instead of a line for each name.
+
+### Removed
+
+- A constant in `route.go` that is near the name of a switch, such as `SSL`, `Demo` or `Cahce`, no longer fails the build with `did you mean`. `route.go` is your package, so such a constant is your own. A bool constant that spells a switch in lower case (`cache`, `memo`, `ssr`) still fails.
+- The build no longer fails for the names of older versions. A module that exports `Document`, `NotFound` or `Error`, and a `const Path` in a `route.go`, are now your own code: they are not read, and nothing reports them. A 404 is shown by the `ErrorBoundary` export.
+- A `form` tag no longer fails the build when it names the field as its `json` tag (or its Go name) does, such as `json:"email" form:"email"`, so a type shared with another framework works as it is. A `form` tag with another name still fails, in the input of a handler and in a struct passed to `c.Bind` or `c.BindQuery`, since Tifa reads the field by its `json` name.
+- The imports and files of other frameworks that fail the build are only those that are surely wrong in a Tifa app. The packages of the Remix organization that stand alone (`@remix-run/headers`, `@remix-run/form-data-parser`, `@remix-run/file-storage` and the like) and a name below `$app/` that SvelteKit does not have are left alone, and so is an `_index.tsx` next to a `page.tsx`. `@remix-run/react`, `@remix-run/node` and the other packages of the Remix framework, `react-router`, the modules of Next.js, TanStack Start, SvelteKit and Astro still fail the build.
+- A key in the front matter of an entry that is not a field of its type is now a warning with the nearest field name, and the entry is read without it. Before, it failed the build, so Markdown moved from Hugo or Jekyll, with `weight` or `categories` in its front matter, did not build.
+- `const Memo = true` in a `route.go` is accepted and changes nothing, since the render memo is on by default. Before, only `Memo = false` was.
+
 ### Fixed
 
 - Files and folders of `public/` whose names start with a dot, such as `.DS_Store` or a `.env` left there by mistake, are no longer copied into the program and served. `.well-known` is still copied. A dot file that an earlier build copied is removed by the next one.

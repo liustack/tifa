@@ -2,7 +2,7 @@
 summary: '每一项设置的含义和设置位置：tifa.yaml、参数、环境变量、.env、server.csp、HTTPS、跨站写入'
 audience: app
 order: 4
-translatedFrom: e55c70464603
+translatedFrom: 4e8e2e1210a4
 read_when:
   - '用 tifa.String 之类的函数定义应用的选项，或者在 OnStart 里读取它'
   - '浏览器需要一个只有程序运行时才知道的值（比如公钥或 API 基础地址），而 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -188,7 +188,7 @@ var (
 - 根包导入的包读不到这些变量（那会造成导入循环）：由 `OnStart` 把值传给它们，比如 `store.Open(DBURL)`。
 - 需要更多的应用，可以在 `OnStart` 里运行它自己的配置。
 
-`tifa build` 在这些情况下会失败，并写出文件和行号：`tifa.String` 之类在根目录 `options.go` 里的包级 `var` 的值之外的任何地方被调用，键不是字符串字面量或不符合[命名](#names)的规则，两项设置（应用的或 Tifa 的）会有同样的参数或环境变量（比如 `a.b_c` 和 `a_b.c`），以及一个键是另一个键的上级（比如 `db.url` 旁边有 `db.url.timeout`，或者 Tifa 的 `server.addr` 旁边有 `server.addr.port`）。如果这些错误漏过了构建，程序会在同样的错误上 panic。文件改名之前的应用有 `config.go`：如果其中仍然有 `tifa.String` 之类，构建也会失败，并写出它的名字，请把它改名为 `options.go`。
+`tifa build` 在这些情况下会失败，并写出文件和行号：`tifa.String` 之类在根目录 `options.go` 里的包级 `var` 的值之外的任何地方被调用，键不是字符串字面量或不符合[命名](#names)的规则，两项设置（应用的或 Tifa 的）会有同样的参数或环境变量（比如 `a.b_c` 和 `a_b.c`），以及一个键是另一个键的上级（比如 `db.url` 旁边有 `db.url.timeout`，或者 Tifa 的 `server.addr` 旁边有 `server.addr.port`）。如果这些错误漏过了构建，程序会在同样的错误上 panic。
 
 ### 运行时才知道的、给浏览器的值 {#a-value-for-the-browser-that-is-known-at-run-time}
 

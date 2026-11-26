@@ -2,7 +2,7 @@
 summary: '应用怎样把文字作为 Markdown 放在 content/ 下：content.go、front matter、slug、草稿、remark'
 audience: app
 order: 9
-translatedFrom: 22a7f958d32f
+translatedFrom: 5b02fd93ec20
 read_when:
   - '给 Tifa 应用加博客、文档或其他 Markdown 内容'
   - '编写或修改 content.go，或者嵌入 content.Entry 的 schema 类型'
@@ -151,7 +151,7 @@ tags: [search]
 
 - 字段可以是字符串、数字、布尔值、`time.Time`、指针、切片、键为字符串的 map，或嵌套结构体。`time.Time` 接受 `2006-01-02`（UTC 午夜）和 RFC 3339，加不加引号都行。自己读取 JSON 的类型、`[]byte`、`time.Duration`、接口，以及除 `omitempty` 和 `omitzero` 之外的 json 选项（比如 `,string`），都会让构建失败。
 - 字段是必填的，除非它是指针、切片或 map，或者带 `omitempty` 或 `omitzero`。这和页面的 TypeScript 类型里可选字段的规则一样。
-- 不是字段的键会让构建失败，附近有相近的字段名时，会给出最接近的那个。
+- 不是字段的键只是一个警告，附近有相近的字段名时，会给出最接近的那个，这个条目读取时不带它。所以从 Hugo 或 Jekyll 搬来的页面，front matter 里带着 `weight` 或 `categories`，也能构建。想写成某个字段却拼错了的键，也会在警告里看到。
 - 字段上有 `yaml` 标签会让构建失败：键就是 json 名。
 - Tifa 自己读取四个键。它们不是 schema 的字段，写上它们不算错误：
 
@@ -514,7 +514,6 @@ content/blog/notes.md: the collection blog has languages, so its files go in a l
 content/blog/zh-CN/202610/demo/index.mdx: MDX is not supported: a body becomes HTML at build time and cannot hold React components. Rename it to index.md and put the components in the page
 content/blog/zh-CN/a/index.md:1:1: no front matter: an entry starts with --- and the keys of contenttest.Post
 content/blog/zh-CN/202608/free-search/index.md:5:8: draft: want true or false, got "yes"
-content/blog/zh-CN/202608/free-search/index.md:9:1: "tag" is not a field of contenttest.Post. Did you mean "tags"? Fields: title, description, updated, tags, cover
 content/blog/en/202608/free-search/index.md:1:1: front matter has no "title", which contenttest.Post.Title needs. Make the field a pointer or add omitempty to make it optional
 content/blog/en/202608/free-search/index.md:2:7: slug: "free/search" is not one URL segment: it holds /
 content/docs/en/guide/index.md: the ID guide is also the ID of content/docs/en/guide.md

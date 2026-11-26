@@ -2,7 +2,7 @@
 summary: '环境里的值怎样到达页面：Load、`import.meta.env.VITE_*`、`process.env`'
 audience: app
 order: 10
-translatedFrom: ea0a48f120b5
+translatedFrom: 94c12524fdaa
 read_when:
   - '你来自 Next.js 或 Vite，在页面里习惯性地用 `import.meta.env.VITE_*`、`NEXT_PUBLIC_*` 或 `process.env`'
   - '构建警告说 `import.meta.env.VITE_*` 在构建时就固定了'
@@ -68,4 +68,4 @@ Vite 仍然会用下面这些值填充 `import.meta.env`：
 
 Vite 还会把运行 `tifa build` 的 shell 环境里每个以 `VITE_` 开头的变量，以及应用在 `vite.config.ts` 里通过 `define` 给出的每个 `import.meta.env.*` 常量，写进包里。这些值在构建运行时就固定了。它们适合在构建运行的每个地方都相同的值，不适合随环境变化的值。
 
-当应用代码读取 `import.meta.env.VITE_*` 时，`tifa build` 和 `tifa dev` 会给出警告：每个名字警告一次，并指出第一次读取的位置。在 `tifa dev` 下，这个警告也会出现在 `go tool tifa errors` 的 `Warnings` 下，直到有一次构建里不再有它。警告覆盖 `import.meta.env.VITE_X`、`import.meta.env['VITE_X']` 和 `const { VITE_X } = import.meta.env`。不覆盖把 `import.meta.env` 换个名字传下去的写法。`node_modules` 里的代码不检查。
+当应用代码读取 `import.meta.env.VITE_*` 时，`tifa build` 和 `tifa dev` 会给出警告：一次构建只有一行，列出所有名字，并指出第一次读取的位置。在 `tifa dev` 下，这个警告也会出现在 `go tool tifa errors` 的 `Warnings` 下，直到有一次构建里不再有它。警告覆盖 `import.meta.env.VITE_X`、`import.meta.env['VITE_X']` 和 `const { VITE_X } = import.meta.env`。不覆盖把 `import.meta.env` 换个名字传下去的写法。`node_modules` 里的代码不检查。

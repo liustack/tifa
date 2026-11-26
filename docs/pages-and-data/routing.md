@@ -27,7 +27,6 @@ Every folder below `app/` is one segment of the URL. `app/` itself is `/`.
 - A folder holds at most one parameter folder. `items/id+` next to `items/key+` or `items/path++` fails the build, because both would read the same URL segment.
 - Two routes (pages or API routes) whose URLs overlap without one being more specific fail the build, as in Go's `http.ServeMux`, such as `a/b+` next to `a+/b`. A literal is more specific than a parameter, so `items/new` next to `items/id+` is fine.
 - The URL of a folder with a Layout but no page shows a 404 inside that Layout (see [404](../pages-and-data/errors.md#404)), unless a `name++` folder right below it has a page, which answers that URL with an empty rest. No other page may match that URL unless it is more specific than the Layout's path: `settings/layout.tsx` without a `settings/page.tsx`, next to `user+/page.tsx`, fails the build, because `/settings` would also match `/{user}`, but `items/new` next to a Layout in `items/id+` is fine.
-- Declaring `const Path` fails the build. The folder is the URL.
 
 ### Parameter names in Go and TypeScript
 

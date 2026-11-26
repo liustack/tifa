@@ -2404,7 +2404,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
   let jsxRuntimes // the files of React's JSX runtime in the bundle to whether the plugin knows them
   let reactHooks // React's react.production.js files to the hooks they export as wrappers of the dispatcher
   let rawQueryWarned // the places of the reads of the raw query the build has warned about
-  let viteEnvWarned // the names of import.meta.env the build has warned about
+  let viteEnvFound // the reads of import.meta.env.VITE_* in the app: file, line, column and name, in the order the modules came
   const plugin = {
     name: 'tifa:ssr',
     applyToEnvironment: (env) => env.name === 'ssr',
@@ -2418,7 +2418,7 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       jsxRuntimes = new Map()
       reactHooks = new Map()
       rawQueryWarned = new Set()
-      viteEnvWarned = new Set()
+      viteEnvFound = []
     },
     outputOptions(options) {
       const root = getRoot()
@@ -2480,12 +2480,8 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
           const parsed = (await loadVite()).parseSync(id, source, { lang: lang === 'mjs' ? 'js' : lang, sourceType: 'module' })
           const file = path.relative(getRoot(), id).split(path.sep).join('/')
           for (const r of parsed.errors.length > 0 ? [] : viteEnvReads(parsed.program)) {
-            if (viteEnvWarned.has(r.name)) continue
-            viteEnvWarned.add(r.name)
             const before = source.slice(0, r.offset)
-            this.warn(
-              `${file}:${before.split('\n').length}:${r.offset - before.lastIndexOf('\n')}: import.meta.env.${r.name} is fixed when the build runs, so every environment gets the value of the build. A value that is known only when the program runs comes from the Load of the page (see docs/guides/environment.md).`,
-            )
+            viteEnvFound.push({ file, line: before.split('\n').length, column: r.offset - before.lastIndexOf('\n'), name: r.name })
           }
         }
         // A component of the app that reads, while rendering, a query parameter the server may not
@@ -2965,6 +2961,16 @@ for (const name of ['renderToString', 'renderToStaticMarkup']) {
       return null
     },
     buildEnd() {
+      // One warning for the build, with every name, at the first read of them in the order of the
+      // files (the modules are transformed in no fixed order).
+      if (viteEnvFound.length > 0) {
+        viteEnvFound.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line || a.column - b.column))
+        const names = [...new Set(viteEnvFound.map((r) => `import.meta.env.${r.name}`))]
+        const first = viteEnvFound[0]
+        this.warn(
+          `${first.file}:${first.line}:${first.column}: ${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} fixed when the build runs, so every environment gets the value of the build. A value that is known only when the program runs comes from the Load of the page (see docs/guides/environment.md).`,
+        )
+      }
       // React writes the key of the state of useActionState with a server action from the key path
       // of the component, see dropKeyPathNames.
       if (namesDropped && serverActions.size > 0) {

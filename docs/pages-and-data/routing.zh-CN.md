@@ -2,7 +2,7 @@
 summary: '文件夹怎样变成 URL：参数、重叠的路由、一个文件夹里的文件'
 audience: app
 order: 1
-translatedFrom: 63e560a47f34
+translatedFrom: 20717f486070
 read_when:
   - '决定一个路由放进哪个文件夹，或者构建拒绝了某个文件夹名或两个重叠的路由'
   - '给路由加参数，或者在 Go 里用 `c.Param`、在 TypeScript 里用 `Link` 和 `params` 读取它'
@@ -28,7 +28,6 @@ read_when:
 - 一个文件夹最多只有一个参数文件夹。`items/id+` 旁边有 `items/key+` 或 `items/path++` 会让构建失败，因为两者读的是同一个 URL 段。
 - 两个路由（页面或 API 路由）的 URL 重叠，而又没有哪个更具体，会让构建失败，和 Go 的 `http.ServeMux` 一样，比如 `a/b+` 旁边有 `a+/b`。字面值比参数更具体，所以 `items/new` 旁边有 `items/id+` 没有问题。
 - 有布局但没有页面的文件夹，它的 URL 会在那个布局里显示 404（见 [404](../pages-and-data/errors.zh-CN.md#404)），除非它正下面的 `name++` 文件夹有页面，那个页面会以空的其余部分响应这个 URL。其他页面不能匹配这个 URL，除非它比布局的路径更具体：`settings/layout.tsx` 没有 `settings/page.tsx`，旁边又有 `user+/page.tsx`，会让构建失败，因为 `/settings` 也会匹配 `/{user}`，但 `items/id+` 里有布局、旁边有 `items/new` 就没有问题。
-- 声明 `const Path` 会让构建失败。文件夹就是 URL。
 
 ### Go 和 TypeScript 里的参数名 {#parameter-names-in-go-and-typescript}
 

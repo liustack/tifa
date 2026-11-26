@@ -116,8 +116,8 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, 
 	form = len(files) > 0
 	root := rootLabel(in)
 	walkFields(in, root, map[types.Type]bool{}, func(path string, f *types.Var, tag string) {
-		if _, has := reflect.StructTag(tag).Lookup("form"); has {
-			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s has a form tag: an input field is named by its json tag only, also in a form body, so remove the form tag", label, path), f))
+		if formNamesOtherwise(tag, f.Name()) {
+			a.errorAt(pos, "%s", a.withField(fmt.Sprintf("%s: %s has a form tag with another name than its json tag: an input field is named by its json tag only, also in a form body, so make the form tag name it the same, or remove it", label, path), f))
 			ok = false
 		}
 		if !files[f] && holdsFile(f.Type()) {
@@ -187,6 +187,22 @@ func (a *analyzer) checkFlatInput(label string, in types.Type, st *types.Struct,
 }
 
 // jsonName is the name of the json tag of a struct field, "" without one.
+// formNamesOtherwise reports whether the tag of a field of Go name goName has a form tag whose name
+// is not the one the field gets from Tifa: its json name, or the Go name when json gives none. A
+// form tag that says the same is the type's use with another framework and changes nothing.
+func formNamesOtherwise(tag, goName string) bool {
+	form, has := reflect.StructTag(tag).Lookup("form")
+	if !has {
+		return false
+	}
+	form, _, _ = strings.Cut(form, ",")
+	name := jsonName(tag)
+	if name == "" {
+		name = goName
+	}
+	return form != name
+}
+
 func jsonName(tag string) string {
 	name, _, _ := strings.Cut(reflect.StructTag(tag).Get("json"), ",")
 	return name

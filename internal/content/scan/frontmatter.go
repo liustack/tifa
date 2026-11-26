@@ -29,6 +29,8 @@ type matter struct {
 	// lines is the number of lines of the front matter, the two --- lines included.
 	lines int
 	errs  []posError
+	// warns are problems that do not stop the entry, such as a key the struct has no field for.
+	warns []posError
 }
 
 // pos is a line and column of a file, both from 1.
@@ -245,7 +247,9 @@ func (c *converter) object(n *yaml.Node, t *Node, path string, top bool) []byte 
 		}
 		f := t.field(key)
 		if f == nil {
-			c.errorAt(k, "%s", c.unknown(key, t, path))
+			// The entry is read without it: a key the struct has no field for may be one of another tool
+			// (weight, categories) or a typo, and a typo shows in the warning with the nearest name.
+			c.m.warns = append(c.m.warns, posError{at(k), c.unknown(key, t, path)})
 			continue
 		}
 		if kindTag(v) == "!!null" && !f.Required && f.Node.Kind != Pointer && f.Node.Kind != Slice && f.Node.Kind != Map {

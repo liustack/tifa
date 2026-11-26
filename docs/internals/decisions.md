@@ -194,7 +194,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** Two tags are two names for one field, and a struct could decode one way from JSON and another way from a form.
 
-**Instead.** The `json` tag names a field everywhere: in JSON, in a form, in the query string and in TypeScript. A `form` tag fails the build.
+**Instead.** The `json` tag names a field everywhere: in JSON, in a form, in the query string and in TypeScript. A `form` tag that names a field otherwise than its `json` tag fails the build (2026-11-26: one with the same name is let through, since a type shared with gin or gorilla/schema is right and Tifa reads it the same).
 
 ### Renaming tifa.Use
 
@@ -724,7 +724,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** `tifa.yaml` holds the settings of the framework and nothing else, so a key Tifa does not know there is a spelling mistake. The app has its own place, `options.go`, and its own ways.
 
-**Instead.** A key in `tifa.yaml` that is no setting of Tifa fails `tifa check` and `tifa build`, and a flag nobody defined stops the program. A setting Tifa retired is a warning. Other environment variables, and other keys in the file of `-c`, are left alone: [Configuration](../build-and-deploy/config.md).
+**Instead.** A key in `tifa.yaml` that is no setting of Tifa fails `tifa check` and `tifa build`, and a flag nobody defined stops the program. A setting Tifa retires is deleted at once, with no warning for it (2026-11-26): what is left of it in a file is an unknown key like any other, and it fails. Other environment variables, and other keys in the file of `-c`, are left alone: [Configuration](../build-and-deploy/config.md).
 
 ### Copying every dot file of public/
 

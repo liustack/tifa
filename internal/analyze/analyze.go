@@ -5,7 +5,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	"github.com/liustack/tifa/internal/config"
 	"go/ast"
 	"go/constant"
 	"go/token"
@@ -16,7 +15,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -593,7 +591,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 // its page, the switches, and the method handlers.
 var routeNames = append([]string{"Layout", "Load", "SSR", "Memo", "Cache"}, methods...)
 
-// checkPackageNames reports Path, which the directory replaces, and each name of route.go that
+// checkPackageNames reports each name of route.go that
 // is declared in another file of the package. The files are read by name, so a Load in
 // layout.go or a Cache in a helper file would otherwise be silently left out.
 func (a *analyzer) checkPackageNames(d *dirInfo) {
@@ -602,9 +600,6 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 		return
 	}
 	scope := pkg.Types.Scope()
-	if obj := scope.Lookup("Path"); obj != nil {
-		a.errorAt(obj.Pos(), "Path is not declared: the directory under app/ is the URL, write {name} as the directory name+ and {name...} as name++")
-	}
 	a.checkSwitchNames(scope)
 	for _, name := range routeNames {
 		obj := scope.Lookup(name)
@@ -628,71 +623,21 @@ var switchSpellings = map[string]string{
 	"ssr":   "write SSR",
 }
 
-// checkSwitchNames reports the constants of route.go that look like a switch spelled wrong, since
-// such a constant would otherwise be skipped without a word. A bool constant that spells a switch
-// in the wrong case is reported with the advice for it. An exported constant of any type that is
-// one or two letters off a switch, such as Cahce, is reported with the name it probably meant.
-// A constant of another type spelled in lower case, such as const cache = "redis", and one in
-// another file are the app's own and are left alone.
+// checkSwitchNames reports a bool constant of route.go that spells a switch in the wrong case,
+// since names are read as written and it would otherwise be skipped without a word. Any other
+// constant is the app's own, whatever its name: route.go is the app's package, and a name that is
+// near a switch, such as SSL or Demo, is not a typo of it. A constant of another type spelled in
+// lower case, such as const cache = "redis", and one in another file are left alone too.
 func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 	for _, name := range scope.Names() {
 		c, ok := scope.Lookup(name).(*types.Const)
 		if !ok || filepath.Base(a.fset.Position(c.Pos()).Filename) != "route.go" {
 			continue
 		}
-		if advice, ok := switchSpellings[name]; ok {
-			if c.Val().Kind() == constant.Bool {
-				a.errorAt(c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
-			}
-			continue
-		}
-		if near := nearSwitch(c); near != "" {
-			a.errorAt(c.Pos(), "%s is not a switch: did you mean %s?", name, near)
+		if advice, ok := switchSpellings[name]; ok && c.Val().Kind() == constant.Bool {
+			a.errorAt(c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
 		}
 	}
-}
-
-// switches are the constants of route.go that tifa reads, the ones a typo can be of.
-var switches = []string{"SSR", "Cache", "Memo"}
-
-// switchFits reports whether the constant c has a type the switch takes: a bool for SSR and Memo,
-// a bool or a time.Duration for Cache. A constant of another type is the app's own, whatever its
-// name.
-func switchFits(sw string, c *types.Const) bool {
-	switch sw {
-	case "SSR", "Memo":
-		return c.Val().Kind() == constant.Bool
-	case "Cache":
-		return c.Val().Kind() == constant.Bool || isNamed(c.Type(), "time", "Duration")
-	}
-	return false
-}
-
-// nearSwitch returns the switch that the constant c is a typo of, or "" when it is none. Only an
-// exported name of at least three letters can be: tifa reads the names as written, and a short
-// name such as ID or Max is the app's own. So is a constant whose type the switch does not take
-// (const Demo = "demo"). It is one edit off a switch when the shorter of the two has up to four
-// letters (Memoo for Memo, but not Mode), and up to two edits off with more (Cahce for Cache).
-func nearSwitch(c *types.Const) string {
-	name := c.Name()
-	if len(name) < 3 || name[0] < 'A' || name[0] > 'Z' {
-		return ""
-	}
-	best, bestDist := "", 0
-	for _, s := range switches {
-		limit := 2
-		if min(len(name), len(s)) <= 4 {
-			limit = 1
-		}
-		d := config.EditDistance(name, s)
-		if d == 0 {
-			return ""
-		}
-		if d <= limit && switchFits(s, c) && (best == "" || d < bestDist) {
-			best, bestDist = s, d
-		}
-	}
-	return best
 }
 
 // routePackage returns the package of the route.go in d, nil without route.go and when the
@@ -764,7 +709,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 		}
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
-	r.Memo = a.memoConst(pkg)
+	r.Memo = a.boolConst(pkg, "Memo", true)
 	r.Cache, r.CacheDefault = a.cacheConst(pkg)
 	return r
 }
@@ -789,21 +734,6 @@ func (a *analyzer) layout(d *dirInfo, pkg *packages.Package) *layout {
 		return nil
 	}
 	return l
-}
-
-// memoConst reads Memo, which can only be false: the render memo is on for every
-// page, and the switch turns it off for one.
-func (a *analyzer) memoConst(pkg *packages.Package) bool {
-	obj := pkg.Types.Scope().Lookup("Memo")
-	if obj == nil {
-		return true
-	}
-	c, ok := obj.(*types.Const)
-	if !ok || c.Val().Kind() != constant.Bool || constant.BoolVal(c.Val()) {
-		a.errorAt(obj.Pos(), "Memo can only be false, which turns the render memo off for this page. It is on by default, so delete the line to keep it on")
-		return true
-	}
-	return false
 }
 
 func (a *analyzer) boolConst(pkg *packages.Package, name string, def bool) bool {
@@ -1633,8 +1563,8 @@ func (a *analyzer) checkBindTags() {
 				root := types.ExprString(call.Args[0])
 				root = strings.TrimPrefix(root, "&")
 				walkFields(t, root, map[types.Type]bool{}, func(path string, field *types.Var, tag string) {
-					if _, has := reflect.StructTag(tag).Lookup("form"); has {
-						a.errorAt(call.Pos(), "%s", a.withField(fmt.Sprintf("c.%s: %s has a form tag: c.%s names a field by its json tag only, as a typed handler input does, so remove the form tag", sel.Sel.Name, path, sel.Sel.Name), field))
+					if formNamesOtherwise(tag, field.Name()) {
+						a.errorAt(call.Pos(), "%s", a.withField(fmt.Sprintf("c.%s: %s has a form tag with another name than its json tag: c.%s names a field by its json tag only, as a typed handler input does, so make the form tag name it the same, or remove it", sel.Sel.Name, path, sel.Sel.Name), field))
 					}
 				})
 				return true

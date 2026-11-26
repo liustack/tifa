@@ -42,6 +42,35 @@ func TestContentCollections(t *testing.T) {
 	}
 }
 
+// A front matter key that the struct has no field for is a warning of the content, with the nearest
+// field, and the entry stays.
+func TestUnknownFrontMatterKeyIsAWarning(t *testing.T) {
+	root := t.TempDir()
+	if err := os.CopyFS(filepath.Join(root, "content"), os.DirFS(filepath.Join("testdata", "content", "content"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "content/blog/zh-CN/about.md"), []byte("---\ntitle: 关于\ntitel: 关于\nweight: 3\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := AnalyzeWith(filepath.Join("testdata", "content"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := ScanContent(root, m.Content)
+	if err != nil {
+		t.Fatalf("an unknown key failed the scan: %v", err)
+	}
+	var got []string
+	for _, w := range c.Warnings {
+		if strings.HasPrefix(w, "content/blog/zh-CN/about.md:") {
+			got = append(got, w)
+		}
+	}
+	if len(got) != 2 || !strings.Contains(got[0], `"titel" is not a field of site.Post. Did you mean "title"?`) || !strings.Contains(got[1], `"weight" is not a field of site.Post.`) {
+		t.Errorf("warnings %q", c.Warnings)
+	}
+}
+
 // TestScanContentAgain checks the scan tifa dev repeats after a file under content/ changed: it
 // sees the new front matter and the new entries, keeps drafts with Options.Drafts, and reports
 // the problems the analysis would.
@@ -98,7 +127,6 @@ func TestScanContentAgain(t *testing.T) {
 	write("content/notes/a.md", "---\n---\n")
 	_, err = ScanContent(root, m.Content)
 	want := "content/blog/zh-CN/about.md:1:1: front matter has no \"title\", which site.Post.Title needs. Make the field a pointer or add omitempty to make it optional\n" +
-		"content/blog/zh-CN/about.md:2:1: \"titel\" is not a field of site.Post. Did you mean \"title\"? Fields: title, updated\n" +
 		"content/notes: no collection reads this folder: declare one in content.go, or move the folder out of content/"
 	if err == nil || err.Error() != want {
 		t.Errorf("error:\n%v\nwant:\n%s", err, want)
@@ -155,7 +183,6 @@ func TestContentDeclarationsBreakingTheRules(t *testing.T) {
 		"content.go:39:2: contentbad.Post.Tags has a yaml tag: front matter keys are the json names, remove the yaml tag",
 		`content.go:40:2: contentbad.Post.Date has the json name "date", which content.Entry uses for the time an entry is published`,
 		"content/notes: no collection reads this folder: declare one in content.go, or move the folder out of content/",
-		`content/good/a.md:3:1: "tag" is not a field of contentbad.Doc.`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("errors lack %q", want)

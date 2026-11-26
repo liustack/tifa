@@ -21,6 +21,14 @@ func analyzeApp(t *testing.T, name string) (*Manifest, error) {
 	return Analyze(filepath.Join("testdata", name))
 }
 
+// route.go is the app's own package, so a constant that is near the name of a switch, such as
+// SSL, Demo or Cahce, is the app's and is not taken for a typo.
+func TestConstantsNearSwitchNamesAreTheAppsOwn(t *testing.T) {
+	if _, err := analyzeApp(t, "ownconstants"); err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+}
+
 func TestValidApp(t *testing.T) {
 	m, err := analyzeApp(t, "valid")
 	if err != nil {
@@ -436,7 +444,7 @@ func TestViolations(t *testing.T) {
 			{"app/d/b/z+/route.go:1:", `"/d/b/{z}"`, `"/{a}/b/c"`, "conflicts"},
 			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}"`, `"/d/{q}"`, `"/{a}/b"`, "conflicts"},
 			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}" conflicts`, `"/{a}/b/c"`},
-			{"app/declared/route.go:5:", "Path is not declared"},
+			// app/declared has const Path = "/declared": the app's own constant, no error.
 		}},
 		{"paramname", [][]string{
 			{"app/items/key+/route.go:11:", `"id"`, `"/items/{key}"`},
@@ -635,8 +643,8 @@ func TestViolations(t *testing.T) {
 			{"app/flag/route.go:12:", "tifa.Session is always empty here", "app/flag has Cache"},
 		}},
 		{"memovalue", [][]string{
-			{"app/page/route.go:3:", "Memo", "can only be false"},
-			{"app/other/route.go:3:", "Memo", "can only be false"},
+			// app/page has const Memo = true, which is the default and is taken as it is.
+			{"app/other/route.go:3:", "Memo must be a bool constant"},
 		}},
 		{"casednames", [][]string{
 			{"app/page/route.go:3:", "cache", "capital letter", "Memo = false"},
@@ -644,13 +652,8 @@ func TestViolations(t *testing.T) {
 			{"app/other/route.go:3:", "ssr", "capital letter", "SSR"},
 			// helper.go has const cache = "redis", a string in another file: no error.
 		}},
-		{"switchtypos", [][]string{
-			{"app/page/route.go:5:", "Cahce is not a switch: did you mean Cache?"},
-			{"app/page/route.go:7:", "Memoo is not a switch: did you mean Memo?"},
-			// app/other has Version, Loads, ID, Max, Mode and Memory: no error.
-		}},
 		{"structure", [][]string{
-			{"app/empty/route.go:5:", "Path is not declared"},
+			// app/empty has const Path = "/empty", the app's own constant too.
 			{"app/empty/route.go:7:", "Load is not allowed without page.tsx"},
 			{"app/empty/route.go:1:", "no pages"},
 			{"app/api/route.go:7:", "SSR is not allowed without page.tsx"},

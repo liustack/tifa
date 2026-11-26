@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
 audience: app
 order: 3
-translatedFrom: 2c5180b2848a
+translatedFrom: f5aed0a7a739
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -41,7 +41,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 - 有 `page.tsx` 的文件夹是一个页面。框架负责渲染它的 GET，所以你不能再写 `GET`。一个不需要数据、也不需要其他方法的页面，可以只有 `page.tsx`，不要 `route.go`。
 - 有 `route.go` 但没有 `page.tsx` 的文件夹，只要声明了方法处理函数，就是一个 API 路由：每个方法处理函数都按你写的方式响应，并且不允许有 `Load`，因为 `Load` 是用来加载页面数据的。只有 `Layout` 的 `route.go` 不是 API 路由，它只是给下面的页面提供布局数据。
 - 一切都是包级函数和常量。依赖请用应用已经设置好的全局变量。框架不做依赖注入。
-- 开关的名字（`SSR`、`Cache`、`Memo`）按字面读取，所以拼错的会被忽略。`route.go` 里一个小写的 bool 常量，名叫 `cache`、`memo` 或 `ssr`，构建会失败。一个导出的常量，与某个开关只差一两个字母（`Cahce`、`Memoo`），并且类型是那个开关接受的，构建也会失败：`SSR` 和 `Memo` 是 bool，`Cache` 是 bool 或 `time.Duration`。错误消息会指出它大概想写哪个开关。其他类型的常量，比如 `const Demo = "demo"`，像 `ID` 或 `Max` 这样的短名字，以及像 `Mode` 这样与四个字母的开关差两处编辑的名字，都不管。
+- 开关的名字（`SSR`、`Cache`、`Memo`）按字面读取。`route.go` 里一个小写的 bool 常量，名叫 `cache`、`memo` 或 `ssr`，构建会失败，因为它会被忽略。其他常量都是应用自己的：`route.go` 是你的包，所以 `const SSL = true` 或 `const Demo = true` 不会被当成开关拼错了，而拼错的开关（`Cahce`）会被悄悄忽略。
 
 在 `Load` 里只能设置响应头和 cookie。调用 `c.JSON`、`c.Text` 或 `c.NoContent` 会返回错误。
 
@@ -134,7 +134,7 @@ export const head = ({ loaderData }: { loaderData?: PageData }) => ({
   - 每个文件夹有自己的一份类型，`route.gen` 之间不互相导入。要用哪个类型，就从你所在文件夹的 `route.gen` 导入。
   - 原来的写法 `PageData['orders'][number]` 仍然可用。
 - `route.gen` 是根据 `route.go`、`page.tsx` 和 `layout.tsx` 写出来的，它开头几行写明了来自哪些文件。Go 里改了返回类型或输入类型，或者增删了 `page.tsx` 或 `layout.tsx` 之后，运行一次 `go tool tifa gen`，再去写用到新类型的 TypeScript：一批 Go 改动运行一次就够。`go tool tifa check` 和 `pnpm typecheck` 会替你运行它，`tifa dev` 运行期间，每次保存改动后它也会重写类型（Go 构建失败时保留旧的）。
-- 默认导出是页面组件。可选的导出有 `head` 和 `ErrorBoundary`。404 也显示在 `ErrorBoundary` 里（见 [404](errors.zh-CN.md#404)），导出 `NotFound` 会让构建失败。
+- 默认导出是页面组件。可选的导出有 `head` 和 `ErrorBoundary`。404 也显示在 `ErrorBoundary` 里（见 [404](errors.zh-CN.md#404)）。
 - 在浏览器里，每个 `page.tsx`，以及除根布局外的每个 `layout.tsx` 或 `layout_.tsx`，都是自成一体的分块，带着它导入的所有东西，包括 `head`。它在第一次需要它的路由时加载，路由器会等它加载完，才显示页面或运行 `head`。页面的 HTML 会预加载它的布局和路由的分块，所以它们和入口脚本一起到达。文件顶层的代码（包括只为副作用的导入）在那时运行，而不是在应用启动时，所以每个页面都需要的初始化，要放进 [`setup.ts`](hooks.zh-CN.md#setupts)，它在任何路由模块之前运行。见[浏览器里的路由模块](../build-and-deploy/build.zh-CN.md#route-modules-in-the-browser)。
 - Go 的切片和 map 永远不会是 `null`：nil 切片到达时是 `[]`，nil map 是 `{}`，它们的 TypeScript 类型里没有 `| null`（见 [JSON 规则](../reference/json.zh-CN.md)）。
 - 需要在模块顶层使用浏览器功能的组件，放进 `.client.tsx` 文件，用 `tifa/client` 的 `clientOnly` 懒加载它们。它们不会进入 SSR 包，首次绘制时显示占位内容。会渲染、但在浏览器绘制之前什么也不显示的组件也属于这里，见[只在浏览器里绘制的组件](server-render.zh-CN.md#components-that-draw-only-in-the-browser)：

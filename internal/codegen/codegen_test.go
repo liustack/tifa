@@ -173,23 +173,6 @@ func TestPageWithoutDefaultExportFails(t *testing.T) {
 	}
 }
 
-// The server writes the document around the React root, so a root Layout that still exports a
-// Document component fails the build instead of being left out silently.
-func TestRootLayoutDocumentFails(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\nexport function Document() { return null }\n")
-	writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n")
-	m := &analyze.Manifest{
-		Module:  "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/page/route"}}},
-		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
-	}
-	_, err := Generate(root, m, false, fakeExports)
-	if err == nil || !strings.Contains(err.Error(), "documentHead") {
-		t.Fatalf("got %v", err)
-	}
-}
-
 // The entries pass the htmlAttributes of the root Layout's documentHead to the runtime, which
 // writes them on <html>. The root route gets the rest of documentHead as its head.
 func TestRootLayoutHTMLAttributesReachTheEntries(t *testing.T) {
@@ -405,39 +388,20 @@ func TestStaticErrorsWrapNoSuspense(t *testing.T) {
 	}
 }
 
-// NotFound is no export of page.tsx or layout.tsx: a 404 reaches Error as a TifaError with
-// status 404, so a module that still exports NotFound fails the build instead of being left out
-// silently.
-func TestNotFoundExportFails(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\n")
-	writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\nexport function NotFound() { return null }\n")
-	m := &analyze.Manifest{
-		Module:  "example.com/x",
-		Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/page/route"}}},
-		Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
-	}
-	_, err := Generate(root, m, false, fakeExports)
-	if err == nil || !strings.Contains(err.Error(), "app/page/page.tsx") || !strings.Contains(err.Error(), "status === 404") {
-		t.Fatalf("got %v", err)
-	}
-}
-
-// Error is no export of page.tsx or layout.tsx either: it was renamed ErrorBoundary, so a module
-// that still exports Error fails the build with the new name instead of losing its component.
-func TestErrorExportFails(t *testing.T) {
-	for _, export := range []string{"export function Error() { return null }", "export const Error = () => null", "export async function Error() { return null }"} {
+// Document, NotFound and Error are no exports Tifa reads. A module that exports one is an
+// ordinary module with an export that nothing uses, so the build does not fail for it.
+func TestExportsTifaDoesNotReadAreLeftAlone(t *testing.T) {
+	for _, export := range []string{"export function Document() { return null }", "export function NotFound() { return null }", "export function Error() { return null }"} {
 		root := t.TempDir()
-		writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\n")
+		writeFile(t, filepath.Join(root, "app/layout.tsx"), "export default function A() { return null }\n"+export+"\n")
 		writeFile(t, filepath.Join(root, "app/page/page.tsx"), "export default function P() { return null }\n"+export+"\n")
 		m := &analyze.Manifest{
 			Module:  "example.com/x",
 			Layouts: []analyze.Layout{{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Routes: []string{"app/page/route"}}},
 			Routes:  []analyze.Route{{ID: "app/page/route", Dir: "app/page", Path: "/page", Page: true, SSR: true, Layouts: []string{"app/layout"}}},
 		}
-		_, err := Generate(root, m, false, fakeExports)
-		if err == nil || !strings.Contains(err.Error(), "app/page/page.tsx") || !strings.Contains(err.Error(), "rename it to ErrorBoundary") {
-			t.Fatalf("%s: got %v", export, err)
+		if _, err := Generate(root, m, false, fakeExports); err != nil {
+			t.Errorf("%s: %v", export, err)
 		}
 	}
 }
@@ -1053,7 +1017,9 @@ func TestWriteLeavesDriverFoldersOfOtherProcessesAlone(t *testing.T) {
 // itself, and a struct of another type that is named like an export takes the prefix Go.
 func TestRouteModuleStructNamedLikeExport(t *testing.T) {
 	pkg := types.NewPackage("example.com/app/app/home", "home")
-	field := func(name string, typ types.Type) *types.Var { return types.NewField(token.NoPos, pkg, name, typ, false) }
+	field := func(name string, typ types.Type) *types.Var {
+		return types.NewField(token.NoPos, pkg, name, typ, false)
+	}
 	params := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Params", nil), types.NewStruct([]*types.Var{field("ID", types.Typ[types.Int])}, []string{`json:"id"`}), nil)
 	pageData := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "PageData", nil), types.NewStruct([]*types.Var{field("P", params)}, []string{`json:"p"`}), nil)
 	g := &routeGen{

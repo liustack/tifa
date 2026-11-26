@@ -363,6 +363,9 @@ func (s *scanner) entries(c Collection, cands []candidate) ([]content.Record, []
 		for _, e := range m.errs {
 			s.res.Errors = append(s.res.Errors, Error{File: x.file, Line: e.at.line, Col: e.at.col, Msg: e.msg})
 		}
+		for _, w := range m.warns {
+			s.res.Warnings = append(s.res.Warnings, Error{File: x.file, Line: w.at.line, Col: w.at.col, Msg: w.msg}.Error())
+		}
 		if len(m.errs) > 0 {
 			continue
 		}
