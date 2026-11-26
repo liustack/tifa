@@ -4,6 +4,19 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- Under `tifa dev`, what a page prints with `console.log`, `info`, `debug` and `warn` while it renders on the server goes to the log of the app, with the page and the place of the call in your sources, and `tifa dev logs` shows it. A built program prints nothing. `console.table`, `dir`, `group` and `groupCollapsed` print as `log` under `tifa dev`. See [Console in `tifa dev`](docs/pages-and-data/server-render.md#console-in-tifa-dev).
+- `tifa dev` writes a line for each request of a route: the method, the URL, the status, the time, the route and what the render memo did (`memo hit`, `memo miss`, `memo shared`, `memo off`), or `data` for navigation data. Files of the bundle and `public/` and the requests of `tifa dev` get none, and a built program has no request log, as before. See [Log](docs/build-and-deploy/dev.md#log).
+- `tifa version`, `tifa --version` and `tifa info`. `info` prints the versions of Tifa, Go, Node and pnpm, the system, and whether the folder has a `tifa.yaml`, with `--json` for scripts and agents. A program that is missing is `not found`. See [Version and info](docs/build-and-deploy/build.md#version-and-info).
+- `tifa dev status` prints `app pid`, and `--json` has `appPid`: the process ID of the app, which a debugger such as Delve attaches to. New docs: [Debugging](docs/build-and-deploy/debugging.md) and [Testing pages](docs/pages-and-data/testing-pages.md), which covers Vitest and Testing Library for a page component and Playwright against `tifatest.StartPages`.
+- Each type that `route.gen.ts` and `session.gen.ts` declare from a Go struct has a comment that names the Go package, the type and the file and line, such as `/** Go: example.com/app/projects.Project (projects/project.go:12) */`. The comment is not in the bundles, and it does not change the build ID. A `tifa gen` after a struct moved to another line writes the file again.
+
+### Changed
+
+- `console.time`, `timeEnd`, `timeLog`, `table`, `dir`, `group`, `groupCollapsed`, `groupEnd`, `count`, `countReset` and `trace` no longer throw a `TypeError` in a server render. They do nothing in a built program. `console.error` and a failed `console.assert` still throw, in both modes.
+- The next steps that `tifa new` prints, the READMEs and the tutorial say that `pnpm install` runs `go tool tifa gen`, which writes the types the editor reads, so open the editor after it.
+
 ## [0.6.0] - 2026-11-26
 
 ### Added
