@@ -30,10 +30,11 @@ func createNewApp(t *testing.T, args ...string) string {
 	}
 	// A note on the editor follows the steps, after a blank line.
 	next, _, _ = strings.Cut(next, "\n\n")
-	// The workflow of the app ends with the command that the tests of this package run on the app.
+	// The workflow of the app runs the command that the tests of this package run on the app, and
+	// then govulncheck, which needs the network and a newer database than any test could pin.
 	workflow, err := os.ReadFile(filepath.Join(dir, ".github", "workflows", "ci.yml"))
-	if err != nil || !strings.HasSuffix(string(workflow), "      - run: go tool tifa check\n") {
-		t.Fatalf("the app has no workflow that ends with tifa check: %v\n%s", err, workflow)
+	if err != nil || !strings.HasSuffix(string(workflow), "      - run: go tool tifa check\n      # Stops the build when the Go standard library or a package the app calls has a known hole.\n      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...\n") {
+		t.Fatalf("the app has no workflow that ends with tifa check and govulncheck: %v\n%s", err, workflow)
 	}
 	var ran []string
 	for _, line := range strings.Split(strings.TrimSpace(next), "\n") {

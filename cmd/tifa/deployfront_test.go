@@ -255,7 +255,7 @@ func TestSetupStopsWhenPortsAreTaken(t *testing.T) {
 func serveApp(t *testing.T, port, domain string, health map[string]string) (root, home string, calls func() string) {
 	t.Helper()
 	root = t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	t.Setenv(deployHostEnv, "vps")
 	home = t.TempDir()
 	writeFile(t, filepath.Join(home, "shop", "port"), port+"\n")
@@ -332,7 +332,7 @@ func TestDeployServesVisitorsOverHTTPS(t *testing.T) {
 // and changes nothing.
 func TestDeployCreateNeedsSetupForPort80(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	t.Setenv(deployHostEnv, "vps")
 	home := t.TempDir()
 	prepareFakeServer(t, home)

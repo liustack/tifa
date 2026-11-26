@@ -557,6 +557,7 @@ WantedBy=sockets.target
 # /etc/systemd/system/shop.service
 [Unit]
 Description=Shop
+StartLimitIntervalSec=0
 Requires=shop.socket
 After=shop.socket
 
@@ -565,6 +566,7 @@ User=shop
 WorkingDirectory=/var/lib/shop
 ExecStart=/srv/shop/shop
 Restart=on-failure
+RestartSec=2s
 
 [Install]
 WantedBy=multi-user.target
@@ -578,6 +580,7 @@ sudo systemctl restart shop.service
 ```
 
 - Restart the service, not the socket. Restarting or stopping `shop.socket` closes the port.
+- `StartLimitIntervalSec=0` keeps systemd restarting the program for as long as it fails. Without it, systemd stops after 5 starts in 10 seconds and leaves the service failed, so a request that crashes the program again and again takes the site down. `tifa deploy` writes its units this way.
 - `shop.service` is enabled too, so the program starts and prewarms at boot instead of on the first visitor.
 - The program reads the socket from `LISTEN_PID`, `LISTEN_FDS` and `LISTEN_FDNAMES`, which systemd sets, and removes them from its environment, so the programs it starts do not see them. `server.addr` is not listened on then. The log line says `socket=systemd`. Without these variables the program listens itself, as before.
 - systemd opens the port as root, so a port below 1024 needs no `setcap` or `AmbientCapabilities`.

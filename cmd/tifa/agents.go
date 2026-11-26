@@ -205,6 +205,10 @@ func existingAppValues(root string) (app newApp, notes []string, err error) {
 		return app, nil, errors.New("go.mod has no module line")
 	}
 	app.Module = mf.Module.Mod.Path
+	if mf.Go != nil {
+		app.Go = mf.Go.Version
+		app.GoMinor = goMinor(app.Go)
+	}
 	prefix, _, _ := module.SplitPathVersion(app.Module)
 	app.Title, app.Package = deriveNames(prefix)
 	if pkg := rootPackageName(root); pkg != "" {

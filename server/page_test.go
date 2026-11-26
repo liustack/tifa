@@ -564,6 +564,35 @@ func TestRouterRedirectCarriesNoETag(t *testing.T) {
 	}
 }
 
+// A failed precondition or range is no copy of the file, so the answer must not say that a cache
+// may keep it for a year: a shared cache would hand the 412 to every client that asks for the file.
+func TestStaticFileErrorsCarryNoLongCache(t *testing.T) {
+	s, _ := newFrontServer(t, frontApp())
+	for name, headers := range map[string][]string{
+		"If-Match": {"If-Match", `"not-the-etag"`},
+		"Range":    {"Range", "bytes=100-200"},
+	} {
+		w := get(s, "/assets/app-1.js", headers...)
+		if w.Code != 412 && w.Code != 416 {
+			t.Errorf("%s: %d, want 412 or 416", name, w.Code)
+		}
+		if cc := w.Header().Get("Cache-Control"); strings.Contains(cc, "public") || strings.Contains(cc, "immutable") || strings.Contains(cc, "max-age") {
+			t.Errorf("%s: %d with Cache-Control %q", name, w.Code, cc)
+		}
+	}
+	// The answers that are a copy keep the long cache.
+	for name, w := range map[string]*httptest.ResponseRecorder{
+		"200":      get(s, "/assets/app-1.js"),
+		"206":      get(s, "/assets/app-1.js", "Range", "bytes=0-2"),
+		"HEAD":     send(s, "HEAD", "/assets/app-1.js", ""),
+		"If-Match": get(s, "/assets/app-1.js", "If-Match", "*"),
+	} {
+		if w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+			t.Errorf("%s: %d with Cache-Control %q", name, w.Code, w.Header().Get("Cache-Control"))
+		}
+	}
+}
+
 func TestStaticFilesSkipOnRequest(t *testing.T) {
 	app := frontApp()
 	var requests int
@@ -953,7 +982,9 @@ func TestStaticIndexHTMLIsServed(t *testing.T) {
 // the paths //evil.example and /\evil.example, and a canonical redirect it builds from such a path
 // could start with // or /\ and send the browser to another site: a browser reads \ as /.
 // writeRenderRedirect goes through http.Redirect, which cleans the repeated slashes, and writes each
-// \ as %5C, so no Location starts with // or holds a \.
+// \ as %5C, so no Location starts with // or holds a \. A tab, a line feed and a carriage return are
+// written %09, %0A and %0D too: a browser drops them from a URL, which turns /<tab>/evil.example into
+// //evil.example.
 func TestRenderRedirectIsNeverAnOpenRedirect(t *testing.T) {
 	app := frontApp()
 	app.Routes = append(app.Routes, Route{ID: "app/rest++", Path: "/{rest...}", Page: true, SSR: true, Layouts: []string{"app/layout"}})
@@ -966,10 +997,13 @@ func TestRenderRedirectIsNeverAnOpenRedirect(t *testing.T) {
 		}
 		return "", &ssr.RedirectError{Location: decoded, Status: 308}
 	}
-	for _, target := range []string{"/%2F%2Fevil.example", "/%2F%2F%2Fevil.example", "/%5Cevil.example", "/%2F%5Cevil.example", "/%5C%5Cevil.example"} {
+	for _, target := range []string{"/%2F%2Fevil.example", "/%2F%2F%2Fevil.example", "/%5Cevil.example", "/%2F%5Cevil.example", "/%5C%5Cevil.example",
+		"/%09/evil.example", "/%0A/evil.example", "/%0D/evil.example", "/%2F%09%2Fevil.example", "/%09%5Cevil.example", "/%7F/evil.example"} {
 		w := get(s, target)
 		loc := w.Header().Get("Location")
-		if w.Code != 308 || loc == "" || strings.HasPrefix(loc, "//") || strings.Contains(loc, `\`) {
+		// What a browser reads: it removes tabs and line breaks before it parses the URL.
+		seen := strings.NewReplacer("\t", "", "\n", "", "\r", "").Replace(loc)
+		if w.Code != 308 || loc == "" || strings.HasPrefix(seen, "//") || strings.Contains(loc, `\`) || strings.ContainsFunc(loc, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 			t.Errorf("GET %s: %d, Location %q", target, w.Code, loc)
 		}
 	}

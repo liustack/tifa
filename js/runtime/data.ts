@@ -132,6 +132,16 @@ export function injected(input: Injected): Source {
   }
 }
 
+// webTarget reads the address of a redirect the server sent, against the page that is showing, and
+// refuses one that is not an http or https URL. A javascript: or data: address would run in the
+// page when the browser is sent there. what says whose redirect it was, for the message.
+export function webTarget(location: string, what: string): URL {
+  const target = new URL(location, window.location.href)
+  if (target.protocol !== 'http:' && target.protocol !== 'https:')
+    throw new Error(`${what} was redirected to ${location}, which is not an http or https URL`)
+  return target
+}
+
 // The router may encode the query differently (%20 or +) from the request URL, and writes the
 // values of a key together where the request may have other keys between them (?x=1&y=2&x=3). The
 // order of the keys does not change what the router reads, the order of the values of one key does.

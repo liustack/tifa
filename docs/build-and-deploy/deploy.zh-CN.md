@@ -2,7 +2,7 @@
 summary: '怎样把 Tifa 应用放到服务器上：`tifa deploy`、ssh、systemd、GitHub Actions、Cloudflare、健康检查'
 audience: app
 order: 3
-translatedFrom: c1482bd372a9
+translatedFrom: 88f2722317b2
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -556,6 +556,7 @@ WantedBy=sockets.target
 # /etc/systemd/system/shop.service
 [Unit]
 Description=Shop
+StartLimitIntervalSec=0
 Requires=shop.socket
 After=shop.socket
 
@@ -564,6 +565,7 @@ User=shop
 WorkingDirectory=/var/lib/shop
 ExecStart=/srv/shop/shop
 Restart=on-failure
+RestartSec=2s
 
 [Install]
 WantedBy=multi-user.target
@@ -577,6 +579,7 @@ sudo systemctl restart shop.service
 ```
 
 - 重启服务，不要重启 socket。重启或停止 `shop.socket` 会关掉端口。
+- `StartLimitIntervalSec=0` 让 systemd 在程序一直失败时也不停地重启它。没有它，systemd 会在 10 秒内启动 5 次之后停手，把服务留在 failed 状态，于是一个能让程序反复崩溃的请求就能把站打停。`tifa deploy` 写的单元就是这样的。
 - `shop.service` 也是启用的，所以程序在开机时就启动并预热，而不是等第一个访客。
 - 程序从 systemd 设置的 `LISTEN_PID`、`LISTEN_FDS` 和 `LISTEN_FDNAMES` 读取 socket，并把它们从自己的环境里去掉，所以它启动的程序看不到它们。这时不会监听 `server.addr`。日志行里写的是 `socket=systemd`。没有这些变量时，程序像以前一样自己监听。
 - systemd 以 root 身份打开端口，所以 1024 以下的端口不需要 `setcap` 或 `AmbientCapabilities`。

@@ -14,7 +14,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: '{{.GoMinor}}.x'
+          check-latest: true
 {{- if .Node}}
 {{- if eq .Run "pnpm"}}
       - uses: pnpm/action-setup@v6
@@ -38,3 +39,5 @@ jobs:
 {{- end}}
 {{- end}}
       - run: go tool tifa check
+      # Stops the build when the Go standard library or a package the app calls has a known hole.
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

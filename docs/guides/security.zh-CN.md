@@ -2,7 +2,7 @@
 summary: 'Tifa 默认替你防住了什么（跨站写入、会话 cookie、上限、响应头），以及你必须自己做的事'
 audience: app
 order: 12
-translatedFrom: 9899144d4514
+translatedFrom: 3d9da3dc07b0
 read_when:
   - '准备上线，想知道 Tifa 已经防了什么、还有什么留给你'
   - '检查一个应用，或者 coding agent 写的代码，看有没有安全漏洞'
@@ -96,7 +96,70 @@ Tifa 存会话。它不认识你的用户、角色和所有者。访问检查写
 
 ### 拖慢猜测和洪水式请求 {#slow-down-guessing-and-floods}
 
-Tifa 没有限流器。`OnRequest` 能看到每个请求的方法和路径，所以按地址限流就写在那里。错误密码也要拖慢，登录指南里有做法。如果没登录的访客也能开启会话，在入口处限制它，否则洪水式请求会把真正的会话挤出内存存储。详见[会话](../pages-and-data/sessions.zh-CN.md#where-to-store-sessions)。
+Tifa 没有限流器。`OnRequest` 能看到每个请求的方法和路径，所以按地址限流就写在那里。`deploy.front: none` 时，地址取 `c.Request().RemoteAddr` 的主机部分。在代理后面，`RemoteAddr` 是代理的地址，所以读你自己的代理设置的那一个头，不要取 `X-Forwarded-For` 最左边的值，那是访客写的。见[客户端地址](../build-and-deploy/deploy.zh-CN.md#behind-a-cdn-or-proxy)。错误密码也要拖慢，登录指南里有做法。如果没登录的访客也能开启会话，在入口处限制它，否则洪水式请求会把真正的会话挤出内存存储。详见[会话](../pages-and-data/sessions.zh-CN.md#where-to-store-sessions)。
+
+公开页面也这样限。没有被任何 `Load` 或布局声明的查询参数，在算 memo 的键之前就被丢掉，所以它换多少个值都命中同一条，不花什么代价。值没有上限的已声明参数就不同了，比如搜索词 `q` 或页码 `page`：每个新值都要跑一次 `Load`，并占一次 VM 渲染，还可能把别的页面挤出 memo。限速放在 `OnRequest` 里。见[查询参数](../reference/memo.zh-CN.md#query-parameters)。
+
+想要一个能直接抄的限流器，先 `go get golang.org/x/time/rate`。它给每个地址记一个令牌桶，表太大时就清空，只限最贵的那些路由（所有写操作，和 `q` 没有上限的搜索页），超限时答 429。把 `"/search"` 改成你自己的路由，有代理时把键换成你的代理设的头。
+
+```go
+// hooks.go
+import (
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/liustack/tifa"
+	"golang.org/x/time/rate"
+)
+
+// maxAddresses 限制内存：超过它，表就从头开始。
+const maxAddresses = 10_000
+
+var buckets = struct {
+	sync.Mutex
+	byAddress map[string]*rate.Limiter
+}{byAddress: map[string]*rate.Limiter{}}
+
+// allow 从 address 的桶里取一个令牌：每秒一个请求，突发 10 个。
+func allow(address string) bool {
+	buckets.Lock()
+	defer buckets.Unlock()
+	l, ok := buckets.byAddress[address]
+	if !ok {
+		if len(buckets.byAddress) >= maxAddresses {
+			clear(buckets.byAddress)
+		}
+		l = rate.NewLimiter(rate.Every(time.Second), 10)
+		buckets.byAddress[address] = l
+	}
+	return l.Allow()
+}
+
+// costly 是写操作，或参数没有上限的页面。
+func costly(c *tifa.Ctx) bool {
+	m := c.Request().Method
+	return (m != http.MethodGet && m != http.MethodHead) || c.Pattern() == "/search"
+}
+
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if costly(c) {
+		// 用于 deploy.front: none。在代理后面，改读你自己的代理设的头。
+		host, _, err := net.SplitHostPort(c.Request().RemoteAddr)
+		if err != nil {
+			host = c.Request().RemoteAddr
+		}
+		if !allow(host) {
+			c.Writer().Header().Set("Retry-After", "1")
+			return tifa.Error{Status: 429, Message: "Too many requests. Try again in a moment."}
+		}
+	}
+	return next(c)
+}
+```
+
+表最多记 10,000 个地址，所以来自很多地址的洪水式请求不会让内存涨上去，只会把桶重置。一个进程只有一张表，Tifa 就是这样运行的。
 
 ### 查询要用参数 {#write-queries-with-parameters}
 
@@ -112,5 +175,7 @@ Tifa 没有数据库层。你的应用用 `database/sql`，所以把值作为参
 ### 让程序和它的依赖保持最新 {#keep-the-program-and-its-packages-current}
 
 Tifa 的修复会进入最新版本，`go tool tifa upgrade` 会把你的应用升到那个版本（见[升级 Tifa](../build-and-deploy/build.zh-CN.md#upgrading-tifa)）。Tifa 不会检查你的 Go 模块和 npm 包有没有已知漏洞，所以请按自己的节奏更新它们。
+
+`net/http` 编译在你的程序里，所以 Go 发了安全版本后，只有重新构建并部署，应用才会拿到修复。`tifa new` 写的 CI 会装 `go.mod` 里那个 minor 的最新补丁并跑 `govulncheck`，`tifa deploy` 的工作流也装最新补丁，所以修复会进下一次部署。
 
 要报告 Tifa 本身的漏洞，请开一个[私密的安全公告](https://github.com/liustack/tifa/security/advisories/new)，不要开公开的 issue。

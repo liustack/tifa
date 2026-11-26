@@ -135,6 +135,20 @@ test('a redirect of a Load to another language loads the document, to the same l
   assert(isRedirect(await redirectTo(zh, '/projects')) && zh.assigned.length === 0, 'projects from zh-CN')
 })
 
+// window.location.assign runs a javascript: address in the page, and redirect() does not look at
+// the protocol of its href, so a redirect that is not to http, https or a path is an error.
+test('a redirect of a Load to an address that is not a web page is an error', async () => {
+  const en = await client('/en-US/store', 'en-US')
+  for (const location of ['javascript:window.__pwned=true', 'JaVaScRiPt:1', 'data:text/html,x', ' javascript:1', 'java\tscript:1']) {
+    for (const preload of [false, true]) {
+      const context: RouterContext = { ...en.router.options.context, source: async () => ({ status: 302, location }) }
+      const error = await load(context, 'app/store/route', { pathname: '/store', searchStr: '', publicHref: '/en-US/store' }, preload).then(() => undefined, (e) => e)
+      assert(error instanceof Error && !isRedirect(error) && /not an http or https URL/.test(error.message), `${location} preload ${preload}: ${String(error)}`)
+    }
+  }
+  assert(en.assigned.length === 0, en.assigned.join())
+})
+
 test('navigate and preload with an href of another language load that document', async () => {
   const { router, calls, assigned } = await client('/en-US/store', 'en-US')
   for (const href of ['/store/cart', '/zh-CN/store/cart', '/projects']) {

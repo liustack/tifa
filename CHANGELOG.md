@@ -27,6 +27,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - The warning about `import.meta.env.VITE_*` is one line for a build, with every name it found and the place of the first read, instead of a line for each name.
 - `console.time`, `timeEnd`, `timeLog`, `table`, `dir`, `group`, `groupCollapsed`, `groupEnd`, `count`, `countReset` and `trace` no longer throw a `TypeError` in a server render. They do nothing in a built program. `console.error` and a failed `console.assert` still throw, in both modes.
 - The next steps that `tifa new` prints, the READMEs and the tutorial say that `pnpm install` runs `go tool tifa gen`, which writes the types the editor reads, so open the editor after it.
+- The `ci.yml` that `tifa new` writes installs the newest patch of the Go minor of `go.mod` (`go-version: '1.27.x'` with `check-latest: true`) and runs `govulncheck`, and the workflow of `tifa deploy` installs the newest patch the same way. `go-version-file: go.mod` installed exactly 1.27.0, which lacks the `net/http` fixes of later patches, and `net/http` is compiled into the program. The workflow of `tifa deploy` is written again by `tifa deploy setup`. `tifa deploy setup` stops with a message when `go.mod` has no `go` line. Upgrading: in the `ci.yml` of an app you have, replace `go-version-file: go.mod` with `go-version: '1.27.x'` and a line `check-latest: true` (the minor of your `go` line), and add the step `- run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...` after `go tool tifa check`.
+- The systemd unit of an app made by `tifa deploy setup` has `StartLimitIntervalSec=0` and `RestartSec=2s`. Before, systemd stopped restarting the program after 5 starts in 10 seconds and left it failed, so a request that crashed the program again and again took the site down. Now it keeps restarting. `tifa deploy setup` writes the unit again.
 
 ### Removed
 
@@ -36,6 +38,13 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - The imports and files of other frameworks that fail the build are only those that are surely wrong in a Tifa app. The packages of the Remix organization that stand alone (`@remix-run/headers`, `@remix-run/form-data-parser`, `@remix-run/file-storage` and the like) and a name below `$app/` that SvelteKit does not have are left alone, and so is an `_index.tsx` next to a `page.tsx`. `@remix-run/react`, `@remix-run/node` and the other packages of the Remix framework, `react-router`, the modules of Next.js, TanStack Start, SvelteKit and Astro still fail the build.
 - A key in the front matter of an entry that is not a field of its type is now a warning with the nearest field name, and the entry is read without it. Before, it failed the build, so Markdown moved from Hugo or Jekyll, with `weight` or `categories` in its front matter, did not build.
 - `const Memo = true` in a `route.go` is accepted and changes nothing, since the render memo is on by default. Before, only `Memo = false` was.
+
+### Fixed
+
+- A file under `/assets/` answers 412 for a failed `If-Match` with no `Cache-Control: public, max-age=31536000, immutable`, which a shared cache could have kept and handed to every client.
+- A redirect that the router makes while it renders a page writes a tab, a line feed, a carriage return and other control characters of its address as `%09`, `%0A`, `%0D` and so on. A browser drops them from an address, so `/<tab>/evil.example` could be read as `//evil.example`.
+- On a site with languages, a `Load` that redirects to another language and an address that is not an `http`, `https` or relative one (such as `javascript:`) is an error and no longer runs in the browser.
+
 
 ## [0.6.0] - 2026-11-26
 

@@ -12,7 +12,7 @@ import {
   type HistoryLocation,
   type RouterHistory,
 } from '@tanstack/react-router'
-import { goJSON, TifaError, type Source } from './data'
+import { goJSON, TifaError, webTarget, type Source } from './data'
 import { InvalidQuery } from './searchcodec'
 import type { PrefixRewrite } from './prefix'
 import type { SessionEnvelope } from './session'
@@ -206,6 +206,9 @@ export async function load<T>(
     // stays pending while the browser leaves. A preload goes nowhere: the router drops a
     // redirect that asks for a document load.
     if (context.browser && context.prefix && !context.prefix.reaches(result.location)) {
+      // Only a web address: window.location.assign runs a javascript: one, and redirect() checks
+      // none of what it is given as href.
+      webTarget(result.location, `the data of ${id}`)
       if (preload) throw redirect({ href: result.location, reloadDocument: true })
       window.location.assign(result.location)
       return new Promise<never>(() => {})

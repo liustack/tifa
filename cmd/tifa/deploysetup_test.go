@@ -255,7 +255,7 @@ const (
 func setupApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	writeFile(t, filepath.Join(root, "tifa.yaml"), tifaYAML)
 	for name, content := range files {
 		writeFile(t, filepath.Join(root, name), content)

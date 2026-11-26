@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/mod/modfile"
 )
 
 // The ways CI reaches the server.
@@ -169,6 +170,8 @@ type githubWorkflowSpec struct {
 	Mode   string
 	// Node is set for an app with pages: it installs the packages with pnpm.
 	Node bool
+	// GoMinor is the minor of the go line of go.mod, such as 1.27.
+	GoMinor string
 	// PnpmVersion is the major version of pnpm when package.json does not say which pnpm to use.
 	PnpmVersion string
 	// CIName is the name of the workflow that checks the app (deploy.auto.needs). The deploy runs
@@ -252,7 +255,10 @@ func githubWorkflow(s githubWorkflowSpec) string {
 	}
 	w("      - uses: actions/setup-go@v7")
 	w("        with:")
-	w("          go-version-file: go.mod")
+	// The go line of go.mod is 1.27.0 and no newer, so go-version-file installs that very patch.
+	// The minor with check-latest gets the newest patch, which has the fixes of net/http.
+	w("          go-version: '%s.x'", s.GoMinor)
+	w("          check-latest: true")
 	if s.Node {
 		w("      - uses: pnpm/action-setup@v6")
 		if s.PnpmVersion != "" {
@@ -398,6 +404,18 @@ func (k deployKey) authorizedLine(repo string) string {
 // ciName the name of the workflow it waits for, empty to wait for none.
 func workflowSpec(t deployTarget, branch, ciName, mode string) (githubWorkflowSpec, error) {
 	s := githubWorkflowSpec{Branch: branch, Mode: mode, CIName: ciName}
+	goMod, err := os.ReadFile(filepath.Join(t.root, "go.mod"))
+	if err != nil {
+		return s, err
+	}
+	mf, err := modfile.ParseLax("go.mod", goMod, nil)
+	if err != nil {
+		return s, fmt.Errorf("go.mod: %w", err)
+	}
+	if mf.Go == nil {
+		return s, errors.New("go.mod has no go line, so the workflow cannot tell which Go to install")
+	}
+	s.GoMinor = goMinor(mf.Go.Version)
 	if ciName != "" {
 		s.CIFile = t.auto.Needs
 	}

@@ -95,7 +95,70 @@ A sign-in page that sends the visitor on to `?next=...` is an open door to any s
 
 ### Slow down guessing and floods
 
-Tifa has no rate limiter. `OnRequest` sees every request with its method and path, so it is the place to limit by address. Slow down wrong passwords too, as the sign-in guide shows. If visitors who are not signed in may start a session, limit that at the entry, since a flood pushes real sessions out of the memory store. See [Sessions](../pages-and-data/sessions.md#where-to-store-sessions).
+Tifa has no rate limiter. `OnRequest` sees every request with its method and path, so it is the place to limit by address. With `deploy.front: none`, the address is the host part of `c.Request().RemoteAddr`. Behind a proxy, `RemoteAddr` is the proxy, so read the one header your own proxy sets, and never the leftmost value of `X-Forwarded-For`, which the visitor writes. See [The client address](../build-and-deploy/deploy.md#behind-a-cdn-or-proxy). Slow down wrong passwords too, as the sign-in guide shows. If visitors who are not signed in may start a session, limit that at the entry, since a flood pushes real sessions out of the memory store. See [Sessions](../pages-and-data/sessions.md#where-to-store-sessions).
+
+Limit public pages the same way. A query parameter that no `Load` or Layout declares is dropped before the memo key, so any number of values for it hit the same entry and cost nothing. A declared parameter whose values have no bound, such as a search word `q` or a page number `page`, is another matter: each new value runs the `Load` and takes a render on a VM, and it may push other pages out of the memo. Put the limit in `OnRequest`. See [Query parameters](../reference/memo.md#query-parameters).
+
+A limiter you can copy needs `go get golang.org/x/time/rate`. It keeps a token bucket for each address, forgets the table when it gets too big, limits only the routes that cost the most (every write, and the search page whose `q` has no bound), and answers 429 over the limit. Change `"/search"` to your own routes, and the key to the header of your proxy when there is one.
+
+```go
+// hooks.go
+import (
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/liustack/tifa"
+	"golang.org/x/time/rate"
+)
+
+// maxAddresses caps the memory: past it the table starts over.
+const maxAddresses = 10_000
+
+var buckets = struct {
+	sync.Mutex
+	byAddress map[string]*rate.Limiter
+}{byAddress: map[string]*rate.Limiter{}}
+
+// allow takes one token from the bucket of address: one request a second, a burst of ten.
+func allow(address string) bool {
+	buckets.Lock()
+	defer buckets.Unlock()
+	l, ok := buckets.byAddress[address]
+	if !ok {
+		if len(buckets.byAddress) >= maxAddresses {
+			clear(buckets.byAddress)
+		}
+		l = rate.NewLimiter(rate.Every(time.Second), 10)
+		buckets.byAddress[address] = l
+	}
+	return l.Allow()
+}
+
+// costly is a write, or a page whose parameter has no bound.
+func costly(c *tifa.Ctx) bool {
+	m := c.Request().Method
+	return (m != http.MethodGet && m != http.MethodHead) || c.Pattern() == "/search"
+}
+
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if costly(c) {
+		// With deploy.front: none. Behind a proxy, read the header your own proxy sets instead.
+		host, _, err := net.SplitHostPort(c.Request().RemoteAddr)
+		if err != nil {
+			host = c.Request().RemoteAddr
+		}
+		if !allow(host) {
+			c.Writer().Header().Set("Retry-After", "1")
+			return tifa.Error{Status: 429, Message: "Too many requests. Try again in a moment."}
+		}
+	}
+	return next(c)
+}
+```
+
+The table is capped at 10,000 addresses, so a flood from many addresses cannot grow memory, and it only resets the buckets. One process has one table, which is what Tifa runs.
 
 ### Write queries with parameters
 
@@ -111,5 +174,7 @@ Tifa has no database layer. Your app uses `database/sql`, so pass values as argu
 ### Keep the program and its packages current
 
 Fixes for Tifa land in the latest release, and `go tool tifa upgrade` moves your app to it (see [Upgrading Tifa](../build-and-deploy/build.md#upgrading-tifa)). Tifa does not check your Go modules or npm packages for known holes, so update them on your own schedule.
+
+`net/http` is compiled into your program, so a Go security release reaches the app only when you build and deploy it again. The CI that `tifa new` writes installs the newest patch of the Go minor in `go.mod` and runs `govulncheck`. The workflow of `tifa deploy` installs the newest patch too, so a fix is in the next deploy.
 
 To report a hole in Tifa itself, open a [private security advisory](https://github.com/liustack/tifa/security/advisories/new) and not a public issue.

@@ -518,6 +518,7 @@ func TestPagesApp(t *testing.T) {
 	if got := header.Get("Cache-Control"); got != "private, no-cache" {
 		t.Errorf("page Cache-Control %q", got)
 	}
+	checkRoutersAgree(t, base)
 	// The data goes into the page as JSON through the tifa.data adapter.
 	for _, want := range []string{"<html", "Apple", "Shop north", built.Head, `$_TSR.t.get("tifa.data")("{\"id\":\"north\",\"name\":\"Shop north\"}")`} {
 		if !strings.Contains(body, want) {

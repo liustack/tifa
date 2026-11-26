@@ -793,6 +793,18 @@ func TestI18nInBrowser(t *testing.T) {
 	open("/en-US/store", "store go=en-US")
 	click("to-leave")
 	shows("/projects", "projects go=zh-CN react=zh-CN", false)
+	// A redirect to something that is not a web page is an error and never runs: the script of a
+	// javascript: address must not run in the page. The link is clicked, and the page gets a
+	// moment to follow it, since there is nothing to wait for when it does nothing.
+	open("/en-US/store", "store go=en-US")
+	click("to-trap")
+	time.Sleep(time.Second)
+	if eval(`() => window.__pwned === true`) == true {
+		t.Error("the script of a javascript: redirect ran")
+	}
+	if got := eval(here); got == "/projects" || strings.HasPrefix(fmt.Sprint(got), "javascript:") {
+		t.Errorf("the redirect to a javascript: address went to %v", got)
+	}
 
 	// navigate({ href }) with the prefix of another language loads that document, with the prefix of
 	// this one stays. The default language has no prefix: /store/cart names zh-CN.

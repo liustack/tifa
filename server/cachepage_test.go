@@ -265,3 +265,43 @@ func TestCachePagePostRedirectIsNotShared(t *testing.T) {
 		t.Errorf("POST: %d, Location %q, Cache-Control %q", w.Code, w.Header().Get("Location"), cacheControl(w))
 	}
 }
+
+// A shared cache keys an answer by its URL, so the answer of a URL must be the page whenever it may
+// be shared. The headers X-Tifa-Call and X-Tifa-Build mean nothing to a GET of a page: it answers
+// the same page, and its policy is the page's. The query parameter _tifa changes the answer to
+// data, a 400 or a 409, and none of those carries `public` or `s-maxage`, whether the mark is
+// real, wrong or malformed. The plain URL keeps its policy after them.
+func TestCachePageOfForgedMarksIsNotShared(t *testing.T) {
+	e := newSharedEnv(t)
+	plain := get(e.s, "/news").Body.String()
+	for name, headers := range map[string][]string{
+		"call header":  {"X-Tifa-Call", "1"},
+		"build header": {"X-Tifa-Build", "b1"},
+		"wrong build":  {"X-Tifa-Build", "forged"},
+		"both":         {"X-Tifa-Call", "1", "X-Tifa-Build", "b1"},
+	} {
+		w := get(e.s, "/news", headers...)
+		if w.Code != 200 || w.Body.String() != plain || w.Header().Get("Cache-Control") != wantShared {
+			t.Errorf("%s: %d, Cache-Control %q, the page changed: %v", name, w.Code, w.Header().Get("Cache-Control"), w.Body.String() != plain)
+		}
+	}
+	for name, target := range map[string]string{
+		"data request":               dataURL("/news", "b1", "11"),
+		"data request, wrong build":  dataURL("/news", "forged", "11"),
+		"data request, wrong digits": dataURL("/news", "b1", "1"),
+		"_tifa without digits":       "/news?_tifa=b1.",
+		"_tifa without build":        "/news?_tifa=.11",
+		"_tifa junk":                 "/news?_tifa=%00%ff",
+		"_tifa empty":                "/news?_tifa=",
+		"_tifa twice":                "/news?_tifa=b1.11&_tifa=b1.11",
+	} {
+		w := get(e.s, target)
+		cc := w.Header().Get("Cache-Control")
+		if strings.Contains(cc, "public") || strings.Contains(cc, "s-maxage") {
+			t.Errorf("%s: %d, Cache-Control %q", name, w.Code, cc)
+		}
+	}
+	if cc := get(e.s, "/news").Header().Get("Cache-Control"); cc != wantShared {
+		t.Errorf("the plain page after them: Cache-Control %q", cc)
+	}
+}
