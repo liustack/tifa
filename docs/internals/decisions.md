@@ -25,6 +25,8 @@ In this order (2026-11-25):
 
 A lower one never buys out a higher one: routes are folders, and each write has its own folder, at the price of more small packages. When an idea is turned down, the docs for apps say what to write instead and what the idea would have risked.
 
+Safety here is what Tifa itself promises: the render memo gives the right page, its own cookie and session are right, and visitors of a live app cannot get in where nobody decided. A check, a refusal or a guard costs code, a rule to learn and often an exception in the API, and it is worth that only for those promises. A mistake in the app that Tifa cannot stop for good, such as a goroutine of its own that panics, an object it shares between goroutines and changes, or a response it writes over, is the app's to avoid, as it is in Go: the docs say it, and nothing is refused for it (2026-11-26).
+
 ## Routing and the files of a folder
 
 ### Folders that group pages without a URL segment
@@ -286,6 +288,26 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 **Instead.** The router writes every address with its parameters in the order of their names, so the order never makes a difference, and the docs on the memo say how to name the keys a link keeps when the `href` must match: [Query parameters](../reference/memo.md#query-parameters).
 
 **Reopen when** the differing `href` causes real problems in apps, such as a crawler or a click that should not carry a tracking parameter.
+
+### The raw request in a Load
+
+**Settled (2026-11-26), to be built with the removal of the five places a Ctx may go.** `c.Request()` and `c.Writer()` work in a `Load` and a `Layout`. There `c.Request()` gives a copy of the request whose URL holds only the query parameters that function declares, with no body, and a `Layout` sees only the path parameters of its own folder. `c.Writer()` is the writer of the response, as everywhere.
+
+**Why.** They were refused there (2026-10-14) because the build found what a `Load` read by reading its code, and a read through the raw request hid it. The query parameters now come from the declared struct and the path parameters from the folder, so that reason is gone. What is left is a part of the address the browser does not load the function again for, which would show old data. The copy leaves it out, so such a read is always empty and shows the first time it runs. A method that the package exports and then refuses was a rule to learn that kept nothing safe, and a library that takes an `*http.Request` works. Changing the request, which the `Load`s of a page share while they run at once, or writing the response from a `Load`, breaks the page. `net/http` only documents the first for its handlers ("Except for reading the body, handlers should not modify the provided Request"), and Tifa does the same for both.
+
+**Instead.** The docs on loading data say it plainly, and that logging, counting and anything that needs the whole request belong in `OnRequest`, which sees it as it came.
+
+### Reading the visitor on a page with Cache
+
+**Settled (2026-11-26).** `c.Cookie`, `c.Header` and `tifa.Session` are not refused at run time in a `Load` or `Layout` of a page with `Cache`: they give what an anonymous visitor has. The build reports such a read only in code that runs for pages with `Cache` alone, such as the `Load` of the page, and no longer in a `Layout` shared with pages without it.
+
+**Why.** The request is made anonymous before `OnRequest`, so a read cannot leak, and the anonymous answer is the right one for a page that is the same for everyone: a `Layout` that shows a sign-in link to a visitor it does not know shows it there. Next.js refuses `cookies()` in `use cache` because it does not make the request anonymous, and the error is what keeps one visitor's data out of the shared cache. Tifa does not have that reason. A 500 would take down every page with `Cache` under such a `Layout` for a read whose answer was right. In code that only pages with `Cache` run, the read is always empty, which is surely a mistake, so the build reports it there.
+
+### Validate on the query struct of a Load
+
+**Settled (2026-11-26), to be built with the removal of the five places a Ctx may go.** A `Validate` method on the struct a `Load` or `Layout` takes runs after the query is decoded and before the function, and its error is the error of that function. It used to fail the build.
+
+**Why.** `Validate` says when a value of the type is valid, which does not depend on where it is decoded, so a page and a handler can share a filter type. The browser does not run it: a value it refuses reaches the `ErrorBoundary` as the 400 of the data request, the same as a `Load` that returns one.
 
 ### An empty number or bool in a query string
 
