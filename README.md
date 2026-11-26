@@ -185,6 +185,7 @@ More in [Use Tifa with a coding agent](docs/start/agents.md).
 | [Deploying](docs/build-and-deploy/deploy.md) | Putting the program on a server or in a container, or behind a CDN or proxy |
 | [Configuration](docs/build-and-deploy/config.md) | Deploying: the port, HTTPS, body limit, VMs, render timeout, the render memo and the Cache-Control of pages with `Cache` |
 | [Architecture](docs/internals/architecture.md) | You want to know how a request, `tifa build`, `tifa dev`, the VM pool and the render memo work inside |
+| [Conventions](docs/reference/conventions.md) | You want every file, folder and name Tifa reads on one page: `page.tsx`, `route.go`, `Load`, `Cache`, hooks and the generated files |
 | [Render memo](docs/reference/memo.md) | You want to know why pages, signed-in ones included, are reused safely with nothing to set up |
 | [Compatibility](docs/reference/compatibility.md) | You want to know whether a Tifa upgrade can break your app, and what stays stable |
 | [Performance](docs/reference/performance.md) | You want to know whether a small VPS can carry your traffic |

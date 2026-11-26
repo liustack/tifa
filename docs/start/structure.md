@@ -11,7 +11,7 @@ read_when:
 
 # Structuring an app
 
-This page says where each file of an app goes. Why it is organized this way is in [Philosophy](philosophy.md). How Tifa itself works inside is in [Architecture](../internals/architecture.md).
+This page says where each file of an app goes. Why it is organized this way is in [Philosophy](philosophy.md). Every file and folder name Tifa reads is on one page in [Conventions](../reference/conventions.md). How Tifa itself works inside is in [Architecture](../internals/architecture.md).
 
 ## 1. A domain is a folder under app/
 
