@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
 ### Added
 
 - A `Validate` method on the struct a `Load` or `Layout` takes as its second parameter now runs once the query is decoded and before the function, with the signature of the `Validate` of a handler input, `Validate() error` or `Validate(c *tifa.Ctx) error`. Its error is the error of the function: a `tifa.Error` or `tifa.Fields` as it is, any other error through `OnError` as a 500. It failed the build before, so a page and a handler can now share one filter type.
@@ -22,7 +24,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - `c.Param` in a `Layout` gives `""` for a parameter of a folder below the Layout, whose data stays while the visitor moves between the pages below it. The build still fails for such a name when it is a constant.
 - `c.JSON`, `c.Text` and `c.NoContent` in a `Load`, a `Layout` or a function they call now fail the build where it sees them. They return an error at run time, as before.
 - A `Layout` shared by pages with `Cache` and pages without no longer fails the build for reading `c.Cookie`, `c.Header` or `tifa.Session`: on a page with `Cache` it gets what an anonymous visitor has. The build still fails for such a read in code that runs only for pages with `Cache`, the `Load` of such a page and a `Layout` whose pages all have it.
-- `tifa routes --json` no longer has `params`, `uses` and `allQuery` in a `load`. `query` lists the query parameters the data depends on.
+- `tifa routes --json` no longer has `params`, `uses` and `allQuery` in a `load`. `query` lists the query parameters the data depends on. Upgrading: a script that read `params`, `uses` or `allQuery` reads `query` instead.
 - The render memo drops pages differently when it is full. A page seen once goes first, and a page that was hit more than once is kept, so a run of addresses that come once, such as search terms or page numbers nobody asked before, no longer pushes the home page and popular pages out of `ssr.memo_size`. Nothing to change in an app.
 - The warning about `import.meta.env.VITE_*` is one line for a build, with every name it found and the place of the first read, instead of a line for each name.
 - `console.time`, `timeEnd`, `timeLog`, `table`, `dir`, `group`, `groupCollapsed`, `groupEnd`, `count`, `countReset` and `trace` no longer throw a `TypeError` in a server render. They do nothing in a built program. `console.error` and a failed `console.assert` still throw, in both modes.
