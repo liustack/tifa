@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -1579,8 +1578,8 @@ func (a *analyzer) checkBindTags() {
 				root := types.ExprString(call.Args[0])
 				root = strings.TrimPrefix(root, "&")
 				walkFields(t, root, map[types.Type]bool{}, func(path string, field *types.Var, tag string) {
-					if _, has := reflect.StructTag(tag).Lookup("form"); has {
-						a.errorAt(call.Pos(), "%s", a.withField(fmt.Sprintf("c.%s: %s has a form tag: c.%s names a field by its json tag only, as a typed handler input does, so remove the form tag", sel.Sel.Name, path, sel.Sel.Name), field))
+					if formNamesOtherwise(tag, field.Name()) {
+						a.errorAt(call.Pos(), "%s", a.withField(fmt.Sprintf("c.%s: %s has a form tag with another name than its json tag: c.%s names a field by its json tag only, as a typed handler input does, so make the form tag name it the same, or remove it", sel.Sel.Name, path, sel.Sel.Name), field))
 					}
 				})
 				return true

@@ -180,7 +180,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** Two tags are two names for one field, and a struct could decode one way from JSON and another way from a form.
 
-**Instead.** The `json` tag names a field everywhere: in JSON, in a form, in the query string and in TypeScript. A `form` tag fails the build.
+**Instead.** The `json` tag names a field everywhere: in JSON, in a form, in the query string and in TypeScript. A `form` tag that names a field otherwise than its `json` tag fails the build (2026-11-26: one with the same name is let through, since a type shared with gin or gorilla/schema is right and Tifa reads it the same).
 
 ### Renaming tifa.Use
 
