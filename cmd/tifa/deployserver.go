@@ -163,6 +163,8 @@ type serverState struct {
 	// memory of its program in KiB, 0 when it does not run.
 	Active, ActiveSince string
 	RSS                 int64
+	// Restarts is how many times systemd restarted the service by itself, from NRestarts.
+	Restarts int
 	// Health is the status GET healthPath answered just now, 000 for no answer, empty when it was
 	// not asked: only the status script asks, and only an active service.
 	Health string
@@ -362,6 +364,12 @@ func parseServerState(out string) (serverState, error) {
 				return s, fmt.Errorf("the server gave the memory %q", value)
 			}
 			s.RSS = n
+		case "unit-restarts":
+			n, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil || n < 0 {
+				return s, fmt.Errorf("the server gave the number of restarts %q", value)
+			}
+			s.Restarts = n
 		case "health":
 			v := strings.TrimSpace(value)
 			if _, err := strconv.Atoi(v); err != nil || len(v) != 3 {
@@ -721,12 +729,13 @@ for f in "$HOME"/*/port; do
 done
 if [ -e "$rt/bus" ] && [ -f "$d/port" ]; then
 	# TZ=UTC makes systemd print its times in UTC.
-	props=$(XDG_RUNTIME_DIR="$rt" TZ=UTC systemctl --user show "tifa-$app.service" -p ActiveState -p ActiveEnterTimestamp -p MainPID 2>/dev/null)
+	props=$(XDG_RUNTIME_DIR="$rt" TZ=UTC systemctl --user show "tifa-$app.service" -p ActiveState -p ActiveEnterTimestamp -p MainPID -p NRestarts 2>/dev/null)
 	state=""
 	while IFS='=' read -r k v; do
 		case "$k" in
 		ActiveState) state=$v; echo "unit-active $v" ;;
 		ActiveEnterTimestamp) if [ -n "$v" ]; then echo "unit-since $v"; fi ;;
+		NRestarts) if [ -n "$v" ]; then echo "unit-restarts $v"; fi ;;
 		MainPID)
 			if [ -n "$v" ] && [ "$v" != 0 ]; then
 				rss=$(ps -o rss= -p "$v" 2>/dev/null | tr -d ' ')

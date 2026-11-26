@@ -143,15 +143,32 @@ func ago(d time.Duration) string {
 }
 
 func newDeployStatusCmd(dir, host *string) *cobra.Command {
-	return &cobra.Command{
+	var all, asJSON bool
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Print which release of the app runs on the server and how it is",
 		Long: `status prints, over ssh as the user tifa, the release that runs and its commit, the earlier
 releases kept and whether each passed its health check, since when the service runs, what
 GET /healthz answers now, and the memory of the program. It asks for /healthz only while the
-service runs, so it starts nothing.`,
+service runs, so it starts nothing.
+
+With --all it needs no app checkout. It looks once at every server in ~/.tifa/config.yaml and
+prints, for each, its system, CPUs, memory, disk, uptime and load, and each app on it: the release
+and its commit, whether it passed its health check, the service and how often systemd restarted
+it, what GET /healthz answers now and its memory. --json prints the same as one JSON document.
+It exits with an error when a server cannot be reached or an app is not active with a passing
+health check. Only the servers set up from this machine, the ones in that file, are covered.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if all {
+				if cmd.Flag("host").Changed || cmd.Flag("dir").Changed {
+					return errors.New("--all looks at every server in " + shownServersPath() + " and takes no --host or --dir: leave them out")
+				}
+				return deployStatusAll(cmd.Context(), asJSON, cmd.OutOrStdout())
+			}
+			if asJSON {
+				return errors.New("--json goes with --all")
+			}
 			t, err := loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
@@ -159,6 +176,9 @@ service runs, so it starts nothing.`,
 			return deployStatus(cmd.Context(), t, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "look at every server in ~/.tifa/config.yaml once, with no app checkout")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "with --all, print one JSON document")
+	return cmd
 }
 
 func newDeployLogsCmd(dir, host *string) *cobra.Command {
