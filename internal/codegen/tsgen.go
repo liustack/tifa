@@ -93,7 +93,7 @@ func queryTable(m *analyze.Manifest) map[string]map[string][]string {
 	}
 	read := func(names []string, load *analyze.Load) []string {
 		if load != nil {
-			names = append(names, load.AllQuery...)
+			names = append(names, load.Query...)
 		}
 		return names
 	}
@@ -855,8 +855,8 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 		if n.load != nil {
 			static = append(static, "load: "+jsString(n.id))
 			// The query parameters the Load reads, which the canonical link of the page keeps.
-			if len(n.load.AllQuery) > 0 {
-				static = append(static, "query: "+jsStrings(n.load.AllQuery))
+			if len(n.load.Query) > 0 {
+				static = append(static, "query: "+jsStrings(n.load.Query))
 				whole, floats, bools := queryKinds(n.load)
 				for _, kind := range []struct {
 					key   string
@@ -878,7 +878,7 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 				fmt.Sprintf("search: { middlewares: [searchText<S%d>(%s)] }", i, searchSpec(n)), "onError: searchFailed")
 		}
 		if n.load != nil {
-			query = n.load.AllQuery
+			query = n.load.Query
 			runtime["load"] = true
 			opts = append(opts,
 				fmt.Sprintf("loader: ({ context, location, preload }) => load<D%d>(context, %s, location, preload)", i, jsString(n.id)),

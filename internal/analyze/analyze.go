@@ -68,7 +68,7 @@ func AnalyzeWith(dir string, opts Options) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &analyzer{root: root, opts: opts, dirs: map[string]*dirInfo{}, used: usedLoads{}, identity: map[*Load][]identityRead{}, queryAt: map[*Load][]queryAt{}}
+	a := &analyzer{root: root, opts: opts, dirs: map[string]*dirInfo{}, identity: map[*Load][]identityRead{}, queryAt: map[*Load][]queryAt{}}
 	if a.module, err = modulePath(root); err != nil {
 		return nil, err
 	}
@@ -137,11 +137,8 @@ type analyzer struct {
 	// appPkgs holds the import paths of pkgs, modulePkgs those of every package in the module.
 	appPkgs, modulePkgs map[string]bool
 	funcs               map[string]funcSource // functions of module packages that type check, by full name
-	checked             map[string]bool       // followed functions whose own body has been checked
-	carrying            map[*types.Named]bool // carriesCtx results
 	helperUses          []useCall
 	errs                Errors
-	used                usedLoads
 	identity            map[*Load][]identityRead // the reads of cookies, headers and the session by each Load
 	queryAt             map[*Load][]queryAt      // the fields of the query struct of each Load, with where they are declared
 }
@@ -320,8 +317,6 @@ func (a *analyzer) load() error {
 	a.broken = map[string]bool{}
 	a.appPkgs = map[string]bool{}
 	a.funcs = map[string]funcSource{}
-	a.checked = map[string]bool{}
-	a.carrying = map[*types.Named]bool{}
 	// Walk the import graph of the application, packages outside app/ included. A package with
 	// errors is broken, and so is every package that imports a broken one directly or
 	// indirectly, because it was type checked against incomplete information. Visit calls post
@@ -496,9 +491,6 @@ type layout struct {
 	uses  []paramUse
 }
 
-// usedLoads maps a Load to the import paths of the packages whose Layout function it passes to tifa.Use.
-type usedLoads map[*Load][]string
-
 // reservedQuery is the query parameter of the navigation data requests (see docs/build-and-deploy/build.md). The
 // server takes it off the URL, so a Load could never read it.
 const reservedQuery = "_tifa"
@@ -539,9 +531,7 @@ func (a *analyzer) build() *Manifest {
 	a.checkPaths(routes)
 	a.checkLayoutURLs(routes, layouts)
 	a.checkUses(layouts)
-	a.checkDirectCalls()
 	a.checkBindTags()
-	a.propagateQuery(routes, layouts)
 	a.checkQueryTypes(routes, layouts)
 	a.checkCacheIdentity(routes, layouts)
 
@@ -794,7 +784,8 @@ func typeString(t types.Type) string {
 
 // readLoad reads the function that loads the data of a route (Load) or Layout (Layout): its
 // result type, the fields of its query struct, the second parameter, and the constant parameter
-// names passed to c.Param in its body. owner is the directory of the route or Layout.
+// names passed to c.Param in its body, for checkPaths and linkLayouts to check against the path.
+// owner is the directory of the route or Layout.
 func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, []paramUse) {
 	obj := pkg.Types.Scope().Lookup(name)
 	if obj == nil {
@@ -817,8 +808,9 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	load := &Load{Type: typeString(result), Result: result}
 
 	decl := a.funcDecl(pkg, fn)
+	var validate *types.Func
 	if sig.Params().Len() == 2 {
-		a.readQuery(load, name, sig.Params().At(1).Type(), fieldTypePos(decl.Type.Params, 1))
+		validate = a.readQuery(load, name, sig.Params().At(1).Type(), fieldTypePos(decl.Type.Params, 1))
 	}
 	problems, html := checkTSHTML(result)
 	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", problems)
@@ -834,15 +826,7 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 		a.errorAt(fieldTypePos(decl.Type.Results, 0), "%s result: a tifa.HTML on its own would come with the page twice, in its markup and in its data: put it in a struct field, and the data carries only a marker in its place", name)
 	}
 
-	uses := a.walkLoad(pkg, owner, name == "Layout", load, decl)
-	for _, u := range uses {
-		if u.method == "Param" {
-			load.Params = append(load.Params, u.name)
-		}
-	}
-	slices.Sort(load.Params)
-	load.Params = slices.Compact(load.Params)
-	return load, uses
+	return load, a.walkLoad(pkg, owner, name == "Layout", load, decl, validate)
 }
 
 // queryAt is a field of the query struct of a Load, with where it is declared.
@@ -855,25 +839,22 @@ type queryAt struct {
 // readQuery reads the second parameter of a Load or Layout, the struct that the query string of
 // the page is decoded into: the names of its fields are the query parameters of the page, and
 // their types say how the values are read. what is "Load" or "Layout" and pos the place of the
-// parameter type.
-func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Pos) {
+// parameter type. It returns the Validate method of the struct when it takes the Ctx: it runs
+// before the function, with its Ctx, so the walk of the function goes through it too.
+func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Pos) (validate *types.Func) {
 	st, isStruct := q.Underlying().(*types.Struct)
 	if !isStruct || isNamed(q, multipartPath, "FileHeader") {
 		a.errorAt(pos, "the second parameter of %s, %s, must be a struct, not a pointer or another type: it holds the query parameters, one field for each. For example type Filter struct { Page int `json:\"page\"` } and func %s(c *tifa.Ctx, q Filter) (T, error)", what, typeString(q), what)
-		return
+		return nil
 	}
 	load.Input = typeString(q)
 	label := what + " query"
 	if !a.checkQueryStruct(label, q, st, nil, pos, "a "+what+" query comes from the query string") {
-		return
+		return nil
 	}
-	// Validate belongs to the input of a method handler. A Load checks its values itself, where it can
-	// answer in its own words.
-	if fn, _, _ := types.LookupFieldOrMethod(q, true, nil, "Validate"); fn != nil {
-		if _, isFunc := fn.(*types.Func); isFunc {
-			a.errorAt(pos, "%s %s has a Validate method, which tifa runs only for the input of a method handler: check the values in %s and return tifa.Error{Status: 400, Message: \"page must be at least 1\"} or tifa.ErrNotFound for one that is not allowed", label, types.TypeString(q, shortQualifier), what)
-			return
-		}
+	validate, ok := a.readValidate(q, "the query parameters before "+what+" runs")
+	if !ok {
+		return nil
 	}
 	for i := range st.NumFields() {
 		f := st.Field(i)
@@ -903,6 +884,7 @@ func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Po
 	slices.SortFunc(load.Fields, func(x, y QueryField) int { return strings.Compare(x.Name, y.Name) })
 	slices.Sort(load.Query)
 	load.Query = slices.Compact(load.Query)
+	return validate
 }
 
 // queryKind names the kind of a basic type as the manifest says it, an alias such as byte or rune by
@@ -1016,63 +998,6 @@ func calleeIdent(call *ast.CallExpr) *ast.Ident {
 		return e
 	}
 	return nil
-}
-
-// checkDirectCalls requires c.Param and tifa.Use to be called directly, in every loaded package.
-// The analyzer reads parameter names and Use arguments at the call site, so a method value
-// (f := c.Param), a method expression ((*tifa.Ctx).Param(c, "x")) or tifa.Use stored in a variable
-// or passed as an argument would hide them. c.Query and c.QueryValues are not read by name: a Load
-// that calls them is refused whatever the way, and one the analyzer cannot see is stopped when it runs.
-func (a *analyzer) checkDirectCalls() {
-	for _, pkg := range a.pkgs {
-		for _, f := range pkg.Syntax {
-			a.checkDirectCallsIn(pkg.TypesInfo, f)
-		}
-	}
-}
-
-// checkDirectCallsIn applies checkDirectCalls to the syntax under root.
-func (a *analyzer) checkDirectCallsIn(info *types.Info, root ast.Node) {
-	called := map[*ast.Ident]bool{}
-	selectors := map[*ast.Ident]*ast.SelectorExpr{}
-	var idents []*ast.Ident
-	ast.Inspect(root, func(n ast.Node) bool {
-		switch e := n.(type) {
-		case *ast.CallExpr:
-			if id := calleeIdent(e); id != nil {
-				called[id] = true
-			}
-		case *ast.SelectorExpr:
-			selectors[e.Sel] = e
-		case *ast.Ident:
-			idents = append(idents, e)
-		}
-		return true
-	})
-	for _, id := range idents {
-		obj := info.Uses[id]
-		method := paramMethod(obj)
-		var name string
-		switch {
-		case method == "Param":
-			name = "c." + method
-			if sel := selectors[id]; sel != nil && info.Selections[sel] != nil && info.Selections[sel].Kind() == types.MethodExpr {
-				a.errorAt(sel.Pos(), "%s is a method expression: call c.%s(...) directly, the analyzer reads parameter names at the call", types.ExprString(sel), method)
-				continue
-			}
-		case isUseFunc(obj):
-			name = "tifa.Use"
-		default:
-			continue
-		}
-		if !called[id] {
-			pos := id.Pos()
-			if sel := selectors[id]; sel != nil {
-				pos = sel.Pos()
-			}
-			a.errorAt(pos, "%s must be called directly, not stored or passed as a value, so the analyzer can read its arguments", name)
-		}
-	}
 }
 
 func derefType(t types.Type) types.Type {
@@ -1275,10 +1200,12 @@ func restPrefix(segs []segment) ([]segment, bool) {
 	return segs[:len(segs)-1], true
 }
 
-// checkUses finds every call of tifa.Use in the loaded packages. Its function argument must be
-// a package-level function, because the runtime tells Loads apart by code address and closures
-// of one literal or method values of one method would share results. It must also be the Layout
-// function of a Layout that wraps the calling package: in its directory or above it.
+// checkUses finds every call of tifa.Use in the loaded packages. A function literal or a method
+// value as its argument is refused, because the runtime tells Loads apart by code address and
+// closures of one literal or method values of one method would share results. A package-level
+// function must be the Layout function of a Layout that wraps the calling package: in its directory
+// or above it. Any other argument, such as a variable, is left alone: the build cannot see what it
+// holds.
 func (a *analyzer) checkUses(layouts []*layout) {
 	layoutByPkg := map[string]*layout{}
 	for _, l := range layouts {
@@ -1323,8 +1250,7 @@ func (a *analyzer) checkUse(info *types.Info, call *ast.CallExpr, caller string,
 	}
 	fn := packageFunc(info, arg)
 	if fn == nil {
-		a.errorAt(arg.Pos(), "%s, got %s", need, text)
-		return
+		return // a variable or the result of a call: the build cannot see which function it holds
 	}
 	l := layoutByPkg[fn.Pkg().Path()]
 	if l == nil || fn.Name() != "Layout" {
@@ -1356,52 +1282,6 @@ func packageFunc(info *types.Info, expr ast.Expr) *types.Func {
 		return nil
 	}
 	return fn
-}
-
-// propagateQuery fills Uses and AllQuery of every Load. tifa.Use only reaches the Layouts of the
-// same and ancestor directories, and a Layout function never uses itself, so the graph has no
-// cycles once checkUses passes. The visiting set still guards against them when checkUses has
-// reported a violation.
-func (a *analyzer) propagateQuery(routes []*route, layouts []*layout) {
-	byPkg := map[string]*layout{}
-	for _, l := range layouts {
-		if l.Package != "" && l.Load != nil {
-			byPkg[l.Package] = l
-		}
-	}
-	done, visiting := map[*Load]bool{}, map[*Load]bool{}
-	var all func(load *Load) []string
-	all = func(load *Load) []string {
-		if done[load] || visiting[load] {
-			return load.AllQuery
-		}
-		visiting[load] = true
-		defer func() { delete(visiting, load); done[load] = true }()
-		q := slices.Clone(load.Query)
-		for _, path := range a.used[load] {
-			l := byPkg[path]
-			if l == nil {
-				continue // not a Layout function, checkUse reports it
-			}
-			load.Uses = append(load.Uses, l.ID)
-			q = append(q, all(l.Load)...)
-		}
-		slices.Sort(load.Uses)
-		load.Uses = slices.Compact(load.Uses)
-		slices.Sort(q)
-		load.AllQuery = slices.Compact(q)
-		return load.AllQuery
-	}
-	for _, l := range layouts {
-		if l.Load != nil {
-			all(l.Load)
-		}
-	}
-	for _, r := range routes {
-		if r.Load != nil {
-			all(r.Load)
-		}
-	}
 }
 
 func isTifaUse(info *types.Info, call *ast.CallExpr) bool {
@@ -1454,43 +1334,75 @@ func (a *analyzer) cacheConst(pkg *packages.Package) (time.Duration, bool) {
 	return time.Duration(ns), false
 }
 
-// checkCacheIdentity reports the reads of cookies, headers and the session in the Load of a page
-// with Cache and in the Layout function of each Layout around it, the functions they call included.
-// The request of such a page is anonymous, so the read is always empty, which is a mistake in the
-// code and not a visitor without a cookie. A Layout shared with a page that has no Cache is
-// still reported, since it also runs for the page that has.
+// checkCacheIdentity reports the reads of cookies, headers and the session in code that runs for
+// pages with Cache alone, the functions it calls included: the Load of such a page, and the Layout
+// function of a Layout whose pages all have Cache. The request of such a page is anonymous, so the
+// read is always empty there, which is a mistake in the code and not a visitor without a cookie. A
+// read that a page without Cache reaches too, such as one in a Layout shared with it or in a helper
+// its Load calls, gives that page what it asks for and the page with Cache the anonymous answer,
+// which is right for a page that is the same for everyone, so it is left alone.
 func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
-	byID := map[string]*layout{}
-	for _, l := range layouts {
-		byID[l.ID] = l
-	}
-	reported := map[token.Pos]bool{}
+	pages := map[string]*route{}
 	for _, r := range routes {
-		if !r.Shared() || !r.Page || r.broken {
+		if r.Page {
+			pages[r.ID] = r
+		}
+	}
+	// why says, for each Load, whether it runs for pages with Cache alone and which.
+	why := map[*Load]string{}
+	for _, r := range routes {
+		if r.Page && r.Load != nil && r.Shared() {
+			why[r.Load] = r.Dir + " has Cache"
+		}
+	}
+	for _, l := range layouts {
+		if l.Load == nil {
 			continue
 		}
-		loads := []*Load{r.Load}
-		for _, id := range r.Layouts {
-			if l := byID[id]; l != nil {
-				loads = append(loads, l.Load)
+		shared := 0
+		for _, id := range l.Routes {
+			if p := pages[id]; p != nil && !p.Shared() {
+				shared = -1
+				break
+			} else if p != nil {
+				shared++
 			}
 		}
-		for _, load := range loads {
-			if load == nil {
-				continue
+		if shared > 0 {
+			why[l.Load] = "every page below " + l.Dir + " has Cache"
+		}
+	}
+	type read struct {
+		identityRead
+		why   string
+		mixed bool // a Load that does not run for pages with Cache alone reaches it too
+	}
+	var reads []*read
+	byPos := map[token.Pos]*read{}
+	for load, list := range a.identity {
+		for _, r := range list {
+			x := byPos[r.pos]
+			if x == nil {
+				x = &read{identityRead: r}
+				byPos[r.pos] = x
+				reads = append(reads, x)
 			}
-			for _, read := range a.identity[load] {
-				if reported[read.pos] {
-					continue
-				}
-				reported[read.pos] = true
-				why := read.what + " is always empty here"
-				if read.what == "c.Header" {
-					why = "c.Header sees only Host, Accept-Encoding, If-None-Match, If-Modified-Since, Cache-Control, Pragma, Content-Length, Connection, Origin and Sec-Fetch-* here, every other header is always empty"
-				}
-				a.errorAt(read.pos, "%s: %s has Cache, so its requests are anonymous and the answer is kept for everyone. Remove Cache from %s, or move what depends on the visitor into the browser, where the page can read it after it loads", why, r.Dir, r.Dir)
+			if w, ok := why[load]; !ok {
+				x.mixed = true
+			} else if x.why == "" || w < x.why {
+				x.why = w // the same text whatever the order of the map
 			}
 		}
+	}
+	for _, r := range reads {
+		if r.mixed {
+			continue
+		}
+		what := r.what + " is always empty here"
+		if r.what == "c.Header" {
+			what = "c.Header sees only Host, Accept-Encoding, If-None-Match, If-Modified-Since, Cache-Control, Pragma, Content-Length, Connection, Origin and Sec-Fetch-* here, every other header is always empty"
+		}
+		a.errorAt(r.pos, "%s: %s, so its requests are anonymous and the answer is kept for everyone. Remove Cache, or move what depends on the visitor into the browser, where the page can read it after it loads", what, r.why)
 	}
 }
 

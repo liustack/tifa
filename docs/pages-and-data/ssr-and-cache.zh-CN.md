@@ -2,7 +2,7 @@
 summary: '页面怎样渲染和保存：SSR、Memo、Cache、Cache-Control、CDN、私有页面'
 audience: app
 order: 13
-translatedFrom: a84e4e54c4a6
+translatedFrom: e8521a6cf79a
 read_when:
   - '用 `SSR`、`Memo` 或 `Cache` 给某个页面打开或关闭服务端渲染、渲染记忆或 `Cache`'
   - '用 `const Cache` 让 CDN 保存一个公开页面几分钟，了解哪些内容会变成匿名，或者遇到在这种页面里读取 Cookie 或会话的构建错误'
@@ -62,7 +62,7 @@ const Cache = 10 * time.Minute // its own time
 
 - **所有人都是匿名的。** 这个页面的 GET 和 HEAD，以及浏览器导航到它时为取数据发出的请求，在进入 `OnRequest` 之前，只保留一份短名单里的请求头，其他都丢掉：`Host`、`Accept-Encoding`、`If-None-Match`、`If-Modified-Since`、`Cache-Control`、`Pragma`、`Content-Length`、`Connection`、`Origin` 和 `Sec-Fetch-*`。`Cookie` 和 `Authorization` 会被去掉，`Accept-Language`、`User-Agent`、`Referer`、`Forwarded`、`X-Forwarded-*`，以及代理或登录网关设置的头（如 `X-User-ID`）也一样，所以它们都没法通过 `OnRequest` 和 context 到达 `Load`。`tifa.Session` 返回 nil，`c.Cookie` 什么也找不到，`c.Header` 和 `c.Request().Header` 只有名单里的头，`c.Request()` 拿到的请求也一样。`tifa.SetSession` 和 `tifa.ClearSession` 返回一个错误，说明登录和 OAuth 回调应该放在不带 `Cache` 的路由上。只有页面说的内容不取决于是谁在问，它才能被共享。这种页面 HTML 上的 `Set-Cookie` 会被删掉，因为共享响应里的 cookie 会到达每个访客。导航的响应（带 `_tifa` 的请求）只给一个浏览器，保留它的 `Set-Cookie`，并带着那个浏览器的会话（见 [会话](sessions.zh-CN.md#in-the-browser)）。同一个 URL 的方法处理函数，比如 POST，不是匿名的。
 - **匿名的边界。** Tifa 保证的是请求头：在带 `Cache` 的页面上，`OnRequest`、`Load` 和 `Layout` 看到的请求只有名单里的头，`tifa.Session` 为 nil。用 `tifa.SetHTTPHandler` 设置的 `net/http` 中间件在 Tifa 之外运行，拿到的是原样的请求，它放进请求 context 的东西会原封不动到达 `OnRequest` 和 `Load`。不要在那里识别访客，要在不带 `Cache` 的路由的 `OnRequest` 里做。连接的地址和 TLS 状态也还在，外层中间件放进 context 的值，以及名单里的头（如 `Origin`），仍然能区分请求。它们都不能用来生成个性化的共享内容。
-- **构建会检查。** 这种页面的 `Load`、它外面某个布局的 `Layout` 函数，或它们调用的函数读取了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就会失败并给出行号，因为这样的读取只能看到匿名请求。对 `c.Header`，错误信息会说明那里有哪几个头。需要知道谁已登录的页面不要用 `Cache`。把取决于访客的内容放到浏览器里，它在页面加载之后就能读到（见 [在浏览器里](sessions.zh-CN.md#in-the-browser)）。带 `Cache` 的页面外面的布局，只放对所有人都一样的数据。
+- **构建会检查。** 只为带 `Cache` 的页面运行的代码读取了 `c.Cookie`、`c.Header` 或 `tifa.Session`，构建就会失败并给出行号，因为这样的读取只能看到匿名请求。这种代码是：这种页面的 `Load`，下面的页面全都带 `Cache` 的布局的 `Layout` 函数，以及它们调用的函数。对 `c.Header`，错误信息会说明那里有哪几个头。和不带 `Cache` 的页面共用的布局可以读取它们：在带 `Cache` 的页面上，它拿到的是匿名访客的东西，比如没有会话，于是显示这样的访客该看到的内容，比如登录链接。需要知道谁已登录的页面不要用 `Cache`。把取决于访客的内容放到浏览器里，它在页面加载之后就能读到（见 [在浏览器里](sessions.zh-CN.md#in-the-browser)）。
 - **`OnRequest` 能做什么。** 它对每个请求都运行，看到的是匿名请求。用它做取决于路径的事：重定向、安全头、日志、计数、按地址限速。它看不到谁已登录，所以按登录状态重定向的 `OnRequest` 要放在不带 `Cache` 的路由上，而没看到 cookie 就设置 cookie 的，会在每次导航时都设置。它设置在 HTML 上的 cookie 会被删掉。
 - **语言。** 多语言页面每种语言一个 URL，所以 CDN 会把各语言分开保存。从 cookie 或 `Accept-Language` 选语言再重定向的入口，是不带 `Cache` 的路由上的 GET 处理函数（带 `Cache` 的页面两者都读不到），它引导到的页面把语言写在 URL 里（见 [多语言站点](../start/app.zh-CN.md#a-site-in-several-languages)）。
 - **响应头。** 页面的 HTML 带 `Cache-Control: public, max-age=0, s-maxage=<seconds>, stale-if-error=86400`。浏览器每次都来问，ETag 匹配时得到 304，所以部署后马上就能看到。共享缓存按 `s-maxage` 的秒数保存页面，程序出故障时可以用它的副本再撑一天（`stale-if-error`）。响应没有 `Age` 和 `Cache-Status`，因为 Tifa 自己不保存页面。如果 `OnRequest`、`Load` 或 `Layout` 设置了含 `private`、`no-store` 或 `no-cache` 的 `Cache-Control`，或设置了 `Accept-Encoding` 之外的 `Vary`，页面就不是给所有人的了，你的头会原样发出。导航数据仍然是 `private, no-cache`（见 [响应的 Cache-Control](#cache-control-of-an-answer)）。CDN 里要怎么设，见 [CDN 设置](../build-and-deploy/deploy.zh-CN.md#cdn-settings)。

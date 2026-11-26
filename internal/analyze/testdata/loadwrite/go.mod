@@ -1,4 +1,4 @@
-module example.com/follow
+module example.com/loadwrite
 
 go 1.27.0
 

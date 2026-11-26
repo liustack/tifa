@@ -4,6 +4,21 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- A `Validate` method on the struct a `Load` or `Layout` takes as its second parameter now runs once the query is decoded and before the function, with the signature of the `Validate` of a handler input, `Validate() error` or `Validate(c *tifa.Ctx) error`. Its error is the error of the function: a `tifa.Error` or `tifa.Fields` as it is, any other error through `OnError` as a 500. It failed the build before, so a page and a handler can now share one filter type.
+- A [Breadcrumbs and the current page](docs/pages-and-data/layouts.md#breadcrumbs-and-the-current-page) section shows how a Layout follows the page below it, with `useRouterState` in `layout.tsx`. The build error for `c.Path()` in a `Layout` points to it.
+
+### Changed
+
+- `Load`, `Layout` and the functions they call may pass the Ctx wherever Go lets them, as a `net/http` handler does with its request: to a library, an interface, a struct, a function value, a goroutine or an `errgroup`. The build follows the Ctx into the functions of the module it is passed to and reports the mistakes it sees there, and says nothing where it cannot see which function runs. The rule of the five places a Ctx may go is gone, and so are the build errors for a `go` statement, an interface method, a function value or a function outside the module that gets the Ctx, for a name of `c.Param` that is not a constant, and for `c.Param` or `tifa.Use` taken as a value. A constant name of `c.Param` is still checked against the path of the folder. See [How Load may use Ctx](docs/pages-and-data/loading-data.md#how-load-may-use-ctx).
+- `c.Request()` and `c.Writer()` work in `Load` and `Layout`, where they failed the build. There `c.Request()` is a copy of the request with only the query parameters the function declares, each number spelled the shortest way, and no body, and in a `Layout` only the path parameters of its own folder. `c.Writer()` is the response, and writing to it from a `Load` breaks the page. See [The raw request in Load](docs/pages-and-data/loading-data.md#the-raw-request-in-load).
+- `c.Query`, `c.QueryValues` and `c.BindQuery` no longer panic in a `Load` or `Layout` when the build could not see the call: they read that copy, which has the declared parameters only. The build still fails for a call it sees.
+- `c.Param` in a `Layout` gives `""` for a parameter of a folder below the Layout, whose data stays while the visitor moves between the pages below it. The build still fails for such a name when it is a constant.
+- `c.JSON`, `c.Text` and `c.NoContent` in a `Load`, a `Layout` or a function they call now fail the build where it sees them. They return an error at run time, as before.
+- A `Layout` shared by pages with `Cache` and pages without no longer fails the build for reading `c.Cookie`, `c.Header` or `tifa.Session`: on a page with `Cache` it gets what an anonymous visitor has. The build still fails for such a read in code that runs only for pages with `Cache`, the `Load` of such a page and a `Layout` whose pages all have it.
+- `tifa routes --json` no longer has `params`, `uses` and `allQuery` in a `load`. `query` lists the query parameters the data depends on.
+
 ## [0.6.0] - 2026-11-26
 
 ### Added

@@ -3,15 +3,23 @@ package core
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"runtime/debug"
 	"time"
 )
 
+// loadCall is one run of a Load or Layout function for a request, which the Ctx the function runs
+// with points to.
 type loadCall struct {
 	done  chan struct{}
 	value any
 	err   error
+	key   uintptr   // the code pointer of the function
+	view  *LoadView // what it sees of the request, nil for the whole query
+	// from is the request the last copy of Request was made from, and copy that copy. The lock of
+	// the request guards both.
+	from, copy *http.Request
 }
 
 // Use returns the result of load for this request, running it at most once.
@@ -25,10 +33,10 @@ func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) {
 
 // LoadInput wraps a Load or Layout function that takes its query parameters as a second parameter:
 // the returned function decodes the query string into a Q (see decodePageQuery, a value that is not valid
-// answers 400 and the Load does not run) and runs load once per request, in the same table as the
-// Loads that go through Use. The key is the code pointer of load itself, so two Loads never share
-// one through the wrapper, which is a closure of this one function. The generated app.go makes the
-// wrapper for every such function when the program starts.
+// answers 400 and the Load does not run), runs the Validate method of Q when it has one, and runs load
+// once per request, in the same table as the Loads that go through Use. The key is the code pointer of
+// load itself, so two Loads never share one through the wrapper, which is a closure of this one
+// function. The generated app.go makes the wrapper for every such function when the program starts.
 func LoadInput[T, Q any](load func(*Ctx, Q) (T, error)) func(*Ctx) (any, error) {
 	key := reflect.ValueOf(load).Pointer()
 	return func(c *Ctx) (any, error) {
@@ -38,21 +46,43 @@ func LoadInput[T, Q any](load func(*Ctx, Q) (T, error)) func(*Ctx) (any, error) 
 				var zero T
 				return zero, err
 			}
+			if err := validateQuery(c, &q); err != nil {
+				var zero T
+				return zero, err
+			}
 			return load(c, q)
 		})
 	}
 }
 
+// validateQuery runs the Validate method of the query struct v points to, Validate() error or
+// Validate(c *tifa.Ctx) error as for the input of a handler, and returns its error, which is the
+// error of the Load. A query struct without one is valid once it decodes.
+func validateQuery(c *Ctx, v any) error {
+	switch v := v.(type) {
+	case interface{ Validate(*Ctx) error }:
+		return v.Validate(c)
+	case interface{ Validate() error }:
+		return v.Validate()
+	}
+	return nil
+}
+
 // useKeyed is Use for the Load that key names.
 func useKeyed[T any](c *Ctx, key uintptr, load func(*Ctx) (T, error)) (T, error) {
 	var zero T
-	if key == c.load {
+	if c.run != nil && key == c.run.key {
 		return zero, errors.New("tifa: a Load cannot Use itself")
 	}
 	c.req.mu.Lock()
 	call, running := c.req.loads[key]
 	if !running {
-		call = &loadCall{done: make(chan struct{})}
+		// A function the server made no view for, such as one that is not a Load or a Layout,
+		// sees what the function that asked for it sees.
+		call = &loadCall{done: make(chan struct{}), key: key, view: c.req.views[key]}
+		if call.view == nil && c.run != nil {
+			call.view = c.run.view
+		}
 		c.req.loads[key] = call
 		c.req.startLoad()
 	}
@@ -61,7 +91,7 @@ func useKeyed[T any](c *Ctx, key uintptr, load func(*Ctx) (T, error)) (T, error)
 		<-call.done
 	} else {
 		lc := *c
-		lc.mode, lc.load = modeLoad, key
+		lc.run = call
 		call.value, call.err = run(&lc, load)
 		close(call.done)
 	}

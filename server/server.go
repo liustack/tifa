@@ -73,6 +73,8 @@ type server struct {
 	// and shows its 404 inside that Layout. candidates are what notFoundAt picks that Layout from.
 	layouts    map[string]layoutChain
 	candidates []candidate
+	// views are what each Load and Layout function sees of the request, see loadViews.
+	views map[uintptr]*core.LoadView
 
 	// The front end, nil until openFront or setFront. Renders hold rendering for reading, so
 	// swapFront can wait for those on the pool it replaces.
@@ -289,6 +291,7 @@ func (s *server) serve(w http.ResponseWriter, r *http.Request, pattern string, p
 	}
 	c := core.New(tw, r, pattern, s.cfg.BodyLimit)
 	core.SetReadLift(c, func(d time.Duration) error { return s.liftDeadlines(w, d) })
+	core.SetLoadViews(c, s.views)
 	if info := langInfoOf(r); info != nil {
 		core.SetLanguage(c, info.lang)
 	}

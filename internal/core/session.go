@@ -202,7 +202,7 @@ func (c *Ctx) sessionWritable(fn string) error {
 		return fmt.Errorf("tifa: %s cannot be called while a page with Cache is served: that request is anonymous and its answer is kept for everyone. Sign in and OAuth callbacks belong on routes without Cache", fn)
 	case st.env == nil:
 		return fmt.Errorf("tifa: %s has no session store: the request was not made by the server", fn)
-	case c.mode == modeLoad:
+	case c.run != nil:
 		return fmt.Errorf("tifa: %s cannot be called in a Load or a Layout, only in OnRequest before it calls next, or in a method handler", fn)
 	case Phase(st.phase.Load()) == PhaseAfterNext:
 		return fmt.Errorf("tifa: %s cannot be called in OnRequest after next returned, call it before next", fn)

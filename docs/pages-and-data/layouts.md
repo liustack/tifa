@@ -1,5 +1,5 @@
 ---
-summary: 'layout.tsx and Layout, nesting, tifa.Use, layout_.tsx, instead of route groups'
+summary: 'layout.tsx and Layout, nesting, tifa.Use, breadcrumbs and the current page, layout_.tsx, instead of route groups'
 audience: app
 order: 2
 read_when:
@@ -8,6 +8,7 @@ read_when:
   - Looking for route groups, a `(group)` folder or a Layout that adds nothing to the URL
   - Giving some pages of a site a frame that the other pages do not have, such as a landing page beside a console
   - Wondering why the page at `/` always shows inside the root Layout
+  - Showing breadcrumbs or the current entry of a menu in a Layout, or `c.Path()` in a `Layout` fails the build
 ---
 
 # Layouts
@@ -26,11 +27,49 @@ func Layout(c *tifa.Ctx) (projects.Project, error) {
 
 - `Layout` goes in `route.go`, next to `Load`, `SSR`, `Memo`, `Cache` and the method handlers of the same folder. Declaring it in any other file of the package, a `layout.go` for example, fails the build. A `route.go` with only a `Layout` is no API route.
 - A Layout that reads the query string takes the parameters as its second parameter, as a `Load` does: `func Layout(c *tifa.Ctx, q Filter) (T, error)` (see [Query parameters](loading-data.md#query-parameters)). A name that a Layout and a page below it declare, or two Layouts of one chain, must have the same type in each, or the build fails and names the two places. A Layout that takes none takes only the Ctx.
-- A Layout's `c.Param` may only read parameters of its own folder path. `Layout` in `app/projects/project+/route.go` may read `project`, not `order`. A page's `Load` is held to its own path the same way.
+- A Layout reads the path parameters of its own folder: `Layout` in `app/projects/project+/route.go` may read `project`, not `order`. A parameter of a folder below it reads as `""`, in `c.Param` and in `c.Request()`, since the data of the Layout stays while the visitor moves between the pages below it. The build fails where it sees such a name as a constant. A page's `Load` reads the parameters of its own path, and the build checks a constant name the same way.
 - When you switch between pages under the same Layout, the Layout component is not remounted and keeps its state. When a path parameter of its folder or of a folder above it changes (for example, you move from `/projects/a` to `/projects/b` under `app/projects/projectId+/`), the Layout remounts and its state resets, whether or not its `Layout` function reads the parameter: the path names the thing the page shows, so a draft, an open panel or the values of a form never carry over to another project. Pages work the same way, those without a `Load` too, as in Next.js. Keep what should outlive such a move, such as the scroll position of a list next to the details of an item, in a Layout above the folder of the parameter. When a query parameter changes, even one it reads, the Layout loads its data again and renders it, but is not remounted and keeps its state, as TanStack Router does by default. So a filter keeps the view the visitor chose. State a component set up from the data of `Load`, such as with `useState(data.x)`, is not reset by a new query either. Where it should follow the new data, give the component a `key` from the value, or update the state in an effect. Pages work the same way.
-- Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder, unless a `layout_.tsx` between drops it. The same `Layout` runs only once per request. Any other Layout fails the build, and so does an argument that is not a package-level `Layout` function, such as a closure. A `Layout` function cannot use its own Layout, directly or through a helper. A Layout with query parameters cannot be passed to `tifa.Use` yet, and the build says so: when other `Load` functions need the result of a Layout, give that Layout no query parameters, and read them in the `Load` of the page.
+- Pages and Layouts can call `tifa.Use(c, project.Layout)` to get the result of a Layout that wraps them, for the current request: the Layout of the same folder or of an ancestor folder, unless a `layout_.tsx` between drops it. The same `Layout` runs only once per request. Passing any other Layout, or anything but a package-level `Layout` function, such as a closure, fails the build where it sees it. A `Layout` function cannot use its own Layout, directly or through a helper. A Layout with query parameters cannot be passed to `tifa.Use` yet, and the build says so: when other `Load` functions need the result of a Layout, give that Layout no query parameters, and read them in the `Load` of the page.
 - On navigation in the browser, the navigation data request runs only the `Load` and `Layout` functions of the listed routes. If an ancestor Layout's data is still in the cache, that Layout is not in the list and its `Layout` does not run this time. So do not put permission checks only in a Layout. Put them in `OnRequest`, or have the page's `Load` depend on the checking Layout through `tifa.Use`, so the check runs on every request.
 - The root Layout also holds the `documentHead` of the site (see [The document shell and documentHead](head.md#the-document-shell-and-documenthead)).
+
+## Breadcrumbs and the current page
+
+A Layout often shows something that follows the page below it: breadcrumbs, the current entry of a menu, the name of a section in the header. Read the address for it in `layout.tsx`, not in the `Layout` function. The data of a Layout is not loaded again when the visitor moves between the pages below it, so a path that `Layout` read would stay the one of the first page. For that reason `c.Path()` in a `Layout`, or in a function it calls, fails the build.
+
+The router has the address, and the component renders again when it changes:
+
+```tsx
+// app/projects/project+/layout.tsx
+import { Link, Outlet, useRouterState } from '@tanstack/react-router'
+import { layout } from './route.gen'
+
+const sections: Record<string, string> = { orders: 'Orders', settings: 'Settings' }
+
+export default function Layout() {
+  const project = layout.useLoaderData()
+  // /projects/studio/orders/42 is in the section "orders"
+  const section = useRouterState({ select: (s) => sections[s.location.pathname.split('/')[3] ?? ''] })
+
+  return (
+    <>
+      <nav aria-label="Breadcrumb">
+        <Link to="/projects">Projects</Link>
+        {' / '}
+        <Link to="/projects/$project" params={{ project: project.id }}>
+          {project.name}
+        </Link>
+        {section && ` / ${section}`}
+      </nav>
+      <Outlet />
+    </>
+  )
+}
+```
+
+- `select` returns only what the component needs, so it renders again only when that changes.
+- Names and titles, such as the name of the project here, still come from data: the data of the Layout, or the data of the page, which the page can show in its own part of the frame.
+- A `Link` knows when it points at the current page: its `activeProps` style the current entry of a menu without reading the address yourself.
 
 ## A Layout without the Layouts above
 

@@ -25,7 +25,7 @@ In this order (2026-11-25):
 
 A lower one never buys out a higher one: routes are folders, and each write has its own folder, at the price of more small packages. When an idea is turned down, the docs for apps say what to write instead and what the idea would have risked.
 
-Safety here is what Tifa itself promises: the render memo gives the right page, its own cookie and session are right, and visitors of a live app cannot get in where nobody decided. A check, a refusal or a guard costs code, a rule to learn and often an exception in the API, and it is worth that only for those promises. A mistake in the app that Tifa cannot stop for good, such as a goroutine of its own that panics, an object it shares between goroutines and changes, or a response it writes over, is the app's to avoid, as it is in Go: the docs say it, and nothing is refused for it (2026-11-26).
+Safety here is what Tifa itself promises: the render memo gives the right page, its own cookie and session are right, and visitors of a live app cannot get in where nobody decided. A check, a refusal or a guard costs code, a rule to learn and often an exception in the API, and it is worth that only for those promises. A mistake in the app that Tifa cannot stop for good, such as a goroutine of its own that panics, an object it shares between goroutines and changes, or a response it writes over, is the app's to avoid, as it is in Go: the docs say it, and nothing is refused for it (2026-11-26). A check in the build costs far less than one at run time, so the build reports a mistake it can see by default. A guard at run time is only for those promises (2026-11-26).
 
 ## Routing and the files of a folder
 
@@ -129,7 +129,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why.**
 - The path names the thing a page shows, and the query says how to look at it. State kept across another order is state about the wrong thing: a form whose inputs took their first values from order 1 (`defaultValue`, `useState(data.x)`) still shows them on order 2, and a save writes them there. Keeping it is a silent wrong write. Remounting when it was not needed loses a scroll position or an open panel, which shows at once and which the app fixes by keeping that state in a Layout above the folder.
-- What a function reads does not tell what the page shows: a page without a `Load` that fetches in the browser shows another thing for another parameter too. And the reads were found by reading the code, which the rules on where a Ctx may go existed for.
+- What a function reads does not tell what the page shows: a page without a `Load` that fetches in the browser shows another thing for another parameter too. And the reads were found by reading the code, which needed [rules on where a Ctx may go](#rules-on-where-a-ctx-may-go), since taken out.
 - Next.js keys each segment in the browser by its parameters, "so navigation preserves or resets component state according to the segment's actual identity" (`create-segment-key.browser.ts`). TanStack Router, React Router, SvelteKit and Vue Router keep the component and leave a `key` or `remountDeps` to the app, which an app forgets.
 - The 2026-10-14 reason, a root Layout whose route path was the common prefix of its pages and so held `projectId`, is gone: the route path of a Layout is the path of its folder.
 
@@ -143,7 +143,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Not done (2026-11-25).** The functions `route.gen` writes for `POST`, `PUT` and `PATCH` send the input as the body and have no place for a query string, though the handler can read one with `c.Query`.
 
-**Why not.** A write seldom needs one: a switch such as `?dryRun=1` can be a field of the body. Giving it types would take following Ctx through handlers as for `Load`, or a second struct in the signature of a handler.
+**Why not.** A write seldom needs one: a switch such as `?dryRun=1` can be a field of the body. Giving it types would take a second struct in the signature of a handler.
 
 **Reopen when** an app needs it. An option without types, `search`, is the first step then.
 
@@ -239,7 +239,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 - The names come from reading the code, so a Ctx the build cannot follow (a helper outside the module, an interface, a stored Ctx) hides a parameter. The page does not load again when it changes, and the server render and the memo key do not see it. The runtime also gave `Load` the whole query string, whatever the build found.
 - A parameter had no type, so every page parsed its own numbers, and a value that did not parse was left out without a word.
 
-**Instead.** `Load(c, q Filter)` and `Layout(c, q Filter)`: the parameters are the fields of the struct in the signature, which the build reads without following anything, and the runtime gives `Load` the declared ones only. The types, the loading again on a change, the render URL, the memo key and the canonical link all come from the same fields. `c.Query`, `c.QueryValues` and `c.BindQuery` are for method handlers (and `Validate`, `OnRequest` for the first two), and a call in `Load` or `Layout` fails the build, or panics when the build could not see it.
+**Instead.** `Load(c, q Filter)` and `Layout(c, q Filter)`: the parameters are the fields of the struct in the signature, which the build reads without following anything, and the runtime gives `Load` the declared ones only. The types, the loading again on a change, the render URL, the memo key and the canonical link all come from the same fields. `c.Query`, `c.QueryValues` and `c.BindQuery` are for method handlers (and `Validate`, `OnRequest` for the first two), and a call in `Load` or `Layout` that the build sees fails it. One it does not see reads the copy of the request the function gets, which holds the declared parameters only (see [The raw request in a Load](#the-raw-request-in-a-load)).
 
 **Reopen when** an app needs query parameters whose names are not known when it is built, such as a free list of filters. A field that holds the rest of them would be the first thing to try.
 
@@ -305,11 +305,11 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 ### The raw request in a Load
 
-**Settled (2026-11-26), to be built with the removal of the five places a Ctx may go.** `c.Request()` and `c.Writer()` work in a `Load` and a `Layout`. There `c.Request()` gives a copy of the request whose URL holds only the query parameters that function declares, with no body, and a `Layout` sees only the path parameters of its own folder. `c.Writer()` is the writer of the response, as everywhere.
+**Settled (2026-11-26).** `c.Request()` and `c.Writer()` work in a `Load` and a `Layout`. There `c.Request()` gives a copy of the request whose URL holds only the query parameters that function declares, spelled as the memo key spells them, with no body, and a `Layout` sees only the path parameters of its own folder: the others are `""`, in the copy and from `c.Param`. `URL.Path` stays the path of the page, which goes stale in a `Layout` as `c.Path()` does. Each run of a function gets its own copy, made on its first call. `c.Writer()` is the writer of the response, as everywhere.
 
 **Why.** They were refused there (2026-10-14) because the build found what a `Load` read by reading its code, and a read through the raw request hid it. The query parameters now come from the declared struct and the path parameters from the folder, so that reason is gone. What is left is a part of the address the browser does not load the function again for, which would show old data. The copy leaves it out, so such a read is always empty and shows the first time it runs. A method that the package exports and then refuses was a rule to learn that kept nothing safe, and a library that takes an `*http.Request` works. Changing the request, which the `Load`s of a page share while they run at once, or writing the response from a `Load`, breaks the page. `net/http` only documents the first for its handlers ("Except for reading the body, handlers should not modify the provided Request"), and Tifa does the same for both.
 
-**Instead.** The docs on loading data say it plainly, and that logging, counting and anything that needs the whole request belong in `OnRequest`, which sees it as it came.
+**Instead.** The docs on loading data say it plainly, and that logging, counting and anything that needs the whole request belong in `OnRequest`, which sees it as it came. `c.JSON`, `c.Text` and `c.NoContent`, which write the response too, fail the build where it sees them in a `Load` or `Layout`, and return an error without writing where it does not. The generated app gives the server each `Load` and `Layout` function (`Func`), and the server keeps what each sees of the request by the code address of the function: one map lookup when a function starts, and the copy only when it is asked for.
 
 ### Reading the visitor on a page with Cache
 
@@ -319,9 +319,36 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 ### Validate on the query struct of a Load
 
-**Settled (2026-11-26), to be built with the removal of the five places a Ctx may go.** A `Validate` method on the struct a `Load` or `Layout` takes runs after the query is decoded and before the function, and its error is the error of that function. It used to fail the build.
+**Settled (2026-11-26).** A `Validate` method on the struct a `Load` or `Layout` takes runs after the query is decoded and before the function, and its error is the error of that function: a `tifa.Error` or `tifa.Fields` as it is, any other error through `OnError` as a 500. It used to fail the build. It has the signature of the `Validate` of a handler input, and a `Validate(c *tifa.Ctx)` runs with the Ctx of the function, so the build checks it as a function that `Load` or `Layout` calls.
 
 **Why.** `Validate` says when a value of the type is valid, which does not depend on where it is decoded, so a page and a handler can share a filter type. The browser does not run it: a value it refuses reaches the `ErrorBoundary` as the 400 of the data request, the same as a `Load` that returns one.
+
+### Rules on where a Ctx may go
+
+**Turned down (2026-11-26), and taken out.** A list of the places a value that holds a Ctx may stand in a `Load`, a `Layout`, a `Validate` and the functions they call (the receiver of a method, an argument of a function of the module, a field of a struct literal, a new local variable), with a build error for a `go` statement, an interface method, a function value and a function outside the module that gets it, for a name of `c.Param` that is not a constant, and for `c.Param` or `tifa.Use` taken as a value. They were in place from 2026-10-14.
+
+**Why not.** They were there so that the build could find every path parameter a function read and every `tifa.Use` by reading the code. The path parameters that remount a page now come from its folder and the query parameters from the struct in the signature, so nothing the build writes depends on finding them all. What was left refused code that is right in any Go program: `errgroup`, a Ctx in an interface or a struct, a generic function, a library that takes the Ctx. gin, echo, Next.js and TanStack Router have no such rule.
+
+**Instead.** The build follows the Ctx where it is passed to a function of the module, as an argument or as the receiver of a method, and reports the mistakes it sees there. Where it cannot see which function runs, it stops without a word. A name of `c.Param` that is a constant is still checked against the path of the folder.
+
+### Runtime guards for Ctx in Load and Layout
+
+**Turned down (2026-11-26).** Checks at run time for what the build cannot see once the rules above are gone: a table of every `Load` and `Layout` by code address to check each call against, the identity of the Ctx kept for those checks, and a panic or an error for `c.Path()` in a `Layout`, a path parameter below its folder, a `tifa.Use` of a Layout that does not wrap the page, a call in `Validate` that changes the response, and a write after the function returned.
+
+**Why not.** The build reports what it can see, and a guard at run time does not catch the rest either: a Ctx handed to a library, or the raw request, goes past it. A panic in a goroutine the app started has no `recover` above it and ends the process. The table and the field are a cost every request pays for mistakes of the app, not for a promise of Tifa ([How ideas are weighed](#how-ideas-are-weighed)).
+
+**Instead.** The build reports what it sees, and the rest is the app's to get right, as in an `http.Handler`: the docs on loading data say not to keep the Ctx after the function returns, and to wait for a goroutine of its own before returning. At run time a `Load` that passes itself to `tifa.Use` gets an error, since it would wait for ever, and `c.JSON`, `c.Text` and `c.NoContent` in a `Load` return one. What a function sees of the request is the copy of [The raw request in a Load](#the-raw-request-in-a-load), which checks nothing: it only holds less.
+
+### The path of the page in a Layout
+
+**Settled (2026-11-26).** `c.Path()` in a `Layout` function, or in a function it calls, fails the build, and the message says to read the address in `layout.tsx` with `useRouterState({ select: (s) => s.location.pathname })`. Nothing checks it at run time.
+
+**Why.**
+- The data of a Layout is not loaded again when the visitor moves between the pages below it, so a path it read would stay the one of the first page. Next.js gives a layout no pathname for the same reason, and its breadcrumbs use a hook in the browser. TanStack Router and React Router read the address in components, with `useRouterState` and `useMatches`.
+- Not as SvelteKit does it: there a `load` that reads `url.pathname` runs again on every move, a switch nobody sees in the code, and a Layout that keeps its data across its pages is lost.
+- No `layoutPath`, the URL of the folder of the Layout: the folder and `c.Param` give it already, and it does not help breadcrumbs.
+
+**Instead.** [Breadcrumbs and the current page](../pages-and-data/layouts.md#breadcrumbs-and-the-current-page).
 
 ### An empty number or bool in a query string
 

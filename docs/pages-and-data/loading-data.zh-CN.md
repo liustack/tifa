@@ -1,13 +1,14 @@
 ---
-summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
+summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx，以及那里的 c.Request() 含有什么'
 audience: app
 order: 3
-translatedFrom: f5aed0a7a739
+translatedFrom: 5d124f335259
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
   - '用 `tifa.HTML` 和 `<HTML>` 显示应用自己生成或信任的 HTML（比如文章），或者处理其中的链接'
   - '构建报出关于 Ctx 用法的错误，想把它修好'
+  - '在 `Load` 或 `Layout` 里读 `c.Request()`、用 `c.Writer()`，或者把 Ctx 传给某个库或 goroutine'
   - '修改 internal/analyze 里的规则，需要知道曾向用户承诺了什么'
 ---
 
@@ -99,7 +100,7 @@ func Load(c *tifa.Ctx, q Filter) (products.List, error) {
 - 所以 Go 分不清一个参数是没传，还是传了零值：`?page=0` 和没有 `page` 都得到 0。让零值就是默认值（page 为 0 就是第一页，`max` 为 0 就是不限）。需要单独开关的选择，比如只看免费书，用一个单独的 `bool` 字段。字段不能是指针。
 - 没有字段对应的参数会被忽略。
 - 访客改地址栏，或者填一个不用 JavaScript 的普通 `<form method="get">`，可以写 `007`、`1.0` 或 `.5`，页面照收。这些规则只管页面的查询字符串：`GET` 或 `DELETE` 处理函数的输入照旧，由 `c.BindQuery` 解码。
-- 这个结构体不带 `Validate`，带了构建就失败。请在 `Load` 里检查值，返回 `tifa.Error{Status: 400, Message: "page must be at least 1"}` 或 `tifa.ErrNotFound`。
+- 结构体的 `Validate() error` 或 `Validate(c *tifa.Ctx) error` 方法在值解码之后、`Load` 之前运行，和方法处理函数的输入一样，所以页面和处理函数可以共用一个筛选类型。它返回的就是 `Load` 的错误：`tifa.Error{Status: 400, Message: "page must be at least 1"}` 或 `tifa.ErrNotFound` 原样到达访客，其他错误交给 `OnError`，答 500。浏览器不运行它：客户端导航时，它拒绝的值会作为数据请求的错误返回，由页面的 `ErrorBoundary` 显示。
 - 测试直接用结构体调用函数：`Load(c, Filter{Sort: "price"})`（见[测试应用](testing-apps.zh-CN.md)）。
 
 ## page.tsx {#pagetsx}
@@ -175,28 +176,45 @@ export default function PostPage() {
 
 ## Load 如何使用 Ctx {#how-load-may-use-ctx}
 
-这一节讲 `Load`、`Layout` 和它们调用的函数。构建时，Tifa 从每个 `Load` 和 `Layout` 函数出发，找出它读取的路由参数（`c.Param`）和布局（`tifa.Use`）。查询参数来自第二个参数（见[查询参数](#query-parameters)）。当 `Load` 把 `*tifa.Ctx` 传给本模块里的函数时，Tifa 会一层一层地跟进这个调用，跨包也一样，并把找到的每个参数都算到这个 `Load` 头上。被多个 `Load` 函数调用的辅助函数，会算到它们每一个头上。Tifa 不会跟进它自己的函数。
+这一节讲 `Load`、`Layout` 和它们调用的函数。它们拿到 Ctx，就像 `net/http` 的处理函数拿到请求：在函数运行期间使用它，Go 允许传到哪里就可以传到哪里，比如本模块的辅助函数或某个库，放进接口、结构体或 goroutine。
 
-为了让 Tifa 能找全，Ctx 只能用在 Tifa 看得见的地方。给 `c.Param` 传一个常量字符串，比如 `c.Param("order")`，并且直接调用它和 `tifa.Use`：把其中一个存进变量，或当成值传递，都会让构建失败。
+构建会读 `Load`、`Layout`，以及它们把 Ctx 传进去的本模块函数，在看得见的地方遇到下面这些错误就让构建失败，并指出文件和行号：
 
-能持有 Ctx 的类型只有这些：`*tifa.Ctx`、`tifa.Ctx`、本模块里声明的非泛型结构体（它的字段只通过这些类型持有 Ctx，直接、嵌入或间接都可以），以及指向这类结构体的指针。
+- `c.Query`、`c.QueryValues`、`c.Bind` 和 `c.BindQuery`。查询参数是第二个参数的字段（见[查询参数](#query-parameters)），这样 Tifa 和浏览器不用读代码就知道它，而且页面加载没有请求体。
+- `c.JSON`、`c.Text` 和 `c.NoContent`。页面的响应由 Tifa 根据 `Load` 和 `Layout` 的返回值来写：返回数据、一个错误（比如 `tifa.Error{Status: 404, Message: "no such order"}`），或 `tifa.Redirect(url, 302)`。
+- `tifa.SetSession` 和 `tifa.ClearSession`。页面加载不能让任何人登录或退出：请在 `OnRequest` 调用 `next` 之前，或在方法处理函数里调用它们。
+- 传给 `c.Param` 的常量名字，而文件夹的路径里没有这个参数。`Layout` 读的是它自己文件夹的参数：`app/projects/project+/route.go` 里的 `Layout` 可以读 `project`，不能读 `order`。
+- 在 `Layout` 里调用 `c.Path()`。请改在 `layout.tsx` 里读地址（见[面包屑和当前位置](layouts.zh-CN.md#breadcrumbs-and-the-current-page)）。
+- 对不包住这个页面的布局调用 `tifa.Use`，或者传给它的不是包级的 `Layout` 函数（见[布局](layouts.zh-CN.md)）。
 
-持有 Ctx 的值，只能出现在这五个地方：
+构建看不出运行的是哪个函数时，比如函数值、接口方法或某个库，就停在那里，什么也不说。这部分代码要由你自己写对，和写 `http.Handler` 一样：
 
-1. 作为直接方法调用的接收者，比如 `c.Param("order")` 或 `req.Page()`。
-2. 作为参数传给本模块或 Tifa 里的非泛型函数，且该参数的类型完全相同。就地调用的函数字面量也算。
-3. 在持有 Ctx 的结构体的复合字面量里，赋给完全相同类型的字段。
-4. 用 `:=` 或 `var x T = ...` 赋给一个完全相同类型的新局部变量。这个变量遵循同样的规则。
-5. 取它的地址，并且得到的指针仍然是可以持有 Ctx 的类型。
+- 函数返回之后，不要再留着 Ctx 或持有它的值：不放进包级变量、缓存，也不留给比函数活得更久的 goroutine。
+- 函数返回之前，等你启动的每个 goroutine 结束。`errgroup.Group.Wait` 就是做这个的。
+- 构建会拒绝的写法，运行时也不起作用：`c.Query` 只看得到声明过的参数，`Layout` 里的 `c.Param` 读它下面文件夹的参数得到 `""`，`c.JSON`、`c.Text` 和 `c.NoContent` 什么也不写，并返回一个错误。
 
-任何其他用法都会让构建失败，并指出文件和行号。比如：把它转换成另一个类型或接口，赋给已有的变量，一次赋多个值，`return` 它，放进切片、map、数组或 channel，`range`，包级变量，`defer`，`go` 语句，或把它传给泛型函数、接口方法、函数变量，或模块之外的函数（标准库和第三方库）。
+在 `Load` 里要取页面的路径，用 `c.Path()`，比如在重定向到登录页的 `next` 地址里。它是访问者请求的路径，带语言前缀，不带查询，页面加载和导航的数据请求得到的都一样。需要把某个查询参数也放进这个地址的 `Load`，从它的第二个参数里取这个参数。
 
-`Load`、`Layout` 和它们调用的函数，不能调用 `c.Request()` 或 `c.Writer()`。Tifa 看不见通过原始请求读取的参数。请改用 `c.Param`、`c.Header`、`c.Cookie` 或 `c.Context()`，查询参数则作为第二个参数接收。`c.Request()` 和 `c.Writer()` 只给方法处理函数和 `OnRequest` 用。
+### Load 里的原始请求 {#the-raw-request-in-load}
 
-在 `Load` 里要取页面的路径，用 `c.Path()`，比如在重定向到登录页的 `next` 地址里。它是访问者请求的路径，带语言前缀，不带查询，页面加载和导航的数据请求得到的都一样，所以不必为此去调用 `c.Request()`。需要把某个查询参数也放进这个地址的 `Load`，从它的第二个参数里取这个参数。`Layout` 和它调用的函数不能调用 `c.Path()`：布局的数据由它下面的每个页面共享，访问者在这些页面之间跳转时不会重新加载，所以它会一直保留第一次加载它的那个页面的路径。请在页面的 `Load`、`OnRequest` 或方法处理函数里调用它。
+**在 `Load` 或 `Layout` 里，`c.Request()` 不是原样的请求。** 它是一份副本，只含这个函数可以依赖的东西，这样渲染记忆（memo）、浏览器留着的数据和其他访问者看到的页面才不会出错：
 
-它们也不能调用 `c.Query`、`c.QueryValues`、`c.Bind` 或 `c.BindQuery`：查询参数是第二个参数的字段，这样 Tifa 和浏览器不用读代码就知道它，而且页面加载没有请求体可绑定。构建会让看得见的调用失败。对 `c.Query`、`c.QueryValues` 和 `c.BindQuery` 来说，看不见的调用，比如把 Ctx 存在全局变量里再取出来，会在运行时 panic，错误像 `Load` 的其他错误一样交给 `OnError`。这些方法留给方法处理函数（`c.Query` 和 `c.QueryValues` 也留给 `Validate` 和 `OnRequest`）。
+- 它的 URL 只有这个函数在第二个参数里声明的查询参数，数字都写成最短的形式（`?page=007` 读到的是 `page=7`）。其他参数，比如 `utm_source`，都不在里面。
+- 它没有请求体。
+- 在 `Layout` 里，它只有布局自己文件夹的路径参数，其他的都是 `""`。
+- `URL.Path` 是页面的路径。在 `Layout` 里它会过时，和 `c.Path()` 一样：访问者换到它下面的另一个页面时，布局的数据还留着。
+- 函数的每次运行都有自己的副本。改动它，不会影响其他函数。
 
-遇到这些错误时，请直接调用 Ctx 的方法，或把它传给一个普通函数。如果只需要请求的 context，就传 `c.Context()`。只调用 `c.Context()` 的辅助函数（比如 `auth.User(c)`），Tifa 跟进它时什么也收集不到。
+**`c.Writer()` 是响应的写入器**，在哪里都一样。在 `Load` 或 `Layout` 里往里写，会把页面弄坏，因为页面由 Tifa 在这些函数返回之后来写。要设置响应头，用 `c.SetHeader`。
 
-Tifa 只检查 `Load` 和 `Layout` 能到达的代码。如果你在 `OnRequest`、方法处理函数或别的任何地方，把 Ctx 存进全局变量或其他共享的地方，然后在 `Load` 或 `Layout` 里把它取出来，Tifa 就抓不住。不要这样做。
+记日志、统计请求，以及其他需要完整请求的事，放在 `OnRequest` 里，它看到的是原样的请求：
+
+```go
+// hooks.go
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	slog.InfoContext(c.Context(), "request", "uri", c.Request().RequestURI)
+	return next(c)
+}
+```
+
+要给每个请求记下状态和耗时，见[记录每个请求](../guides/logs.zh-CN.md#logging-each-request)。

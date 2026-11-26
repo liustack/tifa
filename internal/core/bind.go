@@ -68,9 +68,8 @@ func (c *Ctx) bindForm(mediaType string, v any, flat bool) error {
 // or a value that does not, comes back as Error with status 400. Every exported field of v must be
 // one a form fills (see formTypeProblem), or BindQuery returns an error whatever the query holds.
 func (c *Ctx) BindQuery(v any) error {
-	c.noQueryInLoad("BindQuery")
 	// URL.Query drops the parameters it cannot parse, so a broken one would look absent.
-	query, err := url.ParseQuery(c.r.URL.RawQuery)
+	query, err := url.ParseQuery(c.Request().URL.RawQuery)
 	if err != nil {
 		return publicError(http.StatusBadRequest, "invalid query string")
 	}

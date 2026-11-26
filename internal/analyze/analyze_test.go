@@ -73,11 +73,10 @@ func TestValidApp(t *testing.T) {
 		}
 	}
 	if got := layouts[project+"/layout"].Load; got == nil || got.Type != "example.com/valid/"+project+".Project" ||
-		!reflect.DeepEqual(got.Params, []string{"projectId"}) || len(got.Query) != 0 || len(got.AllQuery) != 0 || got.Input != "" ||
-		!reflect.DeepEqual(got.Uses, []string{"app/layout"}) {
+		len(got.Query) != 0 || got.Input != "" {
 		t.Errorf("project layout Load = %+v", got)
 	}
-	if got := layouts["app/layout"].Load; got == nil || len(got.Query) != 0 || len(got.Uses) != 0 {
+	if got := layouts["app/layout"].Load; got == nil || len(got.Query) != 0 {
 		t.Errorf("root layout Load = %+v", got)
 	}
 	// A Layout takes its query parameters as its second parameter too.
@@ -126,22 +125,17 @@ func TestValidApp(t *testing.T) {
 		}
 	}
 
-	if r := routes["app/route"]; r.Load == nil || r.Load.Type != "string" || !reflect.DeepEqual(r.Load.Query, []string{"ref"}) ||
-		!reflect.DeepEqual(r.Load.AllQuery, []string{"ref"}) {
+	if r := routes["app/route"]; r.Load == nil || r.Load.Type != "string" || !reflect.DeepEqual(r.Load.Query, []string{"ref"}) {
 		t.Errorf("home Load = %+v", r.Load)
 	}
-	// The project page takes page and sort as its second parameter. The Layouts it reaches through
-	// tifa.Use take none, since a Layout with query parameters cannot be passed to tifa.Use.
+	// The project page takes page and sort as its second parameter.
 	if r := routes[project+"/route"]; r.Load == nil || r.Load.Type != "[]string" ||
-		!reflect.DeepEqual(r.Load.Query, []string{"page", "sort"}) || len(r.Load.Params) != 0 ||
-		!reflect.DeepEqual(r.Load.AllQuery, []string{"page", "sort"}) ||
-		!reflect.DeepEqual(r.Load.Fields, []QueryField{{Name: "page", Type: "int", Kind: "int"}, {Name: "sort", Type: "string", Kind: "string"}}) ||
-		!reflect.DeepEqual(r.Load.Uses, []string{project + "/layout"}) {
+		!reflect.DeepEqual(r.Load.Query, []string{"page", "sort"}) ||
+		!reflect.DeepEqual(r.Load.Fields, []QueryField{{Name: "page", Type: "int", Kind: "int"}, {Name: "sort", Type: "string", Kind: "string"}}) {
 		t.Errorf("project page Load = %+v", r.Load)
 	}
 	detail := routes[project+"/orders/orderId+/route"]
-	if detail.Load == nil || detail.Load.Type != "*example.com/valid/"+project+"/orders/orderId+.Order" ||
-		!reflect.DeepEqual(detail.Load.Params, []string{"orderId", "projectId"}) {
+	if detail.Load == nil || detail.Load.Type != "*example.com/valid/"+project+"/orders/orderId+.Order" {
 		t.Errorf("detail Load = %+v", detail.Load)
 	}
 	if detail.Package != "example.com/valid/"+project+"/orders/orderId+" {
@@ -177,13 +171,6 @@ func TestDomainsUnderApp(t *testing.T) {
 		w, ok := wantRoutes[r.ID]
 		if !ok || r.Package != w.pkg || r.Load == nil || r.Load.Type != w.load {
 			t.Errorf("route %s = %+v, Load %+v, want %+v", r.ID, r, r.Load, w)
-		}
-	}
-	detail := project + "/orders/order+/route"
-	for _, r := range m.Routes {
-		if r.ID == detail && (!reflect.DeepEqual(r.Load.Uses, []string{project + "/layout"}) ||
-			!reflect.DeepEqual(r.Load.Params, []string{"order"})) {
-			t.Errorf("detail Load = %+v", r.Load)
 		}
 	}
 	layouts := map[string]string{}
@@ -346,7 +333,6 @@ func TestViolations(t *testing.T) {
 			{"app/api/route.go:31:", "c.Writer", "Validate"},
 			{"app/api/route.go:32:", "c.SetReadTimeout", "Validate"},
 			{"app/helper/route.go:11:", "c.SetCookie", "Validate"},
-			{"app/helper/route.go:20:", "assigned to an existing variable", "the Ctx may only be"},
 		}},
 		{"badupload", [][]string{
 			{"app/get/route.go:13:", "GET input", "Input.File", "request body", "POST, PUT or PATCH"},
@@ -375,8 +361,8 @@ func TestViolations(t *testing.T) {
 		}},
 		{"layoutparam", [][]string{{"app/projects/route.go:8:", `"projectId"`, `"/projects"`}}},
 		{"layoutpath", [][]string{
-			{"app/shop/route.go:7:", "c.Path", "Layout", "page"},
-			{"app/shop/route.go:10:", "c.Path", "Layout", "page"},
+			{"app/shop/route.go:7:", "c.Path", "Layout", "stale", "useRouterState({ select: (s) => s.location.pathname })", "layouts.md#breadcrumbs-and-the-current-page"},
+			{"app/shop/route.go:10:", "c.Path", "Layout", "stale", "useRouterState"},
 		}},
 		{"usenonancestor", [][]string{
 			{"app/shop/route.go:11:", "admin.Layout", "does not wrap"},
@@ -446,37 +432,20 @@ func TestViolations(t *testing.T) {
 			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}" conflicts`, `"/{a}/b/c"`},
 			// app/declared has const Path = "/declared": the app's own constant, no error.
 		}},
+		// A name the build can see is checked against the path, one it cannot is read when the page runs.
 		{"paramname", [][]string{
 			{"app/items/key+/route.go:11:", `"id"`, `"/items/{key}"`},
-			{"app/items/key+/route.go:11:", "c.Param must", "constant"},
 		}},
-		{"indirect", [][]string{
-			{"app/page/route.go:17:", "c.Param", "called directly"},
-			{"app/page/route.go:18:", "(*tifa.Ctx).Param", "method expression"},
-			{"app/page/route.go:19:", "tifa.Use", "called directly"},
-			{"app/page/route.go:20:", "tifa.Use", "called directly"},
-			{"app/page/route.go:21:", "use", "function value"},
-			{"app/page/route.go:27:", "c.Param", "called directly"},
-		}},
-		{"ifacectx", [][]string{
-			{"app/page/route.go:18:", "converted to interface{Query(string) string}", "call its methods directly"},
-			{"app/page/route.go:19:", "variable of type page.querier"},
-			{"app/page/route.go:20:", "passed as page.querier to page.read"},
-			{"app/page/route.go:21:", "returned"},
-			{"app/page/route.go:22:", "element of []page.querier"},
-			{"app/page/route.go:23:", "variable of type any"},
-			{"app/page/route.go:24:", "converted to interface{Context() context.Context}"},
-		}},
-		{"escape", [][]string{
-			{"app/page/route.go:11:", "c.Request", "second parameter"},
-			{"app/page/route.go:12:", "c.Writer", "OnRequest"},
-			{"db/db.go:8:", "c.Request"},
-			{"db/db.go:10:", "c.Writer"},
+		// The framework writes the answer of a page, so Load, Layout and the functions they call do not.
+		{"loadwrite", [][]string{
+			{"app/route.go:5:", "c.NoContent", "writes the response", "Layout"},
+			{"app/page/route.go:10:", "c.JSON", "writes the response", "Load"},
+			{"out/out.go:5:", "c.Text", "writes the response"},
 		}},
 		// c.Query in Load, Layout and the functions they call is refused, also through a struct that embeds the Ctx.
 		{"embeddedctx", [][]string{{"app/page/route.go:10:", "c.Query", "second parameter", "func Load(c *tifa.Ctx, q Filter)"}}},
-		// The Ctx goes where it may go (a method receiver, an argument, a field of a struct literal, a new
-		// local variable): the walk reaches every call on it, and each one is refused as a read of the query string.
+		// The walk follows the Ctx as an argument and as the receiver of a method, a struct that embeds it
+		// included, and each call it reaches is refused as a read of the query string.
 		{"ctxallowed", [][]string{
 			{"app/page/route.go:16:", "c.Query", "second parameter"},
 			{"app/page/route.go:17:", "c.Query", "second parameter"},
@@ -493,7 +462,6 @@ func TestViolations(t *testing.T) {
 		{"ownprefix", [][]string{{"filters/filters.go:6:", "c.Query", "second parameter"}}},
 		{"queryinload", [][]string{
 			{"app/route.go:10:", "c.QueryValues", "func Layout(c *tifa.Ctx, q Filter)"},
-			{"app/items/id+/route.go:14:", "method Query taken as a value"},
 			{"db/db.go:8:", "c.Query", "func Load(c *tifa.Ctx, q Filter)"},
 			{"db/db.go:10:", "c.Query"},
 			{"db/db.go:13:", "c.QueryValues"},
@@ -511,7 +479,8 @@ func TestViolations(t *testing.T) {
 			{"app/badtype/route.go:16:", "Layout query", "Filter.Raw", "[]byte"},
 			{"app/badtype/route.go:16:", "Layout query", "Filter.Ptr", "*int"},
 			{"app/file/route.go:13:", "Load query", "Filter.Photo", "is a file", "request body"},
-			{"app/validated/route.go:11:", "Load query", "Validate", "method handler", "tifa.Error", "tifa.ErrNotFound"},
+			{"app/validated/route.go:20:", "c.Path", "stale in a Layout"},
+			{"app/oddvalidate/route.go:9:", "Validate must have the signature", "the query parameters before Load runs"},
 			{"app/float32/route.go:14:", "Load query", "Filter.Price", "float32", "Declare it float64"},
 			{"app/float32/route.go:14:", "Load query", "Filter.Prices", "[]float32", "Declare it float64"},
 			{"app/float32/route.go:14:", "Load query", "Filter.Weight", "a float32", "Declare it float64"},
@@ -533,36 +502,11 @@ func TestViolations(t *testing.T) {
 			{"app/list/route.go:12:", `"_tifa"`, "reserved", "Load query"},
 			{"app/dup/route.go:12:", `"q"`, "Page and Sort", "one field"},
 		}},
-		{"ctxflow", [][]string{
-			{"app/page/route.go:26:", "element of map[int]*tifa.Ctx"},
-			{"app/page/route.go:27:", "converted to any"},
-			{"app/page/route.go:28:", "variable of type any"},
-			{"app/page/route.go:29:", "element of []*tifa.Ctx"},
-			{"app/page/route.go:30:", "sent on a channel"},
-			{"app/page/route.go:31:", "[]*tifa.Ctx", "may not hold the Ctx"},
-			{"app/page/route.go:33:", "field V of type any"},
-			{"app/page/route.go:34:", "element of page.box[*tifa.Ctx]"},
-			{"app/page/route.go:35:", "address taken"},
-			{"app/page/route.go:37:", "existing variable"},
-			{"app/page/route.go:38:", "existing variable"},
-			{"app/page/route.go:39:", "package-level variable"},
-			{"app/page/route.go:40:", "defer statement"},
-			{"app/page/route.go:41:", "defer statement"},
-			{"app/page/route.go:42:", "several values"},
-			{"app/page/route.go:43:", "returned"},
-			{"app/page/route.go:44:", "passed as any to page.takeAny"},
-			{"app/page/route.go:44:", "generic function page.generic"},
-			{"app/page/route.go:44:", "generic function page.generic"},
-		}},
+		// Where the walk cannot see which function runs (an interface method, a function value, a
+		// function outside the module) it stops without a word. A go statement is followed like any call.
 		{"nofollow", [][]string{
-			{"app/page/route.go:24:", "interface method", "reader.Read", "pass the values"},
-			{"app/page/route.go:25:", "function value", "fn"},
-			{"app/page/route.go:26:", "go statement"},
-			{"app/page/route.go:27:", "fmt.Println", "outside this module"},
-			{"app/page/route.go:28:", "go statement"},
-			{"helpers/helpers.go:16:", "interface method", "sink.Take"},
-			{"helpers/helpers.go:22:", "c.Param", "called directly"},
-			{"helpers/helpers.go:28:", "variable of type helpers.querier"},
+			{"app/page/route.go:20:", "c.Query", "second parameter"},
+			{"app/page/route.go:28:", "c.Query", "second parameter"},
 			{"helpers/helpers.go:34:", "app/other does not wrap app/page"},
 		}},
 		{"typeerror", [][]string{
@@ -596,7 +540,6 @@ func TestViolations(t *testing.T) {
 		}},
 		{"sessiongeneric", [][]string{
 			{"app/page/route.go:7:", "tifa.Session", "type parameter", "generic"},
-			{"app/page/route.go:10:", "generic function", "page.current"},
 		}},
 		{"sessionmissing", [][]string{
 			{"app/page/route.go:8:", "tifa.Session", "no call of tifa.SetSession"},
@@ -636,9 +579,11 @@ func TestViolations(t *testing.T) {
 			{"app/variable/route.go:5:", "Cache must be true, false or a time.Duration constant"},
 			{"app/api/route.go:9:", "Cache is not allowed without page.tsx"},
 		}},
+		// Reported only in code that runs for pages with Cache alone: not in the root Layout, which wraps
+		// pages without it too, nor in auth.Lang, which a page without Cache calls too.
 		{"cacheidentity", [][]string{
-			{"app/route.go:5:", "c.Header sees only Host", "every other header is always empty", "app/feed has Cache", "Remove Cache"},
-			{"app/news/route.go:14:", "tifa.Session is always empty here", "app/news has Cache"},
+			{"app/blog/route.go:13:", "c.Cookie is always empty here", "every page below app/blog has Cache", "Remove Cache"},
+			{"app/news/route.go:15:", "tifa.Session is always empty here", "app/news has Cache"},
 			{"internal/auth/auth.go:6:", "c.Cookie is always empty here", "app/feed has Cache"},
 			{"app/flag/route.go:12:", "tifa.Session is always empty here", "app/flag has Cache"},
 		}},
@@ -1305,24 +1250,14 @@ func TestQueryStructFields(t *testing.T) {
 	}
 }
 
-// Helpers that receive the Ctx are followed, across packages, through two levels, through a struct
-// embedding the Ctx and through recursion. Each Load gets what it reaches. A helper that only reads
-// c.Context(), like auth.User, adds nothing and passes.
-func TestFollowHelpers(t *testing.T) {
-	m, err := analyzeApp(t, "follow")
-	if err != nil {
-		t.Fatalf("Analyze: %v", err)
-	}
-	loads := map[string]*Load{}
-	for _, r := range m.Routes {
-		loads[r.ID] = r.Load
-	}
-	list, other := loads["app/items/id+/route"], loads["app/items/id+/other/route"]
-	if !reflect.DeepEqual(list.Params, []string{"id"}) || !reflect.DeepEqual(list.Uses, []string{"app/layout"}) || len(list.Query) != 0 {
-		t.Errorf("list Load = %+v", list)
-	}
-	// The Layout is used through a helper of the list Load, and the other Load does not reach it.
-	if !reflect.DeepEqual(other.Params, []string{"id"}) || len(other.Uses) != 0 {
-		t.Errorf("other Load = %+v", other)
+// The Ctx goes anywhere a value can, as in an http.Handler: into an interface, a slice, a map, a
+// channel, a generic function, a function value, another goroutine, a variable of the package, a
+// function outside the module, c.Param and tifa.Use may be taken as values, and c.Request and
+// c.Writer may be called. The build checks what its walk reaches and says nothing of the rest.
+func TestCtxGoesAnywhere(t *testing.T) {
+	for _, app := range []string{"ctxflow", "ifacectx", "indirect", "escape"} {
+		if _, err := analyzeApp(t, app); err != nil {
+			t.Errorf("%s: %v", app, err)
+		}
 	}
 }

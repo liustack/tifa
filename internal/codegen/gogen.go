@@ -97,12 +97,12 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 	for _, l := range m.Layouts {
 		fmt.Fprintf(&app, "{\nID: %q,\nPath: %q,\n", l.ID, l.Path)
 		if l.Load != nil {
-			fmt.Fprintf(&app, "Load: %s,\n", imports.load(l.Package, l.Dir, "Layout", l.Load))
+			fmt.Fprintf(&app, "Load: %s,\nFunc: %s.Layout,\n", imports.load(l.Package, l.Dir, "Layout", l.Load), imports.alias(l.Package, l.Dir))
 			if l.Load.HTML {
 				app.WriteString("HTML: true,\n")
 			}
-			if len(l.Load.AllQuery) > 0 {
-				fmt.Fprintf(&app, "Query: %s,\n", stringSlice(l.Load.AllQuery))
+			if len(l.Load.Query) > 0 {
+				fmt.Fprintf(&app, "Query: %s,\n", stringSlice(l.Load.Query))
 				writeQueryKinds(&app, l.Load)
 			}
 		}
@@ -115,7 +115,7 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 	for _, r := range m.Routes {
 		fmt.Fprintf(&app, "{\nID: %q,\nPath: %q,\nPage: %t,\n", r.ID, r.Path, r.Page)
 		if r.Load != nil {
-			fmt.Fprintf(&app, "Load: %s,\n", imports.load(r.Package, r.Dir, "Load", r.Load))
+			fmt.Fprintf(&app, "Load: %s,\nFunc: %s.Load,\n", imports.load(r.Package, r.Dir, "Load", r.Load), imports.alias(r.Package, r.Dir))
 		}
 		for _, h := range r.Handlers {
 			fmt.Fprintf(&app, "%s: %s,\n", h.Method, imports.handler(r.Package, r.Dir, h))
@@ -134,8 +134,8 @@ func appSource(m *analyze.Manifest, settings map[string]string, fingerprint stri
 		if r.Load != nil && r.Load.HTML {
 			app.WriteString("HTML: true,\n")
 		}
-		if r.Load != nil && len(r.Load.AllQuery) > 0 {
-			fmt.Fprintf(&app, "Query: %s,\n", stringSlice(r.Load.AllQuery))
+		if r.Load != nil && len(r.Load.Query) > 0 {
+			fmt.Fprintf(&app, "Query: %s,\n", stringSlice(r.Load.Query))
 			writeQueryKinds(&app, r.Load)
 		}
 		if len(r.Languages) > 0 {
@@ -286,8 +286,7 @@ func gofmt(name, src string) ([]byte, error) {
 // queryKinds lists the query parameters of a Load that are a whole number, a float64 or a bool, or a
 // list of them, each sorted. They are the parameters of a number or a bool: an empty value of one is a
 // parameter that was not passed, and a whole number or a float may be written another way than the
-// shortest one, which the render leaves out or rewrites (renderQuery in server/page.go). A Layout that
-// tifa.Use passes reads no parameters, so these are all of AllQuery that are not text.
+// shortest one, which the render leaves out or rewrites (renderQuery in server/page.go).
 func queryKinds(l *analyze.Load) (whole, floats, bools []string) {
 	for _, f := range l.Fields {
 		switch {

@@ -139,19 +139,31 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, 
 			ok = false
 		}
 	}
-	if fn, _, _ := types.LookupFieldOrMethod(in, true, nil, "Validate"); fn != nil {
-		if fn, isFunc := fn.(*types.Func); isFunc {
-			s := fn.Signature()
-			takesCtx := s.Params().Len() == 1 && typeString(s.Params().At(0).Type()) == ctxType
-			if !(s.Params().Len() == 0 || takesCtx) || s.Results().Len() != 1 || typeString(s.Results().At(0).Type()) != "error" {
-				a.errorAt(fn.Pos(), "Validate must have the signature func() error or func(c *tifa.Ctx) error: it checks the input of %s before the handler runs", method)
-				ok = false
-			} else if takesCtx && !a.walkValidate(fn) {
-				ok = false
-			}
-		}
+	if fn, valid := a.readValidate(in, "the input of "+method+" before the handler runs"); !valid || fn != nil && !a.walkValidate(fn) {
+		ok = false
 	}
 	return ok, form
+}
+
+// readValidate looks up the Validate method of t, the input of a handler or the query struct of a
+// Load or Layout, and reports one of another signature, which tifa would not run. checks says what
+// it checks and when. It returns the method when it takes the Ctx, for the caller to walk its body.
+func (a *analyzer) readValidate(t types.Type, checks string) (withCtx *types.Func, ok bool) {
+	obj, _, _ := types.LookupFieldOrMethod(t, true, nil, "Validate")
+	fn, isFunc := obj.(*types.Func)
+	if !isFunc {
+		return nil, true
+	}
+	s := fn.Signature()
+	takesCtx := s.Params().Len() == 1 && typeString(s.Params().At(0).Type()) == ctxType
+	if !(s.Params().Len() == 0 || takesCtx) || s.Results().Len() != 1 || typeString(s.Results().At(0).Type()) != "error" {
+		a.errorAt(fn.Pos(), "Validate must have the signature func() error or func(c *tifa.Ctx) error: it checks %s", checks)
+		return nil, false
+	}
+	if takesCtx {
+		return fn, true
+	}
+	return nil, true
 }
 
 // checkFlatInput checks an input whose fields come as a flat list of names and string values: the
@@ -351,21 +363,17 @@ func decodeProblem(t types.Type, key bool) string {
 	return ""
 }
 
-// walkValidate checks the Validate method fn of an input that takes the Ctx, and the functions it
-// passes the Ctx to. The Ctx goes where the Load rules let it go (checkCtxFlow), and the calls on
-// it are those refusedInValidate lets through. It reports false when it reported an error.
+// walkValidate checks the Validate method fn of an input that takes the Ctx, and the functions of
+// the module it passes the Ctx to: the calls on it are those refusedInValidate lets through. A
+// Validate the build cannot read, outside the module, is not checked. It reports false when it
+// reported an error.
 func (a *analyzer) walkValidate(fn *types.Func) bool {
 	src, found := a.funcs[fn.Origin().FullName()]
-	if !found && fn.Pkg() != nil && a.modulePkgs[fn.Pkg().Path()] {
-		return true // a module package that does not type check, its errors are reported
-	}
 	if !found || src.decl.Body == nil {
-		a.errorAt(fn.Pos(), "%s receives the Ctx and is outside this module, so the analyzer cannot read its source: declare the input type in this module", fn.FullName())
-		return false
+		return true
 	}
 	before := len(a.errs)
 	w := &loadWalk{a: a, load: &Load{}, visited: map[string]bool{fn.Origin().FullName(): true}, validate: true}
-	a.checkCtxFlow(src.pkg.TypesInfo, src.decl.Body)
 	w.body(src.pkg.TypesInfo, src.decl.Body, false)
 	return len(a.errs) == before
 }

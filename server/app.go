@@ -3,12 +3,15 @@ package server
 import (
 	"fmt"
 	"io/fs"
+	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/liustack/tifa"
+	"github.com/liustack/tifa/internal/core"
 )
 
 // App is the application as the generated main describes it: the hooks of hooks.go, the
@@ -61,13 +64,17 @@ type Layout struct {
 	Path string
 	// Load returns the result of the Layout function through tifa.Use, nil when the Layout has none.
 	Load func(c *tifa.Ctx) (any, error)
+	// Func is the Layout function itself, which Load runs: the runs of the function get the view
+	// of the request of this Layout by it (see loadViews).
+	Func any
 	// HTML is true when the result of the Layout function may hold a tifa.HTML value: a page the
 	// server renders carries its data with a marker in place of each one (see pageText).
 	HTML bool
 	// Languages are the languages of the area the Layout is in, the default one first, nil for a
 	// Layout outside every area.
 	Languages []string
-	// Query lists the query parameters the Layout function reads (AllQuery), sorted.
+	// Query lists the query parameters the Layout function takes, the fields of its second
+	// parameter, sorted.
 	Query []string
 	// Whole, Floats and Bools list those of Query that are a whole number, a float64 or a bool, or a
 	// list of them, sorted. An empty value of one is a parameter that was not passed, and a number may
@@ -87,6 +94,8 @@ type Route struct {
 	Page bool
 	// Load returns the result of the route's Load through tifa.Use, nil when the route has none.
 	Load func(c *tifa.Ctx) (any, error)
+	// Func is the Load function itself, as Layout.Func.
+	Func any
 	// The handlers of route.go, named after their HTTP methods, nil when absent. A page has no GET.
 	GET, POST, PUT, PATCH, DELETE func(c *tifa.Ctx) error
 	// SSR is false when the route or a Layout in its chain sets SSR = false.
@@ -106,7 +115,7 @@ type Route struct {
 	// Languages are the languages of the area the route is in, the default one first. A route
 	// outside every area has none: it is never prefixed, in both prefix modes.
 	Languages []string
-	// Query lists the query parameters the Load reads (AllQuery), sorted.
+	// Query lists the query parameters the Load takes, the fields of its second parameter, sorted.
 	Query []string
 	// Whole, Floats and Bools list those of Query that are a whole number, a float64 or a bool, or a
 	// list of them, sorted.
@@ -195,6 +204,7 @@ func (s *server) register(layouts []Layout, routes []Route) {
 		}
 	}
 	s.candidates = notFoundCandidates(layouts, routes)
+	s.views = loadViews(layouts, routes)
 	// A route for the rest of the path, such as /files/{path...}, also answers /files with an
 	// empty parameter, unless a route has that Path. The browser router writes the URL with an
 	// empty rest that way, and ServeMux alone would redirect it to /files/, which the browser
@@ -208,6 +218,57 @@ func (s *server) register(layouts []Layout, routes []Route) {
 			s.mux.Handle(prefix, routeHandler{s: s, pattern: r.Path, methods: s.routes[r.Path]})
 		}
 	}
+}
+
+// loadViews makes what each Load and Layout function of the app sees of the request, by the code
+// pointer of the function, which is how tifa.Use tells their runs apart: the query parameters it
+// declared, spelled as the render key spells them, and for a Layout none of the path parameters
+// of the folders below it. The browser keeps the data of a Layout while the visitor moves between
+// the pages below it, and loads it again when one of its own parameters changes.
+func loadViews(layouts []Layout, routes []Route) map[uintptr]*core.LoadView {
+	var params []string
+	for _, l := range layouts {
+		params = append(params, pathParams(l.Path)...)
+	}
+	for _, r := range routes {
+		params = append(params, pathParams(r.Path)...)
+	}
+	params = sortedSet(params)
+	views := map[uintptr]*core.LoadView{}
+	add := func(id string, fn any, query, whole, floats, bools []string, hide []string) {
+		if fn == nil {
+			return
+		}
+		f := reflect.ValueOf(fn)
+		if f.Kind() != reflect.Func {
+			panic(fmt.Sprintf("tifa: Func of %s is a %T, not a function", id, fn))
+		}
+		kinds := queryKinds{whole, floats, bools}.sorted()
+		views[f.Pointer()] = &core.LoadView{
+			RawQuery: func(u *url.URL) string { return strings.TrimPrefix(renderQuery(u, query, kinds), "?") },
+			Hide:     hide,
+		}
+	}
+	for _, l := range layouts {
+		own := pathParams(l.Path)
+		hide := slices.DeleteFunc(slices.Clone(params), func(p string) bool { return slices.Contains(own, p) })
+		add(l.ID, l.Func, sortedSet(l.Query), l.Whole, l.Floats, l.Bools, hide)
+	}
+	for _, r := range routes {
+		add(r.ID, r.Func, sortedSet(r.Query), r.Whole, r.Floats, r.Bools, nil)
+	}
+	return views
+}
+
+// pathParams lists the names of the parameters of a path in ServeMux syntax.
+func pathParams(path string) []string {
+	var names []string
+	for _, seg := range segmentsOf(path) {
+		if seg.param && seg.text != "$" {
+			names = append(names, seg.text)
+		}
+	}
+	return names
 }
 
 // load is one Load of a page's chain.

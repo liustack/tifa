@@ -2,7 +2,7 @@
 summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: 7dab6fe196a5
+translatedFrom: 970098ffbf09
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -386,7 +386,7 @@ go tool tifa build
 | 文件 | 内容 |
 | --- | --- |
 | `main.go` | 用 `go:embed` 嵌入前端输出 `dist/`，把它设为 `tifaapp.App` 的 `Dist`，并调用 `server.Main`（在 [`tifa dev`](dev.zh-CN.md) 下是 `server.DevMain`） |
-| `tifaapp/app.go` | 包 `tifaapp`，里面只有一个变量 `App`：`tifa build` 找到的那个应用。它只填入 `hooks.go` 里真正存在的 hook，把 `tifa.yaml` 的运行时设置作为 Go 代码保存（`Settings`），当根包的 `options.go` 定义了设置、或它的 `content.go` 声明了集合并且没有 `hooks.go` 时，会导入根包，并注册会话类型。每个 `Load` 和 `Layout` 函数会被包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，布局则是 `pkg.Layout`。带输入或结果的方法处理函数会经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind` 解码输入（GET 和 DELETE 用 `(*tifa.Ctx).BindQuery`），运行它的 `Validate`，并写出结果。`Fingerprint` 是这个文件的哈希，`tifatest.Start` 会拿它和代码核对。应用的测试以 `<module>/.tifa/tifaapp` 导入它（见[测试](../pages-and-data/testing-apps.zh-CN.md#testing)） |
+| `tifaapp/app.go` | 包 `tifaapp`，里面只有一个变量 `App`：`tifa build` 找到的那个应用。它只填入 `hooks.go` 里真正存在的 hook，把 `tifa.yaml` 的运行时设置作为 Go 代码保存（`Settings`），当根包的 `options.go` 定义了设置、或它的 `content.go` 声明了集合并且没有 `hooks.go` 时，会导入根包，并注册会话类型。每个 `Load` 和 `Layout` 函数会被包成 `func(c *tifa.Ctx) (any, error) { return tifa.Use(c, pkg.Load) }`，布局则是 `pkg.Layout`，同时还作为 `Func` 给出，服务器靠它认出这个函数的每次运行，并给每次运行它能看到的那部分请求。带输入或结果的方法处理函数会经过 `server.Input`、`server.Output` 或 `server.InputOutput`，它们用 `(*tifa.Ctx).Bind` 解码输入（GET 和 DELETE 用 `(*tifa.Ctx).BindQuery`），运行它的 `Validate`，并写出结果。`Fingerprint` 是这个文件的哈希，`tifatest.Start` 会拿它和代码核对。应用的测试以 `<module>/.tifa/tifaapp` 导入它（见[测试](../pages-and-data/testing-apps.zh-CN.md#testing)） |
 | `routes.tsx` | TanStack 路由树和 `Register` 类型注册 |
 | `session.gen.ts` | `SessionData`，即会话类型的 `Exposed` 方法返回的 JSON（它是 `Exposed` 返回的那个 Go 结构体的别名，文件里按 Go 名字声明了这个结构体），以及 `SessionEnabled`（应用调用了 `tifa.SetSession` 时为 `true`）。当应用没有会话，或它的类型没有 `Exposed` 时，`SessionData` 是 `never`。页面从 `tifa/client` 导入这个类型（见[会话](../pages-and-data/sessions.zh-CN.md)） |
 | `i18n.gen.ts` | `i18n`，给浏览器运行时用的应用语言信息，当没有文件夹带 `_locales` 文件夹时是 `undefined`。其中有：默认语言，`i18n.prefix` 是否为 `always`，站点的语言，以及 `routes`，即路由树里属于某个区域的每个路由的语言，按它的 TanStack 路由 ID 索引（布局、页面，以及显示某个布局的 404 的路由）。不属于任何区域的路由不在 `routes` 里：它没有语言，也没有前缀 |
@@ -490,7 +490,7 @@ Tifa 插件会改写 SSR 包里的许多 npm 包，比如 React DOM、TanStack R
 - 每个布局路由都有一个 `notFoundComponent`，它显示这个布局的 `ErrorBoundary`，或最近的祖先布局的，带一个状态为 404 的 `TifaError`（运行时里是 `missing`）。路由器以 `notFoundMode: 'fuzzy'` 运行：对于没有任何路由匹配的 URL，它加载匹配 URL 开头部分的那些路由，并在其中最深的、有 `notFoundComponent` 的那个路由的 `Outlet` 里显示它。所以 404 显示在 URL 所匹配的最深的布局里面，服务器找到的也是这一个（见 [404](../pages-and-data/errors.zh-CN.md#404)）。
 - 页面路径是它的文件夹相对于它的布局的文件夹的部分。位于布局自己的文件夹里的页面，是那个布局的 index 路由 `/`，路由 ID 是 `/_app/projects/$project/`。`name+` 变成 `$name`，`name++` 变成 `$`（参数名是 `_splat`）。字面的文件夹名只包含 ServeMux、路由器和 URL 读起来含义相同的字符，所以按原样写出。
 - 如果任何两个生成的路由最终得到同一个 TanStack ID，构建会失败。
-- 带 `Load` 的路由会得到一个 `loader`，并对它的数据多久算新鲜使用 TanStack 的默认值：立即过期（`staleTime: 0`），预加载的数据重用 30 秒，再次访问时显示缓存的数据，同时在后台重新加载（`defaultStaleReloadMode: 'background'`）。运行时里没有任何东西会在写入之后重新加载数据，见 [handlers.md](../pages-and-data/handlers.zh-CN.md#calling-method-handlers-from-the-browser)。`loaderDeps` 只包含 `AllQuery` 里的查询参数，也就是 `Load` 的查询结构体的字段。`remountDeps` 是 `Load` 读取的路径参数（包括通过 `tifa.Use` 使用的布局所读取的），没有查询参数：另一个查询会重新加载数据，并保留组件和它的状态，就像 TanStack Router 默认做的那样。当路径里变化的参数没有任何 `Load` 读取时，组件也不会被重新挂载。没有 `Load` 的路由从不会被重新挂载。
+- 带 `Load` 的路由会得到一个 `loader`，并对它的数据多久算新鲜使用 TanStack 的默认值：立即过期（`staleTime: 0`），预加载的数据重用 30 秒，再次访问时显示缓存的数据，同时在后台重新加载（`defaultStaleReloadMode: 'background'`）。运行时里没有任何东西会在写入之后重新加载数据，见 [handlers.md](../pages-and-data/handlers.zh-CN.md#calling-method-handlers-from-the-browser)。`loaderDeps` 只包含 `Query` 里的查询参数，也就是 `Load` 的查询结构体的字段。`remountDeps` 是这个路由的文件夹和它上层文件夹的路径参数，不管 `Load` 读了什么，没有查询参数：另一个查询会重新加载数据，并保留组件和它的状态，就像 TanStack Router 默认做的那样。没有 `Load` 的路由也一样会重新挂载。
 - 当 `Load` 失败，包括 404 时，loader 会抛出一个带状态和公开消息的 `TifaError`，由这个路由的 `errorComponent` 显示。页面路由的 `errorComponent` 是它自己的 `ErrorBoundary`，或最近的祖先布局的。布局路由的是它的父布局的，所以失败的布局会显示上一层的 `ErrorBoundary`。
 - 路由器把路径当作区分大小写的，和 ServeMux 一样。查询参数按 Go 读查询字符串的方式解析：值是字符串，重复的键是字符串数组，没有东西会被当作 JSON 解析。路由的 codec 随后会按类型转换 `Load` 读的那些参数，见下一条。写回 URL 时，它们遵循浏览器和表单的风格（空格变成 `+`），常见的 URL 保持原样。Go 的 `url.ParseQuery` 会读成不同含义的字符（`;&=+%#`）总是被百分号编码，所以重新加载时 Go 得到同样的值。
 - 一个路由，如果它的 `Load` 或 `Layout` 读取查询参数，就会得到一个由运行时的 `searchCodec` 按每个字段的种类生成的 `validateSearch`（`"page": "int"`、`"color": "string[]"`），还有按同样种类写出类型的 `PageSearch`（或 `LayoutSearch`），给 `Link`、`navigate` 和 `useSearch` 用，见[Link 和 navigate 里的查询参数](../pages-and-data/navigation.zh-CN.md#query-parameters-in-link-and-navigate)。codec 按 Go 解码器的规则转换值，遇到不合法的值就抛错，路由上的 `onError` 再把 TanStack 包出来的东西（一个 `SearchParamError`）换成状态为 400 的 `TifaError`，消息和 Go 返回的一样，所以 `ErrorBoundary` 不管错误来自哪边，看到的都是同一个错误。Go 不读的参数保持地址里的样子。TanStack 把结果盖在解析出的查询上，所以没传的参数，包括空值，会返回 `undefined`，下面的路由拿到的是上面路由转换过的值。接管页面之前，浏览器会把地址写成路由器读出来的样子，去掉空数字和空 bool，并把数字写成最短的写法，和服务端渲染页面时一样，这样路由器不会把页面再加载一遍。

@@ -12,13 +12,13 @@ import (
 	"golang.org/x/tools/go/types/typeutil"
 )
 
-// fixHint tells the user how to change a call the analyzer cannot follow.
-const fixHint = `read the path parameters with c.Param("name") in Load, or in a function the analyzer follows, and pass the values instead, take the query parameters as the second parameter of Load and pass its fields, or pass c.Context() when only the request context is needed`
-
-// loadWalk collects what one Load reads: the c.Param names and the tifa.Use calls in
-// its body and in every function it passes the Ctx to, followed through any number of calls
-// inside the module. Each Load gets its own walk, so a helper shared by several Loads counts for
-// each of them.
+// loadWalk collects what one Load reads: the c.Param names and the tifa.Use calls in its body
+// and in every function of the module it passes the Ctx to, as an argument or as the receiver of a
+// method, followed through any number of calls. The walk is best effort: it stops where it cannot
+// see which function runs (an interface method, a function value, a function outside the module)
+// and says nothing about it, as the Ctx may go anywhere a value can. What it reaches is checked,
+// what it does not is the app's own, as it is for an http.Handler. Each Load gets its own walk, so
+// a helper shared by several Loads counts for each of them.
 type loadWalk struct {
 	a        *analyzer
 	owner    string // directory ID of the route or Layout that declares the Load
@@ -39,14 +39,21 @@ type useCall struct {
 }
 
 // walkLoad walks the function decl of pkg that loads the data of the route or Layout in the
-// directory owner. layout reports whether it is a Layout function.
-func (a *analyzer) walkLoad(pkg *packages.Package, owner string, layout bool, load *Load, decl *ast.FuncDecl) []paramUse {
+// directory owner. layout reports whether it is a Layout function. validate is the Validate
+// method of its query struct when that takes the Ctx: it runs with the Ctx of the function, before
+// it, so the walk goes through it as through a function it calls.
+func (a *analyzer) walkLoad(pkg *packages.Package, owner string, layout bool, load *Load, decl *ast.FuncDecl, validate *types.Func) []paramUse {
 	w := &loadWalk{a: a, owner: owner, load: load, visited: map[string]bool{}, layout: layout}
 	if layout {
 		w.self = pkg.PkgPath
 	}
-	a.checkCtxFlow(pkg.TypesInfo, decl.Body)
 	w.body(pkg.TypesInfo, decl.Body, false)
+	if validate != nil {
+		key := validate.Origin().FullName()
+		if src, ok := a.funcs[key]; ok {
+			w.follow(key, src)
+		}
+	}
 	return w.uses
 }
 
@@ -55,14 +62,8 @@ func (w *loadWalk) body(info *types.Info, body *ast.BlockStmt, helper bool) {
 	defer func() { w.unrun = saved }()
 	w.unrun = unrunClosures(body)
 	ast.Inspect(body, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.GoStmt:
-			if mentionsCtx(info, n.Call) {
-				w.a.errorAt(n.Pos(), "a go statement hands the Ctx to another goroutine, which the analyzer does not follow: %s", fixHint)
-				return false
-			}
-		case *ast.CallExpr:
-			w.call(info, n, helper)
+		if call, ok := n.(*ast.CallExpr); ok {
+			w.call(info, call, helper)
 		}
 		return true
 	})
@@ -79,12 +80,9 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 			return
 		}
 		// checkUses reports arguments that are not the Layout function of a wrapping Layout.
-		if fn := packageFunc(info, call.Args[1]); fn != nil && fn.Name() == "Layout" {
-			if fn.Pkg().Path() == w.self {
-				a.errorAt(call.Args[1].Pos(), "tifa.Use(c, Layout) is reached from the Layout function of %s itself, which would wait for its own result", w.owner)
-				return
-			}
-			a.used[w.load] = append(a.used[w.load], fn.Pkg().Path())
+		if fn := packageFunc(info, call.Args[1]); fn != nil && fn.Name() == "Layout" && fn.Pkg().Path() == w.self {
+			a.errorAt(call.Args[1].Pos(), "tifa.Use(c, Layout) is reached from the Layout function of %s itself, which would wait for its own result", w.owner)
+			return
 		}
 		if helper {
 			a.helperUses = append(a.helperUses, useCall{info: info, call: call, caller: w.owner})
@@ -100,15 +98,14 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 			a.errorAt(call.Pos(), "c.%s cannot be used in Load, Layout or the functions they call: they take their query parameters as a second parameter, which the build and the browser can read. Declare the parameters in a struct and take it as the second parameter, for example type Filter struct { Sort string `json:\"sort\"` } and func %s(c *tifa.Ctx, q Filter) (T, error), then read q.Sort. c.%s is for method handlers, Validate and OnRequest", method, what, method)
 			return
 		}
-		if len(call.Args) != 1 {
+		// A name that is not a constant is read when the page runs, and the build checks only the
+		// names it can see.
+		if method != "Param" || len(call.Args) != 1 {
 			return
 		}
-		tv := info.Types[call.Args[0]]
-		if tv.Value == nil || tv.Value.Kind() != constant.String {
-			a.errorAt(call.Pos(), "the argument of c.%s must be a constant string, the analyzer reads parameter names from it", method)
-			return
+		if tv := info.Types[call.Args[0]]; tv.Value != nil && tv.Value.Kind() == constant.String {
+			w.uses = append(w.uses, paramUse{method: method, name: constant.StringVal(tv.Value), pos: call.Pos()})
 		}
-		w.uses = append(w.uses, paramUse{method: method, name: constant.StringVal(tv.Value), pos: call.Pos()})
 		return
 	}
 	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok {
@@ -138,51 +135,26 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	if info.Types[call.Fun].IsType() || !callCarriesCtx(info, call) {
 		return
 	}
-	switch callee := typeutil.Callee(info, call).(type) {
-	case *types.Builtin:
-	case *types.Func:
-		if callee.Pkg() != nil && a.isFramework(callee.Pkg().Path()) {
-			return
-		}
-		if recv := callee.Signature().Recv(); recv != nil && types.IsInterface(recv.Type()) {
-			a.errorAt(call.Pos(), "%s is an interface method that receives the Ctx, the analyzer cannot tell which implementation runs: %s", methodName(callee), fixHint)
-			return
-		}
-		key := callee.Origin().FullName()
-		if src, ok := a.funcs[key]; ok {
-			w.follow(key, src)
-			return
-		}
-		if callee.Pkg() != nil && a.modulePkgs[callee.Pkg().Path()] {
-			return // a module package that does not type check, its errors are reported
-		}
-		a.errorAt(call.Pos(), "%s is outside this module and receives the Ctx, the analyzer cannot read its source: %s", callee.FullName(), fixHint)
-	default: // a variable, parameter or field of function type, or a call result
-		if _, ok := ast.Unparen(call.Fun).(*ast.FuncLit); ok {
-			return // the literal's body is inspected as part of the enclosing body
-		}
-		a.errorAt(call.Pos(), "%s is a function value that receives the Ctx, the analyzer cannot tell which function runs: call a named function, or %s", types.ExprString(call.Fun), fixHint)
+	// A builtin, a function value, an interface method and a function outside the module are not
+	// followed: the build cannot read which code runs. A function literal called on the spot is
+	// inspected as part of the body around it.
+	callee, ok := typeutil.Callee(info, call).(*types.Func)
+	if !ok || callee.Pkg() != nil && a.isFramework(callee.Pkg().Path()) {
+		return
+	}
+	key := callee.Origin().FullName()
+	if src, ok := a.funcs[key]; ok {
+		w.follow(key, src)
 	}
 }
 
-// follow walks the body of a function in the module that receives the Ctx. The checks that do
-// not depend on the Load run once per function: Param and Query must be called directly there
-// too, and the Ctx must not be converted to an interface with these methods.
+// follow walks the body of a function in the module that receives the Ctx.
 func (w *loadWalk) follow(key string, src funcSource) {
 	if w.visited[key] || src.decl.Body == nil {
 		return
 	}
 	w.visited[key] = true
-	a := w.a
-	info := src.pkg.TypesInfo
-	if !a.checked[key] {
-		a.checked[key] = true
-		a.checkCtxFlow(info, src.decl.Body)
-		if !a.appPkgs[src.pkg.PkgPath] { // checkDirectCalls covers the application packages whole
-			a.checkDirectCallsIn(info, src.decl)
-		}
-	}
-	w.body(info, src.decl.Body, true)
+	w.body(src.pkg.TypesInfo, src.decl.Body, true)
 }
 
 // callCarriesCtx reports whether a call passes the Ctx, as an argument or as the receiver of a
@@ -199,20 +171,6 @@ func callCarriesCtx(info *types.Info, call *ast.CallExpr) bool {
 		}
 	}
 	return false
-}
-
-// mentionsCtx reports whether any variable inside n holds the Ctx.
-func mentionsCtx(info *types.Info, n ast.Node) bool {
-	found := false
-	ast.Inspect(n, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok {
-			if v, ok := info.Uses[id].(*types.Var); ok && containsCtx(v.Type()) {
-				found = true
-			}
-		}
-		return !found
-	})
-	return found
 }
 
 // containsCtx reports whether a value of type t holds a tifa.Ctx: the Ctx itself, a pointer to it,
@@ -258,6 +216,19 @@ func containsCtxSeen(t types.Type, seen map[types.Type]bool) bool {
 	return false
 }
 
+func isCtxNamed(n *types.Named) bool {
+	obj := n.Obj()
+	return obj.Pkg() != nil && obj.Pkg().Path() == corePath && obj.Name() == "Ctx"
+}
+
+// shortType writes a type with package names instead of import paths.
+func shortType(t types.Type) string {
+	if t == nil {
+		return "no parameter"
+	}
+	return types.TypeString(t, shortQualifier)
+}
+
 // isFrameworkPath reports whether an import path belongs to tifa itself, whose functions read
 // no parameters on the application's behalf.
 func (a *analyzer) isFramework(path string) bool {
@@ -268,18 +239,11 @@ func isFrameworkPath(path string) bool {
 	return path == tifaPath || strings.HasPrefix(path, tifaPath+"/")
 }
 
-// methodName names an interface method by its interface: reader.Read.
-func methodName(fn *types.Func) string {
-	if named, ok := types.Unalias(derefType(fn.Signature().Recv().Type())).(*types.Named); ok {
-		return named.Obj().Name() + "." + fn.Name()
-	}
-	return fn.Name()
-}
-
 // refusedInLoad returns why fn may not run in Load, Layout and the functions they call, and an
 // empty string when it may. The refused functions are the methods of the Ctx that read the
 // request where the analyzer cannot see which parameters are read, so the page would not load
-// again when they change.
+// again when they change, and those that write the response, which the framework writes for the
+// page.
 func refusedInLoad(fn *types.Func) string {
 	recv := fn.Signature().Recv()
 	if recv == nil {
@@ -289,12 +253,12 @@ func refusedInLoad(fn *types.Func) string {
 		return ""
 	}
 	switch fn.Name() {
-	case "Request", "Writer":
-		return "c." + fn.Name() + " gives the raw request or response, where the analyzer cannot see which path parameters are read: in Load and the functions it calls, use c.Param, c.Header, c.Cookie, c.Path (the path of the page) or c.Context() instead, and take the query parameters as the second parameter of Load. c.Request and c.Writer are for the GET, POST, PUT, PATCH and DELETE handlers and OnRequest"
 	case "BindQuery":
 		return `c.BindQuery decodes the query string in a method handler, where the response is the handler's own: Load and Layout take their query parameters as the second parameter, for example type Filter struct { Page int ` + "`json:\"page\"`" + ` } and func Load(c *tifa.Ctx, q Filter) (T, error)`
 	case "Bind":
 		return `c.Bind reads the request body, which a page load and the data request of a navigation do not have: in Load and the functions it calls, take the query parameters as the second parameter, func Load(c *tifa.Ctx, q Filter) (T, error). c.Bind is for the POST, PUT, PATCH and DELETE handlers`
+	case "JSON", "Text", "NoContent":
+		return "c." + fn.Name() + " writes the response, which tifa writes for a page from what its Load and Layout functions return: in Load, Layout and the functions they call, return the data, an error such as tifa.Error{Status: 404, Message: \"no such order\"}, or tifa.Redirect(url, 302). c." + fn.Name() + " is for method handlers and OnRequest"
 	}
 	return ""
 }
@@ -385,7 +349,7 @@ func refusedInLayout(fn *types.Func) string {
 		return ""
 	}
 	if fn.Name() == "Path" {
-		return "c.Path is the path of the page, which a Layout does not have: its data is shared by every page below it and is not loaded again when the visitor goes from one of them to another. Call c.Path in the Load of a page, or in a method handler"
+		return "c.Path is the path of the page, which goes stale in a Layout: its data is not loaded again when the visitor moves between the pages below it. For what follows the page, such as breadcrumbs or the current entry of a menu, read the address in layout.tsx with useRouterState({ select: (s) => s.location.pathname }) from @tanstack/react-router. See docs/pages-and-data/layouts.md#breadcrumbs-and-the-current-page"
 	}
 	return ""
 }
