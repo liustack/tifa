@@ -78,7 +78,7 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	}
 	if isTifaUse(info, call) {
 		if w.validate {
-			a.errorAt(call.Pos(), "tifa.Use loads the data of a Layout for a page: it has no place in Validate or the functions it calls, which only check the input")
+			a.errorAtDoc(docHandlers, call.Pos(), "tifa.Use loads the data of a Layout for a page: it has no place in Validate or the functions it calls, which only check the input")
 			return
 		}
 		if len(call.Args) != 2 {
@@ -86,7 +86,7 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 		}
 		// checkUses reports arguments that are not the Layout function of a wrapping Layout.
 		if fn := packageFunc(info, call.Args[1]); fn != nil && fn.Name() == "Layout" && fn.Pkg().Path() == w.self {
-			a.errorAt(call.Args[1].Pos(), "tifa.Use(c, Layout) is reached from the Layout function of %s itself, which would wait for its own result", w.owner)
+			a.errorAtDoc(docLayout, call.Args[1].Pos(), "tifa.Use(c, Layout) is reached from the Layout function of %s itself, which would wait for its own result", w.owner)
 			return
 		}
 		if helper {
@@ -100,7 +100,7 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 			if w.layout {
 				what = "Layout"
 			}
-			a.errorAt(call.Pos(), "c.%s cannot be used in Load, Layout or the functions they call: they take their query parameters as a second parameter, which the build and the browser can read. Declare the parameters in a struct and take it as the second parameter, for example type Filter struct { Sort string `json:\"sort\"` } and func %s(c *tifa.Ctx, q Filter) (T, error), then read q.Sort. c.%s is for method handlers, Validate and OnRequest", method, what, method)
+			a.errorAtDoc(docLoadCtx, call.Pos(), "c.%s cannot be used in Load, Layout or the functions they call: they take their query parameters as a second parameter, which the build and the browser can read. Declare the parameters in a struct and take it as the second parameter, for example type Filter struct { Sort string `json:\"sort\"` } and func %s(c *tifa.Ctx, q Filter) (T, error), then read q.Sort. c.%s is for method handlers, Validate and OnRequest", method, what, method)
 			return
 		}
 		// A name that is not a constant is read when the page runs, and the build checks only the
@@ -116,7 +116,7 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	if fn, ok := typeutil.Callee(info, call).(*types.Func); ok {
 		if w.validate {
 			if why := refusedInValidate(fn); why != "" {
-				a.errorAt(call.Pos(), "%s", why)
+				a.errorAtDoc(docHandlers, call.Pos(), "%s", why)
 				return
 			}
 		} else {
@@ -124,15 +124,15 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 				a.identity[w.load] = append(a.identity[w.load], identityRead{pos: call.Pos(), what: what})
 			}
 			if why := refusedInLayout(fn); why != "" && w.layout {
-				a.errorAt(call.Pos(), "%s", why)
+				a.errorAtDoc(docBreadcrumbs, call.Pos(), "%s", why)
 				return
 			}
 			if why := refusedInLoad(fn); why != "" {
-				a.errorAt(call.Pos(), "%s", why)
+				a.errorAtDoc(docLoadCtx, call.Pos(), "%s", why)
 				return
 			}
 			if isSessionWrite(fn) && !w.inUnrunClosure(call.Pos()) {
-				a.errorAt(call.Pos(), "tifa.%s cannot run in Load, Layout or the functions they call: it changes the cookie of the response, and a page load or a data request must not sign anyone in or out. Call it in OnRequest before next, or in a method handler (POST, PUT, PATCH, DELETE)", fn.Name())
+				a.errorAtDoc(docSessionWhere, call.Pos(), "tifa.%s cannot run in Load, Layout or the functions they call: it changes the cookie of the response, and a page load or a data request must not sign anyone in or out. Call it in OnRequest before next, or in a method handler (POST, PUT, PATCH, DELETE)", fn.Name())
 				return
 			}
 		}
@@ -386,7 +386,7 @@ func refusedInLayout(fn *types.Func) string {
 		return ""
 	}
 	if fn.Name() == "Path" {
-		return "c.Path is the path of the page, which goes stale in a Layout: its data is not loaded again when the visitor moves between the pages below it. For what follows the page, such as breadcrumbs or the current entry of a menu, read the address in layout.tsx with useRouterState({ select: (s) => s.location.pathname }) from @tanstack/react-router. See docs/pages-and-data/layouts.md#breadcrumbs-and-the-current-page"
+		return "c.Path is the path of the page, which goes stale in a Layout: its data is not loaded again when the visitor moves between the pages below it. For what follows the page, such as breadcrumbs or the current entry of a menu, read the address in layout.tsx with useRouterState({ select: (s) => s.location.pathname }) from @tanstack/react-router"
 	}
 	return ""
 }

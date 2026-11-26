@@ -53,7 +53,7 @@ func (a *analyzer) settings() []string {
 				}
 				call, ok := allowed[id]
 				if !ok {
-					a.errorAt(id.Pos(), "tifa.%s defines an option of the app, which is written only in a package-level var of options.go in the root of the app, such as var DBURL = tifa.String(\"db.url\", \"app.db\", \"Database file\")", id.Name)
+					a.errorAtDoc(docOptions, id.Pos(), "tifa.%s defines an option of the app, which is written only in a package-level var of options.go in the root of the app, such as var DBURL = tifa.String(\"db.url\", \"app.db\", \"Database file\")", id.Name)
 					return true
 				}
 				if key, ok := a.settingKey(id.Name, call, keys); ok {
@@ -73,7 +73,7 @@ func (a *analyzer) settingKey(fn string, call *ast.CallExpr, keys []string) (str
 	}
 	lit, ok := ast.Unparen(call.Args[0]).(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
-		a.errorAt(call.Args[0].Pos(), "the key of tifa.%s must be a string literal, such as \"db.url\", so that tifa build can read it", fn)
+		a.errorAtDoc(docOptions, call.Args[0].Pos(), "the key of tifa.%s must be a string literal, such as \"db.url\", so that tifa build can read it", fn)
 		return "", false
 	}
 	key, err := strconv.Unquote(lit.Value)
@@ -84,7 +84,7 @@ func (a *analyzer) settingKey(fn string, call *ast.CallExpr, keys []string) (str
 		err = config.Clash(key, keys)
 	}
 	if err != nil {
-		a.errorAt(lit.Pos(), "%v", err)
+		a.errorAtDoc(docOptions, lit.Pos(), "%v", err)
 		return "", false
 	}
 	return key, true

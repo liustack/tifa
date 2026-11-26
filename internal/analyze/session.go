@@ -73,7 +73,7 @@ func (a *analyzer) session(pkgs []*packages.Package) *Session {
 	}
 	if first == nil {
 		for _, c := range calls {
-			a.errorAt(c.pos, "tifa.%s is called, but there is no call of tifa.SetSession: a request can only have a session after one signs in", c.name)
+			a.errorAtDoc(docSession, c.pos, "tifa.%s is called, but there is no call of tifa.SetSession: a request can only have a session after one signs in", c.name)
 			break // one report is enough, the fix is the same for every call
 		}
 		return nil
@@ -84,7 +84,7 @@ func (a *analyzer) session(pkgs []*packages.Package) *Session {
 		return c.typ != nil && containsTypeParam(c.typ)
 	}
 	if generic(*first) {
-		a.errorAt(first.pos, "tifa.SetSession is called with a type parameter inside a generic function, where the analyzer cannot tell which session type it gets: call it with the session type itself, in a function that is not generic")
+		a.errorAtDoc(docSession, first.pos, "tifa.SetSession is called with a type parameter inside a generic function, where the analyzer cannot tell which session type it gets: call it with the session type itself, in a function that is not generic")
 		return nil
 	}
 	ok := true
@@ -94,14 +94,14 @@ func (a *analyzer) session(pkgs []*packages.Package) *Session {
 		switch {
 		case c.typ == nil:
 		case generic(c):
-			a.errorAt(c.pos, "tifa.%s is called with a type parameter inside a generic function, where the analyzer cannot tell which session type it gets: call it with the session type itself, in a function that is not generic", c.name)
+			a.errorAtDoc(docSession, c.pos, "tifa.%s is called with a type parameter inside a generic function, where the analyzer cannot tell which session type it gets: call it with the session type itself, in a function that is not generic", c.name)
 		case !types.Identical(c.typ, first.typ):
-			a.errorAt(c.pos, "tifa.%s[%s] uses another session type than tifa.SetSession[%s] at %s:%d: use one session type for the whole app", c.name, shortType(c.typ), shortType(first.typ), firstPos.Filename, firstPos.Line)
+			a.errorAtDoc(docSession, c.pos, "tifa.%s[%s] uses another session type than tifa.SetSession[%s] at %s:%d: use one session type for the whole app", c.name, shortType(c.typ), shortType(first.typ), firstPos.Filename, firstPos.Line)
 		}
 	}
 	s := first.typ
 	if _, isStruct := s.Underlying().(*types.Struct); !isStruct {
-		a.errorAt(first.pos, "the session type %s must be a struct: the session is stored as the JSON of its fields", typeString(s))
+		a.errorAtDoc(docSession, first.pos, "the session type %s must be a struct: the session is stored as the JSON of its fields", typeString(s))
 		return nil
 	}
 	if problems := checkInputTS(s, false); len(problems) > 0 {
@@ -117,7 +117,7 @@ func (a *analyzer) session(pkgs []*packages.Package) *Session {
 	if fn := exposedMethod(s); fn != nil {
 		sig := fn.Signature()
 		if sig.Params().Len() != 0 || sig.Results().Len() != 1 || sig.Variadic() {
-			a.errorAt(fn.Pos(), "Exposed must have the signature func() M: it gives the part of the session the browser may see, as one value")
+			a.errorAtDoc(docSession, fn.Pos(), "Exposed must have the signature func() M: it gives the part of the session the browser may see, as one value")
 			return nil
 		}
 		m := sig.Results().At(0).Type()
