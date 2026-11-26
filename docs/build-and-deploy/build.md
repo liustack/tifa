@@ -1,11 +1,12 @@
 ---
-summary: 'Create, build, check and upgrade an app: `tifa new`, `build`, `check`, `gen`, `upgrade`, .tifa/, go.mod'
+summary: 'Create, build, check and upgrade an app: `tifa new`, `build`, `check`, `gen`, `upgrade`, `version`, `info`, .tifa/, go.mod'
 audience: app
 order: 2
 read_when:
   - Changing internal/codegen, the build command in cmd/tifa, or server.Main
   - Changing `tifa check`, or finding out which steps it runs and what it needs
   - Changing `tifa upgrade`, or upgrading an app to a newer Tifa
+  - Finding out which version of Tifa, Go, Node or pnpm an app builds with, or writing a bug report
   - Changing `tifa docs` or the `AGENTS.md` that `tifa new` writes, or the part of it that Tifa manages
   - Changing `tifa agents`, the skill in `skills/tifa` or the `.claude/skills/tifa` an app gets, or an agent works from files that are out of date
   - Creating a Tifa app, or adding an app to test/apps
@@ -239,6 +240,29 @@ docs/build-and-deploy/config.md - Every setting and where to set it: tifa.yaml, 
 ```
 
 With `--all --when` the index has the format of `scripts/docs-list.sh` in the Tifa repository: one line per doc with its summary, then a line with the `read_when` entries of its front matter joined with ` | `. Docs are sorted by path. A doc says who it is for in its front matter, `audience: app` or `audience: dev`, and `scripts/docs-list.sh --check` fails for a doc without one. A Tifa version from before the field lists every doc as one for apps. `docs/research/` is left out, and a doc without a summary is left out with a warning on stderr.
+
+## Version and info
+
+```sh
+tifa version
+tifa --version
+tifa info [--dir app-root] [--json]
+```
+
+`tifa version` prints `tifa v0.6.0`, and `tifa --version` prints the same line. Run as `go tool tifa` in an app, it is the version the `go.mod` of the app requires. A `tifa` that you installed globally hands the command to the one the app pins (see [Installing the command globally](#installing-the-command-globally)), so it prints that version too. A build made in a checkout of Tifa, or with a `replace` for the module, prints `tifa devel`.
+
+`tifa info` prints what a bug report or a coding agent needs to know about the machine:
+
+```text
+Tifa       v0.6.0
+Go         go1.26.1
+Node       v24.13.0
+pnpm       10.33.0
+System     darwin/arm64
+tifa.yaml  found
+```
+
+The versions of Go, Node and pnpm are those of the programs on the `PATH`, which are the ones `tifa build` and `tifa dev` run. A program that is not there, or that does not answer within 5 seconds, is `not found` and does not fail the command. An app without pages needs no Node, so `not found` there is fine. `tifa.yaml` says whether the folder `--dir` names, the current one by default, has that file. With `--json` the command prints one object with the keys `tifa`, `go`, `node`, `pnpm`, `os`, `arch` and `tifaYaml`, which is `true` or `false`. A program that is missing is the string `"not found"` there too.
 
 ## Upgrading Tifa
 

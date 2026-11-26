@@ -28,6 +28,7 @@ Run them in the app root (the folder with `go.mod` and `app/`). They need Go 1.2
 | `go tool tifa check` | The one command to run before you finish. It runs the Tifa analysis, generates `.tifa/`, then `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
 | `go tool tifa routes` | List the routes, and in the BUILT IN table the addresses Tifa answers that are not a folder (`/sitemap.xml`, `/robots.txt`, `/__tifa/session`, `/assets/`, files of `public/`) with the condition of each. `--json` prints the full manifest with Go types |
 | `go tool tifa docs` | Print where the docs of this Tifa version are, with one line on each doc for writing an app (`--when`, `--all`) |
+| `go tool tifa version`, `go tool tifa info` | `version` prints the Tifa version of `go.mod`. `info` prints the versions of Tifa, Go, Node and pnpm, the system and whether `tifa.yaml` is there (`--json`, `not found` for a missing program), which is what a bug report needs |
 | `go tool tifa agents` | Write this skill and the managed block of `AGENTS.md` from the installed Tifa. `--check` changes nothing and exits 1 when they are out of date |
 | `go tool tifa upgrade [version]` | Move the app to a newer Tifa, the latest without a version: `go get -tool`, `go mod tidy`, the versions of the pinned packages in `package.json`, the install, this skill and `AGENTS.md` again, and `tifa check`. It prints the `Upgrading:` notes of the changelog for the versions in between, which are what you change by hand. It never edits app code |
 

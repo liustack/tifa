@@ -1,12 +1,13 @@
 ---
-summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、.tifa/、go.mod'
+summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、`version`、`info`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: 022c629f3a1f
+translatedFrom: b941e0e9920b
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
   - '修改 `tifa upgrade`，或者把应用升级到更新的 Tifa'
+  - '想知道应用用哪个版本的 Tifa、Go、Node 或 pnpm 构建，或者要写 bug 报告'
   - '修改 `tifa docs` 或 `tifa new` 写出的 `AGENTS.md`，或者其中由 Tifa 管理的那一块'
   - '修改 `tifa agents`、`skills/tifa` 里的技能或应用得到的 `.claude/skills/tifa`，或者某个 agent 在用过期的文件工作'
   - '新建 Tifa 应用，或者往 test/apps 里加一个应用'
@@ -240,6 +241,29 @@ docs/build-and-deploy/config.md - Every setting and where to set it: tifa.yaml, 
 ```
 
 带 `--all --when` 时，索引使用 Tifa 仓库里 `scripts/docs-list.sh` 的格式：每篇文档一行，写着它的摘要，然后一行是它 front matter 里的 `read_when` 各项，用 ` | ` 连接。文档按路径排序。文档在它的 front matter 里说明自己是写给谁的，`audience: app` 或 `audience: dev`，没有这个字段的文档会让 `scripts/docs-list.sh --check` 失败。这个字段出现之前的 Tifa 版本，会把每篇文档都列为面向应用的。`docs/research/` 不在其中，没有摘要的文档也会被排除，并在 stderr 上给出一条警告。
+
+## 版本和环境 {#version-and-info}
+
+```sh
+tifa version
+tifa --version
+tifa info [--dir app-root] [--json]
+```
+
+`tifa version` 打印 `tifa v0.6.0`，`tifa --version` 打印同样的一行。在应用里以 `go tool tifa` 运行时，它是应用的 `go.mod` 所要求的版本。你全局安装的 `tifa` 会把命令交给应用锁定的那个 `tifa`（见[全局安装命令](#installing-the-command-globally)），所以它打印的也是那个版本。在 Tifa 的检出里构建的，或者给这个模块写了 `replace` 的构建，打印 `tifa devel`。
+
+`tifa info` 打印写 bug 报告或者让编码 agent 了解这台机器时需要的信息：
+
+```text
+Tifa       v0.6.0
+Go         go1.26.1
+Node       v24.13.0
+pnpm       10.33.0
+System     darwin/arm64
+tifa.yaml  found
+```
+
+Go、Node 和 pnpm 的版本是 `PATH` 上那几个程序的版本，也就是 `tifa build` 和 `tifa dev` 运行的那几个。找不到的程序，或者 5 秒内没有回答的程序，写成 `not found`，不会让命令失败。没有页面的应用不需要 Node，所以那里写 `not found` 没有问题。`tifa.yaml` 一行说的是 `--dir` 指的文件夹（默认是当前文件夹）里有没有这个文件。加 `--json` 时命令打印一个对象，键是 `tifa`、`go`、`node`、`pnpm`、`os`、`arch` 和 `tifaYaml`（值为 `true` 或 `false`）。缺少的程序在那里同样是字符串 `"not found"`。
 
 ## 升级 Tifa {#upgrading-tifa}
 

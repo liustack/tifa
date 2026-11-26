@@ -56,7 +56,9 @@ func newRootCmd() *cobra.Command {
 		Short:         "Build and inspect tifa applications",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       tifaVersion(readBuildInfo()),
 	}
-	root.AddCommand(newNewCmd(), newBuildCmd(), newDevCmd(), newGenCmd(), newErrorsCmd(), newRoutesCmd(), newCheckCmd(), newDocsCmd(), newAgentsCmd(), newUpgradeCmd(), newDeployCmd())
+	root.SetVersionTemplate("tifa {{.Version}}\n")
+	root.AddCommand(newNewCmd(), newBuildCmd(), newDevCmd(), newGenCmd(), newErrorsCmd(), newRoutesCmd(), newCheckCmd(), newDocsCmd(), newAgentsCmd(), newUpgradeCmd(), newDeployCmd(), newVersionCmd(), newInfoCmd())
 	return root
 }
