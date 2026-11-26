@@ -24,6 +24,7 @@ const (
 	docContentIDs   = "docs/pages-and-data/content.md#id-slug-path-and-languages"
 	docContentFiles = "docs/pages-and-data/content.md#which-files-are-entries"
 	docJSON         = "docs/reference/json.md#json-rules"
+	docGuard        = "docs/pages-and-data/hooks.md#hooksgo"
 )
 
 // see is the end of a message that points to the doc section that explains the fix.

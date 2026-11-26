@@ -2,7 +2,7 @@
 summary: '检查应用，读出 Tifa 对它的了解：`tifa check`、`gen`、`routes`、`version`、`info`'
 audience: app
 order: 7
-translatedFrom: 2feb77c805bd
+translatedFrom: a915ed2ed640
 read_when:
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
   - '想知道应用用哪个版本的 Tifa、Go、Node 或 pnpm 构建，或者要写 bug 报告'
@@ -21,7 +21,7 @@ tifa check [--dir app-root]
 
 用一条命令运行应用的所有检查，在第一个失败的步骤处停下：
 
-1. `analyze`：`tifa build` 的静态分析。每个违反约定的地方都打印成 `file:line: reason`。它还会读代码里其他框架的惯用写法，比如 `next/link`、`'use client'` 或导出的 `loader`，并说明在 Tifa 里该怎么写（见[从其他框架过来](../start/app.zh-CN.md#coming-from-another-framework)）。TypeScript 里的惯用写法在 `generate` 步骤里读，那一步有 Node。
+1. `analyze`：`tifa build` 的静态分析。每个违反约定的地方都打印成 `file:line: reason`。它还会读代码里其他框架的惯用写法，比如 `next/link`、`'use client'` 或导出的 `loader`，并说明在 Tifa 里该怎么写（见[从其他框架过来](../start/app.zh-CN.md#coming-from-another-framework)）。如果 `OnRequest` 里拿 `c.Pattern()` 去比较的字符串（`==`、`!=`、`switch` 和 `strings.HasPrefix`）不可能是应用里任何一个路由，它会给出警告，比如文件夹改名后留下的守卫。警告会写出文件和行号、这个字符串和最接近的路由，不会让检查失败。TypeScript 里的惯用写法在 `generate` 步骤里读，那一步有 Node。
 2. `generate`：和 `tifa build` 一样写出 `.tifa/`，让 TypeScript 步骤需要的类型保持最新。它只对有页面的应用启动 Node。当应用里有 `tifa dev` 或 `tifa build` 正在运行时，它们持有 `.tifa/` 的锁并让文件保持最新，而构建产生的文件不是 `tifa dev` 需要的。所以这一步这时什么也不写，并打印一行说明这一点，检查继续使用它在内存里生成的文件。它从不等待锁。
 3. `go vet ./...`
 4. `go test ./...`

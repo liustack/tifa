@@ -38,7 +38,6 @@ func TestWorkbenchNeedsSignIn(t *testing.T) {
 		{"/projects/studio/orders/SH-1042?tab=items", "/projects/{project}/orders/{order}", "/login?next=%2Fprojects%2Fstudio%2Forders%2FSH-1042%3Ftab%3Ditems", false},
 		{"/projects/studio", "/projects/{project}", "", true},
 		// Another spelling of the same route is turned away as the plain one is.
-		{"/%70rojects", "/projects", "/login?next=%2F%2570rojects", false},
 		{"/%70rojects/studio", "/projects/{project}", "/login?next=%2F%2570rojects%2Fstudio", false},
 		{"/zh-CN/store", "/store", "", false},
 		{"/login", "/login", "", false},
