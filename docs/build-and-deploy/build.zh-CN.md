@@ -2,7 +2,7 @@
 summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、`version`、`info`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: 4dc4d607fe52
+translatedFrom: cecea7bfad24
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -128,7 +128,7 @@ build:
   debug_info: true
 ```
 
-`tifa dev` 总是保留调试信息。
+`tifa dev` 总是保留调试信息，见[调试](debugging.zh-CN.md)。
 
 `go build` 可以接受多个 `-ldflags`，每个针对一个包模式，没有模式时针对命令行上指定的包。对每个包，它使用最后一个匹配的，而命令行在 `GOFLAGS` 之后，所以命令行上的 `-ldflags` 会替换 `GOFLAGS` 里的。因此 Tifa 把 `GOFLAGS`（在环境里设置，或用 `go env -w` 设置）里最后一个 `-ldflags` 的参数放在 `-w` 前面：如果 `GOFLAGS=-ldflags=-X=main.version=v1`，Tifa 传的是 `-ldflags=-X=main.version=v1 -w`。当这些参数里已经有 `-w` 或 `-s` 时，它什么也不加，由它们决定。当 `GOFLAGS` 里的某个 `-ldflags` 是针对包模式的，比如 `-ldflags=all=-X=main.version=v1`，它也什么都不加：请在那里自己写上 `-w`。
 

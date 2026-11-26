@@ -36,6 +36,8 @@ const (
 type Status struct {
 	State   string   `json:"state"`
 	Failure *Failure `json:"failure,omitempty"`
+	// AppPID is the process ID of the app that runs now, 0 while none does. A debugger attaches to it.
+	AppPID int `json:"appPid,omitempty"`
 }
 
 // Max is how many different errors each list keeps, as the panel of the page does.

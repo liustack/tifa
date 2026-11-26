@@ -114,7 +114,7 @@ When a render calls Intl or a `toLocale*` method without a locale, or for a date
 
 `tifa dev` renders each page twice, the second time with the clock 36 hours on. When the two renders of the same data differ, the page read the time or a random number while rendering, and the render memo would freeze that value. The terminal and an overlay on the page say so, with the HTML around the first place where the renders part and the places in your code that read the time (`Date.now()`, `new Date()`, `Date()`) or a random number (`Math.random()`, `crypto`). Reads inside packages are named by the line of your code that called them, and those of React, TanStack Router and Tifa are left out. Change the component, or write `Memo = false` in the `route.go` of the page (see [SSR and cache](../pages-and-data/ssr-and-cache.md#ssr-and-cache)). Such a page is not cached until it is fixed. A built program does not render twice.
 
-Under `tifa dev`, what a page prints with `console.log` and the other console methods while it renders on the server is logged too, with the page and the place in your sources. See [Console in `tifa dev`](../pages-and-data/server-render.md#console-in-tifa-dev).
+Under `tifa dev`, what a page prints with `console.log` and the other console methods while it renders on the server is logged too, with the page and the place in your sources. See [Console in `tifa dev`](../pages-and-data/server-render.md#console-in-tifa-dev). To step through the Go code or a component, see [Debugging](debugging.md).
 
 ## When a build fails
 
@@ -185,11 +185,12 @@ tifa dev is running in this app
   url:     http://127.0.0.1:9527
   pid:     41231
   started: 2026-11-16 22:22:50 (2m3s ago)
+  app pid: 41290
   build:   failed: go build: app/store.go:3:2: undefined: x
   log:     /work/shop/.tifa/dev.log
 ```
 
-`--json` prints one object. `build.state` is `starting` (the first build runs), `building`, `ok`, `failed` (then `build.error` has the first line of the error) or `unknown` (the server did not answer, `build.error` says why). `log` is empty for a `tifa dev` that prints to its terminal. When none runs it prints `{"running": false}`.
+`app pid` is the process ID of the app that `tifa dev` runs, which a debugger attaches to (see [Debugging](debugging.md)). It changes each time a Go change starts the app again, and it is left out while no app runs. `--json` prints one object. `build.state` is `starting` (the first build runs), `building`, `ok`, `failed` (then `build.error` has the first line of the error) or `unknown` (the server did not answer, `build.error` says why). `log` is empty for a `tifa dev` that prints to its terminal. When none runs it prints `{"running": false}`.
 
 ```json
 {
@@ -198,6 +199,7 @@ tifa dev is running in this app
   "url": "http://127.0.0.1:9527",
   "started": "2026-11-16T14:22:50Z",
   "build": {"state": "ok"},
+  "appPid": 41290,
   "log": "/work/shop/.tifa/dev.log"
 }
 ```

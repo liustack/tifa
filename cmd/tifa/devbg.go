@@ -314,7 +314,10 @@ type devStatus struct {
 	URL     string     `json:"url,omitempty"`
 	Started *time.Time `json:"started,omitempty"`
 	Build   *buildInfo `json:"build,omitempty"`
-	Log     string     `json:"log,omitempty"`
+	// AppPID is the process ID of the app tifa dev runs, which a debugger attaches to. It is not
+	// set while no app runs.
+	AppPID int    `json:"appPid,omitzero"`
+	Log    string `json:"log,omitempty"`
 }
 
 // buildInfo is the state of the last build: starting, building, ok, failed (with the first line of
@@ -358,6 +361,7 @@ It exits with status 0 when a tifa dev runs and 1 when none does.`,
 						s.Build = &buildInfo{State: "unknown", Error: err.Error()}
 					} else {
 						s.Build = &buildInfo{State: st.State}
+						s.AppPID = st.AppPID
 						if st.Failure != nil {
 							s.Build.Error = firstLine(st.Failure.Error)
 						}
@@ -401,6 +405,9 @@ func statusText(s devStatus, buildRuns bool) string {
 	fmt.Fprintf(&b, "  pid:     %d\n", s.PID)
 	if s.Started != nil {
 		fmt.Fprintf(&b, "  started: %s (%s ago)\n", s.Started.Local().Format("2006-01-02 15:04:05"), time.Since(*s.Started).Round(time.Second))
+	}
+	if s.AppPID != 0 {
+		fmt.Fprintf(&b, "  app pid: %d\n", s.AppPID)
 	}
 	build := s.Build.State
 	if s.Build.Error != "" {

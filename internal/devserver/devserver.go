@@ -440,6 +440,16 @@ func (d *dev) buildState() (int, chan struct{}) {
 	return d.started, d.building
 }
 
+// appPID is the process ID of the app that runs now, 0 when none does.
+func (d *dev) appPID() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.app == nil {
+		return 0
+	}
+	return d.app.cmd.Process.Pid
+}
+
 // busy returns a channel that is closed once the SSR bundle being rebuilt is served, nil when
 // no rebuild of it runs.
 func (d *dev) busy() <-chan struct{} {

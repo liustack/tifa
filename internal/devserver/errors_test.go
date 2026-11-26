@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -268,6 +269,10 @@ func TestStatusAnswersAtOnce(t *testing.T) {
 	st, pid := askStatus(t, d.url)
 	if st.State != deverrors.OK || st.Failure != nil || pid == "" {
 		t.Fatalf("running: %+v, pid %q", st, pid)
+	}
+	// The process ID of the app, which a debugger attaches to, is the one that listens.
+	if st.AppPID <= 0 || strconv.Itoa(st.AppPID) == pid {
+		t.Fatalf("the app's process ID is %d, tifa dev's is %s", st.AppPID, pid)
 	}
 
 	bundling := make(chan chan struct{})

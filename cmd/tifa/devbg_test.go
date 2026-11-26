@@ -125,6 +125,25 @@ func TestStatusOfARunningDev(t *testing.T) {
 	}
 }
 
+// The process ID of the app is in the status, for a debugger to attach to.
+func TestStatusNamesTheAppProcess(t *testing.T) {
+	root, _ := fakeStatusDev(t, `{"state":"ok","appPid":4242}`)
+	out, _, err := run(t, "dev", "status", "--json", "--dir", root)
+	if err != nil || !strings.Contains(out, `"appPid": 4242`) {
+		t.Fatalf("--json: %q, %v", out, err)
+	}
+	out, _, err = run(t, "dev", "status", "--dir", root)
+	if err != nil || !strings.Contains(out, "  app pid: 4242\n") {
+		t.Fatalf("text: %q, %v", out, err)
+	}
+	// While no app runs there is none to name.
+	root, _ = fakeStatusDev(t, `{"state":"building"}`)
+	out, _, _ = run(t, "dev", "status", "--json", "--dir", root)
+	if strings.Contains(out, "appPid") {
+		t.Errorf("without an app: %q", out)
+	}
+}
+
 func TestStatusJSON(t *testing.T) {
 	root, _ := fakeStatusDev(t, `{"state":"failed","failure":{"title":"Build failed","error":"\n\u001b[31mgo build: app/store.go:3:2: undefined: x\u001b[39m\nexit status 1"}}`)
 	out, _, err := run(t, "dev", "status", "--json", "--dir", root)
