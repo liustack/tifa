@@ -145,12 +145,13 @@ func TestBuildFlagsReadTheGoEnvFile(t *testing.T) {
 	t.Setenv("GOENV", goenv)
 	t.Setenv("GOFLAGS", "")
 	got, err := buildFlags(t.Context(), t.TempDir(), config.Build{}, "")
-	if want := []string{"-ldflags=-X=main.version=v1 -w"}; err != nil || !slices.Equal(got, want) {
+	if want := []string{"-trimpath", "-ldflags=-X=main.version=v1 -w"}; err != nil || !slices.Equal(got, want) {
 		t.Errorf("%q, %v, want %q", got, err, want)
 	}
 }
 
-// With build.debug_info on, tifa build leaves out -w and keeps the flags of GOFLAGS and its own.
+// With build.debug_info on, tifa build leaves out -w and -trimpath and keeps the flags of GOFLAGS and
+// its own.
 func TestBuildFlagsWithDebugInfoKeepTheDebugInfo(t *testing.T) {
 	t.Setenv("GOFLAGS", "-ldflags=-X=main.version=v1")
 	got, err := buildFlags(t.Context(), t.TempDir(), config.Build{DebugInfo: true}, "-X a.b=c")
@@ -159,9 +160,34 @@ func TestBuildFlagsWithDebugInfoKeepTheDebugInfo(t *testing.T) {
 	}
 }
 
-// The program tifa build makes has no DWARF debug info unless build.debug_info keeps it, and keeps
-// the -ldflags of GOFLAGS. Its panics still give the file and line of each frame, which come from
-// the line table the runtime keeps in every Go program. tifa dev keeps the debug info.
+// tifa build passes -trimpath unless build.debug_info keeps the paths for a debugger or GOFLAGS
+// already says what to do with them.
+func TestBuildFlagsTrimPaths(t *testing.T) {
+	for _, tc := range []struct {
+		goflags   string
+		debugInfo bool
+		want      []string
+	}{
+		{"", false, []string{"-trimpath", "-ldflags=-w"}},
+		{"-mod=mod", false, []string{"-trimpath", "-ldflags=-w"}},
+		{"", true, nil},
+		{"-trimpath", false, []string{"-ldflags=-w"}},
+		{"--trimpath", false, []string{"-ldflags=-w"}},
+		{"-trimpath=false", false, []string{"-ldflags=-w"}},
+		{"-mod=mod -trimpath=0", false, []string{"-ldflags=-w"}},
+	} {
+		t.Setenv("GOFLAGS", tc.goflags)
+		got, err := buildFlags(t.Context(), t.TempDir(), config.Build{DebugInfo: tc.debugInfo}, "")
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("GOFLAGS %q, debug info %t: %q, %v, want %q", tc.goflags, tc.debugInfo, got, err, tc.want)
+		}
+	}
+}
+
+// The program tifa build makes has no DWARF debug info and no path of the machine that built it
+// unless build.debug_info keeps them, and keeps the -ldflags of GOFLAGS. Its panics still give the
+// file and line of each frame, which come from the line table the runtime keeps in every Go
+// program, with the path in the module in place of the folder. tifa dev keeps the debug info.
 func TestBuildLeavesOutTheDebugInfo(t *testing.T) {
 	root := writeGoApp(t, map[string]string{
 		".tifa/main.go": `package main
@@ -198,6 +224,21 @@ func main() {
 		if got, want := hasDWARF(t, exe), tc.dev || tc.debugInfo; got != want {
 			t.Errorf("%s: DWARF %t, want %t", tc.name, got, want)
 		}
+		binary, err := os.ReadFile(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		real, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		has := false
+		for _, folder := range []string{root, real} {
+			has = has || bytes.Contains(binary, []byte(folder)) || bytes.Contains(binary, []byte(filepath.ToSlash(folder)))
+		}
+		if got, want := has, tc.dev || tc.debugInfo; got != want {
+			t.Errorf("%s: the program has the folder of the app %t, want %t", tc.name, got, want)
+		}
 		if tc.dev {
 			continue
 		}
@@ -208,7 +249,11 @@ func main() {
 		var stderr bytes.Buffer
 		run := exec.Command(exe, "panic")
 		run.Stderr = &stderr
-		if err := run.Run(); err == nil || !strings.Contains(stderr.String(), filepath.Join(".tifa", "main.go")+":9 ") {
+		place := filepath.Join(".tifa", "main.go") + ":9 "
+		if !tc.debugInfo {
+			place = "/.tifa/main.go:9 "
+		}
+		if err := run.Run(); err == nil || !strings.Contains(stderr.String(), place) {
 			t.Errorf("%s: panic without the place of panic(\"boom\"), %v:\n%s", tc.name, err, stderr.String())
 		}
 	}

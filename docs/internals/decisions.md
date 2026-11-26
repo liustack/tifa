@@ -663,6 +663,14 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Instead.** Checks go into `tifa build` and `tifa check`, which every path runs.
 
+### The flags of go build
+
+**Settled (2026-11-27).** `tifa build` passes `-trimpath` and `-ldflags=-w` by default, and never `-s`. `build.debug_info: true` leaves out both, for Delve. The flags of `GOFLAGS` stay: a `-trimpath` there in any form, or a `-w` or `-s` in its `-ldflags`, decides instead. `tifa dev` passes neither, so its panics give full paths an editor can open.
+
+**Why.** A program with no folders of the build machine shows no user name or home folder in its panics, and the same code builds the same program on another machine. `-s` would take the symbol table that `go tool nm` reads, for little size.
+
+**Reopen when.** A tool an app needs reads the full paths of a built program.
+
 ### A build without Node
 
 **Put off (2026-11-19).** Bundling with esbuild inside `tifa`, or growing the JavaScript engine into a runtime that runs npm and build tools.
