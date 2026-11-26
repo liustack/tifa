@@ -2,7 +2,7 @@
 summary: '用 `tifa deploy setup` 配好服务器、Cloudflare 和 GitHub：计划、每种 `front` 改了什么、在没有 gh 的机器上运行 setup'
 audience: app
 order: 11
-translatedFrom: 6585206c4e54
+translatedFrom: 83fd12adef44
 read_when:
   - '在没有 gh 的机器上运行 tifa deploy setup 或 remove，用 TIFA_DEPLOY_GITHUB_TOKEN 里的细粒度令牌'
   - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，你想知道要开放哪些端口，或者想知道 setup 和 remove 在 ufw 里改了什么'
@@ -74,10 +74,10 @@ setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你�
 
 | 层 | 内容 | 需要 |
 | --- | --- | --- |
-| server | 用户 `tifa`，它拥有并运行服务器上的每个应用，可以用 root 的密钥登录（home 是 `/srv/tifa`），以及 linger，让它的 systemd 在开机时运行 | `ssh root@<TIFA_DEPLOY_HOST>`，只在第一次 |
+| server | 用户 `tifa`，它拥有并运行服务器上的每个应用，可以用 root 的密钥登录，或者用主机前面那个用户的密钥登录（home 是 `/srv/tifa`），以及 linger，让它的 systemd 在开机时运行 | `ssh root@<TIFA_DEPLOY_HOST>`，只在第一次，或者用主机前面那个用户加 sudo（见[root 登录不了时](deploy.zh-CN.md#when-root-cannot-log-in)） |
 | app | `/srv/tifa/<app>`、它空的 `shared/.env`、数据文件夹 `shared`、它在 `port` 里的端口（`front: none` 时是 80，有 HTTPS 时是 443，否则是回环地址上从 9527 起第一个空闲的），以及用户单元 `tifa-<app>.socket` 和 `.service`，有 HTTPS 时还有 `tifa-<app>-http.socket`。`front: none` 时，每台服务器还要以 root 做一次设置，让 `tifa` 的 systemd 能打开 80 和 443 端口 | 以 `tifa` 身份 ssh，以及一次 root |
 | front: cloudflare | Cloudflare Tunnel、服务器上的 cloudflared、`site.url` 主机的路由、被代理的 DNS 记录和缓存规则，以及服务器上清除这些缓存的令牌 | cf |
-| front: nginx | 以 root 用 apt 安装的 nginx，有域名的应用还有 certbot 和它的 nginx 插件，用来标记这个 nginx 是 Tifa 的 `/etc/tifa/nginx`，应用在 `/etc/nginx/conf.d/tifa-<app>.conf` 里的站点，它的证书，以及 ufw 里的 80 和 443 端口（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)） | `ssh root@<TIFA_DEPLOY_HOST>` |
+| front: nginx | 以 root 用 apt 安装的 nginx，有域名的应用还有 certbot 和它的 nginx 插件，用来标记这个 nginx 是 Tifa 的 `/etc/tifa/nginx`，应用在 `/etc/nginx/conf.d/tifa-<app>.conf` 里的站点，它的证书，以及 ufw 里的 80 和 443 端口（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)） | `ssh root@<TIFA_DEPLOY_HOST>`，或者用主机前面那个用户加 sudo |
 | ci | 仓库的一把密钥、secret（CI 在哪里登录、主机密钥），以及工作流 | gh 或 `TIFA_DEPLOY_GITHUB_TOKEN` |
 | connect: cloudflare | tunnel 上的一个 ssh 主机名、一个放行你的邮箱的 Access 应用（用 CI 时还有一个 service token），以及你机器上的 cloudflared 和 `~/.ssh/config` 里的一个块 | cf |
 

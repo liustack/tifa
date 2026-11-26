@@ -73,10 +73,10 @@ The layers of the plan:
 
 | Layer | What | Needs |
 | --- | --- | --- |
-| server | The user `tifa`, which owns and runs every app of the server and may log in with the keys of root (home `/srv/tifa`), and linger, so its systemd runs at boot | `ssh root@<TIFA_DEPLOY_HOST>`, the first time only |
+| server | The user `tifa`, which owns and runs every app of the server and may log in with the keys of root, or of the user in front of the host (home `/srv/tifa`), and linger, so its systemd runs at boot | `ssh root@<TIFA_DEPLOY_HOST>`, the first time only, or the user in front of the host with sudo (see [When root cannot log in](deploy.md#when-root-cannot-log-in)) |
 | app | `/srv/tifa/<app>`, its empty `shared/.env`, the data folder `shared`, its port in `port` (80, or 443 with HTTPS, for `front: none`, else the first free one from 9527 on the loopback), and the user units `tifa-<app>.socket` and `.service`, with HTTPS also `tifa-<app>-http.socket`. For `front: none`, once per server as root, the setting that lets the systemd of `tifa` open ports 80 and 443 | ssh as `tifa`, and root once |
 | front: cloudflare | The Cloudflare Tunnel, cloudflared on the server, the route, the proxied DNS record and the cache rules of the host of `site.url`, and on the server the token that clears its cache | cf |
-| front: nginx | As root: nginx, and for an app with a domain certbot with its nginx plugin, installed with apt, `/etc/tifa/nginx` to mark that nginx as Tifa's, the site of the app in `/etc/nginx/conf.d/tifa-<app>.conf`, its certificate, and ports 80 and 443 in ufw (see [Behind nginx](deploy-proxy.md#behind-nginx)) | `ssh root@<TIFA_DEPLOY_HOST>` |
+| front: nginx | As root: nginx, and for an app with a domain certbot with its nginx plugin, installed with apt, `/etc/tifa/nginx` to mark that nginx as Tifa's, the site of the app in `/etc/nginx/conf.d/tifa-<app>.conf`, its certificate, and ports 80 and 443 in ufw (see [Behind nginx](deploy-proxy.md#behind-nginx)) | `ssh root@<TIFA_DEPLOY_HOST>`, or the user in front of the host with sudo |
 | auto | A key for the repository, the secrets (where CI logs in, the host keys), and the workflow | gh or `TIFA_DEPLOY_GITHUB_TOKEN` |
 | connect: cloudflare | An ssh host name on the tunnel, an Access application that admits your email (and, with CI, a service token), and on your machine cloudflared and a block in `~/.ssh/config` | cf |
 | connect: tailscale | The variables of the Tailscale identity the runner joins your tailnet with | the client ID of the identity, gh |
