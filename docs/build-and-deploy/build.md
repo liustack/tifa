@@ -220,6 +220,8 @@ pnpm and npm run the `prepare` script of the project after `pnpm install` and `n
 
 The `typecheck` script of the same file is `go tool tifa gen && tsc --noEmit`. The types in `.tifa/` come from `route.go`, so they are old after a change to a route's return type or after a page or Layout is added or removed. Running `gen` first makes `tsc` read the new ones, and when the Go code does not compile it stops there and prints the Go file and line. `tifa check` already generates before it runs `tsc`, so it does not need the script. An app made before this can change its `typecheck` script to the same line.
 
+Each type that a `route.gen.ts` or `session.gen.ts` declares from a Go struct has a comment in front of it that names where it comes from: the import path of the Go package, the name and the file and line, for example `/** Go: example.com/app/projects.Project (projects/project.go:12) */`. The editor shows it when you hover over the type, and the file is the one to change. A type of another module has the package and the name only, since a path in the module cache is not the same on every machine. The comment is in the generated file only: types leave no trace in the bundles, and the build ID comes from the files of the bundle, so moving a struct to another line changes `.tifa/` and not the build.
+
 ## Tifa docs
 
 ```sh

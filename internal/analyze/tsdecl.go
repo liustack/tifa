@@ -19,6 +19,10 @@ type TSScope struct {
 	// A struct that is that type, and is named so in Go, is declared under that name and needs no
 	// alias. The slice may be shorter than the types, and "" means no export.
 	Exports []string
+	// Where, when it is set, puts a comment in front of each declaration that names the Go type:
+	// its package, its name and the place Where returns, such as "projects/project.go:12", or ""
+	// when it has none to give, such as for a type of another module.
+	Where func(*types.TypeName) string
 }
 
 // TSShape returns the TypeScript type of the JSON that json.Marshal writes for a Load result of
@@ -49,7 +53,7 @@ func TSShape(t types.Type, scope TSScope) (ts string, decls []string, html bool,
 // TypeScript type of tifa.HTML, which the module must import from the runtime.
 func TSShapes(ts []types.Type, scope TSScope) (shapes, decls []string, html bool, err error) {
 	// The first walk finds the structs, the second writes them with the names they got.
-	found := &tsDecls{collect: true, found: map[string]*types.Named{}, names: map[tsKey]string{}, declared: map[tsKey]string{}, bodies: map[[2]string]string{}}
+	found := &tsDecls{collect: true, objs: map[tsKey]*types.TypeName{}, found: map[string]*types.Named{}, names: map[tsKey]string{}, declared: map[tsKey]string{}, bodies: map[[2]string]string{}}
 	for _, t := range ts {
 		c := tsChecker{active: map[tsKey]bool{}, decls: found, files: true}
 		c.encode(t, rootLabel(t), false)
@@ -70,7 +74,7 @@ func TSShapes(ts []types.Type, scope TSScope) (shapes, decls []string, html bool
 	}
 	assigned := structNames(found.found, scope.Own, exempt)
 
-	d := &tsDecls{assigned: assigned, emitted: map[string]bool{}, names: map[tsKey]string{}, declared: map[tsKey]string{}, bodies: map[[2]string]string{}}
+	d := &tsDecls{where: scope.Where, objs: map[tsKey]*types.TypeName{}, assigned: assigned, emitted: map[string]bool{}, names: map[tsKey]string{}, declared: map[tsKey]string{}, bodies: map[[2]string]string{}}
 	for _, name := range assigned {
 		d.taken = append(d.taken, name)
 	}
@@ -205,6 +209,24 @@ type tsDecls struct {
 	taken    []string
 	decls    []string
 	html     bool // a type refers to tifa.HTML
+	// where is TSScope.Where, and objs holds the type that each name of names stands for.
+	where func(*types.TypeName) string
+	objs  map[tsKey]*types.TypeName
+}
+
+// doc is the comment in front of the declaration of the Go type obj: where the type comes from.
+func (d *tsDecls) doc(obj *types.TypeName) string {
+	if d.where == nil {
+		return ""
+	}
+	text := obj.Name()
+	if obj.Pkg() != nil {
+		text = obj.Pkg().Path() + "." + text
+	}
+	if place := d.where(obj); place != "" {
+		text += " (" + place + ")"
+	}
+	return "/** Go: " + text + " */\n"
 }
 
 // declarable reports whether n is a struct that gets a declaration of its own: a type of a
@@ -218,10 +240,12 @@ func declarable(n *types.Named) bool {
 }
 
 // name returns the declared name of the type with key, choosing it on first use.
-func (d *tsDecls) name(key tsKey, goName string) string {
+func (d *tsDecls) name(key tsKey, obj *types.TypeName) string {
+	goName := obj.Name()
 	if name, ok := d.names[key]; ok {
 		return name
 	}
+	d.objs[key] = obj
 	name := "Go" + goName
 	for i := 2; slices.Contains(d.taken, name); i++ {
 		name = "Go" + goName + strconv.Itoa(i)
@@ -243,7 +267,11 @@ func (d *tsDecls) declare(key tsKey, ts string) string {
 		}
 		return ts
 	}
-	d.decls = append(d.decls, "export type "+name+" = "+ts)
+	doc := ""
+	if obj := d.objs[key]; obj != nil {
+		doc = d.doc(obj)
+	}
+	d.decls = append(d.decls, doc+"export type "+name+" = "+ts)
 	d.declared[key] = name
 	d.bodies[[2]string{key.typ, ts}] = name
 	return name
@@ -280,6 +308,6 @@ func (c *tsChecker) namedStruct(n *types.Named, path string) (string, bool) {
 	if len(props) > 0 {
 		body = "{\n  " + strings.Join(props, "\n  ") + "\n}"
 	}
-	d.decls[slot] = "export type " + name + " = " + body
+	d.decls[slot] = d.doc(n.Obj()) + "export type " + name + " = " + body
 	return name, true
 }

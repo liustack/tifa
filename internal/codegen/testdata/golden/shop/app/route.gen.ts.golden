@@ -2,6 +2,7 @@
 // Generated from app/route.go and app/layout.tsx and app/page.tsx and the Go types they use. After a change, run `go tool tifa gen`.
 import { getRouteApi } from "@tanstack/react-router"
 
+/** Go: example.com/shop/app.Site (app/route.go:7) */
 export type Site = {
   name: string
   lang: string

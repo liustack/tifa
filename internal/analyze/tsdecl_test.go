@@ -250,3 +250,39 @@ func TestTSShapeRejectsTypesWithoutJSONForm(t *testing.T) {
 		t.Fatal("TSShapes accepted a channel")
 	}
 }
+
+// With TSScope.Where each declaration, a recursive type that is no struct included, has a comment
+// that names the Go type, its package and the place Where gives, and none for a type it gives none
+// for. Without Where a declaration has no comment.
+func TestTSShapeCommentsNameTheGoType(t *testing.T) {
+	pkg := types.NewPackage("example.com/app/p", "p")
+	other := types.NewPackage("example.com/other", "other")
+	thing := named(other, "Thing", "Size", `json:"size"`, types.Typ[types.Int])
+	tree := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Tree", nil), nil, nil)
+	tree.SetUnderlying(types.NewSlice(tree))
+	data := named(pkg, "Data", "Thing", `json:"thing"`, thing, "Tree", `json:"tree"`, tree)
+	where := func(obj *types.TypeName) string {
+		if obj.Pkg() == pkg {
+			return "p/data.go:3"
+		}
+		return ""
+	}
+	_, decls, _, err := TSShapes([]types.Type{data}, TSScope{Own: pkg.Path(), Where: where})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameLines(t, "decls", decls, []string{
+		"/** Go: example.com/app/p.Data (p/data.go:3) */\nexport type Data = {\n  thing: Thing\n  tree: GoTree\n}",
+		"/** Go: example.com/other.Thing */\nexport type Thing = {\n  size: number\n}",
+		"/** Go: example.com/app/p.Tree (p/data.go:3) */\nexport type GoTree = GoTree[]",
+	})
+	_, plain, _, err := TSShapes([]types.Type{data}, TSScope{Own: pkg.Path()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range plain {
+		if strings.Contains(d, "/**") {
+			t.Errorf("a comment without Where: %q", d)
+		}
+	}
+}

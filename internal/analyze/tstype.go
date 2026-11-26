@@ -252,7 +252,7 @@ func (c *tsChecker) encode(t types.Type, path string, quoted bool) (ts string) {
 		}
 		if c.active[key] {
 			if c.decls != nil {
-				return c.decls.name(key, n.Obj().Name())
+				return c.decls.name(key, n.Obj())
 			}
 			return n.Obj().Name()
 		}

@@ -35,6 +35,8 @@ type Manifest struct {
 	// Content is the content collections of content.go and their entries, nil without any. The
 	// build writes the entries into dist/content.json.
 	Content *Content `json:"-"`
+	// Fset has the positions of the types of Routes, for code generation inside the same process.
+	Fset *token.FileSet `json:"-"`
 	// Warnings are problems that do not stop a build, in the order of their source positions. The
 	// content has its own, see Content.Warnings.
 	Warnings []Warning `json:"-"`

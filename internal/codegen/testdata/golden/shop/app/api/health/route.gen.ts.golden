@@ -2,9 +2,11 @@
 // Generated from app/api/health/route.go and the Go types it uses. After a change, run `go tool tifa gen`.
 import { call, type CallOptions } from "../../../runtime/call"
 
+/** Go: example.com/shop/app/api/health.Probe (app/api/health/route.go:5) */
 export type Probe = {
   deep: boolean
 }
+/** Go: example.com/shop/app/api/health.Status (app/api/health/route.go:9) */
 export type Status = {
   ok: boolean
 }
