@@ -105,7 +105,7 @@ func CheckHash(password, hash string) (bool, error) {
 }
 ```
 
-The text it makes looks like `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<key>`, which is the usual way to write an argon2 hash. The parameters travel with the hash, so you can raise them later and old hashes still check. Run `HashPassword` when someone registers or changes their password, and keep the result in your users table. This guide has no registration page.
+The text it makes looks like `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<key>`, which is the usual way to write an argon2 hash. The parameters travel with the hash, so you can raise them later and old hashes still check. Run `HashPassword` when someone registers or changes their password, and keep the result in your users table. [Sign up and confirm an e-mail address](sign-up.md) shows the registration page and [Reset a password](password-reset.md) the reset.
 
 ## Checking the sign-in
 
@@ -809,9 +809,9 @@ func TestSignInAndOut(t *testing.T) {
 
 **How long a session lasts.** 30 days from sign-in, set by `session.max_age`. It does not renew. Shorten it for an app with money or private data in it.
 
-**OAuth, magic links, two-step codes.** They replace the password check, not the rest. When the check succeeds, call `tifa.SetSession` as above. The temporary state of those flows goes in a short cookie of the library's own (see [Sign-in libraries](../pages-and-data/sessions.md#sign-in-libraries)).
+**OAuth, magic links, two-step codes.** They replace the password check, not the rest. When the check succeeds, call `tifa.SetSession` as above. [Sign in with Google or GitHub](oauth.md) shows the OAuth flow. The temporary state of those flows goes in a short cookie of the library's own (see [Sign-in libraries](../pages-and-data/sessions.md#sign-in-libraries)).
 
-**Registration and password reset.** Not shown. Both end in `HashPassword` and a write to your users table.
+**Registration, e-mail confirmation and password reset.** See [Sign up and confirm an e-mail address](sign-up.md) and [Reset a password](password-reset.md). Both end in `HashPassword` and a write to your users table.
 
 ## Check it
 
