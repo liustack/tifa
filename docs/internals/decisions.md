@@ -329,7 +329,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** They were there so that the build could find every path parameter a function read and every `tifa.Use` by reading the code. The path parameters that remount a page now come from its folder and the query parameters from the struct in the signature, so nothing the build writes depends on finding them all. What was left refused code that is right in any Go program: `errgroup`, a Ctx in an interface or a struct, a generic function, a library that takes the Ctx. gin, echo, Next.js and TanStack Router have no such rule.
 
-**Instead.** The build follows the Ctx where it is passed to a function of the module, as an argument or as the receiver of a method, and reports the mistakes it sees there. Where it cannot see which function runs, it stops without a word. A name of `c.Param` that is a constant is still checked against the path of the folder.
+**Instead.** The build follows the Ctx where it is passed to a function of the module, as an argument or as the receiver of a method, and reports the mistakes it sees there. Where it cannot see which function runs, it stops without a word. A name of `c.Param` that is a constant is still checked against the path of the folder, in a method handler as well (2026-11-26).
 
 ### Runtime guards for Ctx in Load and Layout
 

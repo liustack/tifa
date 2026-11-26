@@ -495,7 +495,7 @@ type layout struct {
 // server takes it off the URL, so a Load could never read it.
 const reservedQuery = "_tifa"
 
-// paramUse is one c.Param or c.Query call with a constant name inside Load.
+// paramUse is one c.Param or c.Query call with a constant name inside Load, Layout or a method handler.
 type paramUse struct {
 	method string // "Param", "Query" or "QueryValues"
 	name   string
@@ -694,8 +694,9 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 			a.errorAt(obj.Pos(), "GET is not allowed next to page.tsx: the framework renders GET for a page")
 			continue
 		}
-		if h, ok := a.readHandler(pkg, obj, method); ok {
+		if h, ok, uses := a.readHandler(pkg, obj, method); ok {
 			r.Handlers = append(r.Handlers, h)
+			r.uses = append(r.uses, uses...)
 		}
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)

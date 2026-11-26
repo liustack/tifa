@@ -26,6 +26,7 @@ type loadWalk struct {
 	load     *Load
 	validate bool // the walk of a Validate method, which only reads the request (see refusedInValidate)
 	layout   bool // the walk of a Layout function
+	handler  bool // the walk of a method handler, which may use the whole Ctx: only c.Param names are collected
 	uses     []paramUse
 	visited  map[string]bool // followed functions by full name, against recursion
 	unrun    []*ast.FuncLit  // closures of the body being walked that are declared and not called on the spot
@@ -71,6 +72,10 @@ func (w *loadWalk) body(info *types.Info, body *ast.BlockStmt, helper bool) {
 
 func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	a := w.a
+	if w.handler {
+		w.handlerCall(info, call)
+		return
+	}
 	if isTifaUse(info, call) {
 		if w.validate {
 			a.errorAt(call.Pos(), "tifa.Use loads the data of a Layout for a page: it has no place in Validate or the functions it calls, which only check the input")
@@ -146,6 +151,38 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 	if src, ok := a.funcs[key]; ok {
 		w.follow(key, src)
 	}
+}
+
+// handlerCall is call for the walk of a method handler: it records the constant names of c.Param
+// and follows the Ctx into the functions of the module, and checks nothing else.
+func (w *loadWalk) handlerCall(info *types.Info, call *ast.CallExpr) {
+	if ctxMethod(info, call) == "Param" {
+		if len(call.Args) == 1 {
+			if tv := info.Types[call.Args[0]]; tv.Value != nil && tv.Value.Kind() == constant.String {
+				w.uses = append(w.uses, paramUse{method: "Param", name: constant.StringVal(tv.Value), pos: call.Pos()})
+			}
+		}
+		return
+	}
+	if info.Types[call.Fun].IsType() || !callCarriesCtx(info, call) {
+		return
+	}
+	if callee, ok := typeutil.Callee(info, call).(*types.Func); ok && (callee.Pkg() == nil || !w.a.isFramework(callee.Pkg().Path())) {
+		key := callee.Origin().FullName()
+		if src, ok := w.a.funcs[key]; ok {
+			w.follow(key, src)
+		}
+	}
+}
+
+// walkHandler returns the c.Param names with a constant name that the method handler decl reads,
+// in its body and in the functions of the module it passes the Ctx to.
+func (a *analyzer) walkHandler(pkg *packages.Package, decl *ast.FuncDecl) []paramUse {
+	w := &loadWalk{a: a, load: &Load{}, visited: map[string]bool{}, handler: true}
+	if decl.Body != nil {
+		w.body(pkg.TypesInfo, decl.Body, false)
+	}
+	return w.uses
 }
 
 // follow walks the body of a function in the module that receives the Ctx.

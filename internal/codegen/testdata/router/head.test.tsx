@@ -700,11 +700,17 @@ test('background revalidations still out when the user moves on and back settle 
       pending.push({ page, routes, answer: () => resolve(Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${n}`)])) })) })
     })
   }
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 10))
+  // until yields to the event loop, with no clock, until done holds: the test goes on when the page
+  // has done what it waits for, however busy the machine is.
+  const outstanding = () => pending.length
+  const until = async (what: string, done: () => boolean) => {
+    for (let i = 0; i < 10000 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    assert(done(), `gave up waiting until ${what}`)
+  }
   try {
     const router = createAppRouter(routeTree, collector(() => 'b1'), { history: createMemoryHistory({ initialEntries: ['/a/one'] }) })
     const first = router.load()
-    await tick()
+    await until('the first request is out', () => pending.length === 1)
     pending.shift()!.answer()
     await first
     const shown = () =>
@@ -712,7 +718,7 @@ test('background revalidations still out when the user moves on and back settle 
     assert(shown() === '/a/one app/layout 1, app/a/layout 1', `first ${shown()}`)
     // Visit /a/two once, so that its data is cached, and leave it.
     const toTwo = router.navigate({ to: '/a/two' })
-    await tick()
+    await until('the visit asks', () => pending.length === 1)
     assert(pending.length === 1 && pending[0].routes.join() === 'app/a/two/route', `first visit asked ${pending.map((p) => p.routes)}`)
     pending.shift()!.answer()
     await toTwo
@@ -720,20 +726,20 @@ test('background revalidations still out when the user moves on and back settle 
     // The revisit shows the cached data and asks again in the background. The user leaves before the
     // answer arrives and comes back, so the page asks a second time while the first is still out.
     await router.navigate({ to: '/a/two' })
-    await tick()
+    await until('the revisit asks in the background', () => pending.length === 1)
     assert(shown() === '/a/two app/layout 1, app/a/layout 1, app/a/two/route 2', `revisit ${shown()}`)
-    assert(pending.length === 1, `background revalidation did not ask: ${pending.length}`)
     await router.navigate({ to: '/a/one' })
     await router.navigate({ to: '/a/two' })
-    await tick()
+    await until('the second revisit asks while the first is out', () => pending.length === 2)
     // Answers arrive in the reverse order they were asked in.
     for (const request of pending.splice(0).reverse()) request.answer()
-    await tick()
-    for (let i = 0; i < 20 && pending.length > 0; i++) {
+    // Answer whatever is asked after that, until the router is idle and has asked nothing for a while.
+    let quiet = 0
+    for (let i = 0; i < 10000 && quiet < 20; i++) {
       pending.splice(0).forEach((request) => request.answer())
-      await tick()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      quiet = outstanding() === 0 && router.state.status === 'idle' ? quiet + 1 : 0
     }
-    await tick()
     assert(router.state.location.pathname === '/a/two', `ended at ${router.state.location.pathname}`)
     assert(router.state.status === 'idle' && router.state.matches.every((m) => m.status === 'success'), `state ${router.state.status} ${router.state.matches.map((m) => m.status)}`)
     assert(router.state.matches.map((m) => m.loaderData).filter((d) => d !== undefined).length === 3, `data ${shown()}`)

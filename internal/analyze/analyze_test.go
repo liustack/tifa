@@ -435,6 +435,8 @@ func TestViolations(t *testing.T) {
 		// A name the build can see is checked against the path, one it cannot is read when the page runs.
 		{"paramname", [][]string{
 			{"app/items/key+/route.go:11:", `"id"`, `"/items/{key}"`},
+			// The same check in a method handler and in a function of the module it passes the Ctx to.
+			{"app/items/key+/route.go:20:", `"other"`, `"/items/{key}"`},
 		}},
 		// The framework writes the answer of a page, so Load, Layout and the functions they call do not.
 		{"loadwrite", [][]string{

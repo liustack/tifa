@@ -110,8 +110,9 @@ func TestExtremeApp(t *testing.T) {
 				t.Errorf("%s: failed after %s, want within %s", page.url, took, budget)
 			}
 			// The VM that failed is replaced, and the next page renders. The render memo keeps
-			// pages by URL and data (docs/pages-and-data/ssr-and-cache.md), so / alone would be a hit:
-			// a query of its own gives each check a URL the cache has not seen.
+			// pages by URL and the query parameters their Loads declare (docs/reference/memo.md),
+			// so / alone would be a hit. The Load of the index declares after, and a value of its
+			// own gives each check a key the memo has not seen.
 			renderedPage(t, base+"/?after="+url.QueryEscape(page.url))
 		default:
 			t.Errorf("%s: %d, want %s:\n%.600s", page.url, status, page.want, body)

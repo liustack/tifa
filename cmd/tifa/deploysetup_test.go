@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -1154,8 +1156,10 @@ func TestSetupPlanReadsOnce(t *testing.T) {
 	}
 }
 
-// The reads that do not depend on each other run together: with every call slow, the plan takes
-// far less than all its calls one after the other.
+// The reads that do not depend on each other run together. A call counts the calls in flight and
+// waits a little, until enough of them are in flight at once. That proves the
+// overlap without a clock: a plan that runs its calls one after the other never gets there, and a
+// busy machine only makes the calls take longer.
 func TestSetupPlanReadsTogether(t *testing.T) {
 	root := setupApp(t, "site:\n  url: https://deploy-a.example.com\ndeploy:\n  front: cloudflare\n  connect: cloudflare\n  auto: {}\n", nil)
 	newSetupServer(t, "", factsOf("shop", 9531, tunnelFacts))
@@ -1163,25 +1167,42 @@ func TestSetupPlanReadsTogether(t *testing.T) {
 	cf.tunnels["tunnel-1"] = "tifa-vps-1234"
 	gh := newFakeGH()
 	gh.install(t)
-	const delay = 100 * time.Millisecond
+	const together = 4
+	var inFlight, most atomic.Int32
+	arrived := make(chan struct{})
+	var once sync.Once
+	meet := func() {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			m := most.Load()
+			if n <= m || most.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		if n >= together {
+			once.Do(func() { close(arrived) })
+		}
+		select {
+		case <-arrived:
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
 	innerCF, innerGH := runCF, runGH
 	runCF = func(ctx context.Context, args ...string) ([]byte, error) {
-		time.Sleep(delay)
+		meet()
 		return innerCF(ctx, args...)
 	}
 	runGH = func(ctx context.Context, dir string, in io.Reader, args ...string) ([]byte, error) {
-		time.Sleep(delay)
+		meet()
 		return innerGH(ctx, dir, in, args...)
 	}
-	start := time.Now()
 	if _, err := runSetup(t, root, false, ""); err == nil {
 		t.Fatal("no --yes and no terminal, but no error")
 	}
-	calls := len(cf.calls) + len(gh.calls)
-	took := time.Since(start)
-	t.Logf("%d calls, %v", calls, took)
-	if took > time.Duration(calls)*delay/2 {
-		t.Errorf("%d calls of %v took %v: they ran one after the other", calls, delay, took)
+	t.Logf("%d calls, %d in flight at most", len(cf.calls)+len(gh.calls), most.Load())
+	if most.Load() < together {
+		t.Errorf("at most %d calls ran at once, want %d: the plan ran its reads one after the other", most.Load(), together)
 	}
 }
 

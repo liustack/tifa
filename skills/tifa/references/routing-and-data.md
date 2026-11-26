@@ -148,7 +148,7 @@ func Load(c *tifa.Ctx, q Filter) (Page, error) { return page(c, q.Tab, q.Page) }
 At build time Tifa also reads `Load`, `Layout` and the module functions they pass the Ctx to, and fails on the mistakes it sees there, with the file and line:
 
 - `c.Query`, `c.QueryValues`, `c.Bind`, `c.BindQuery`, `c.JSON`, `c.Text`, `c.NoContent`, `tifa.SetSession` and `tifa.ClearSession`.
-- A constant `c.Param` name that the path of the folder does not have. A `Layout` reads only the parameters of its own folder: one of a folder below it is `""`.
+- A constant `c.Param` name that the path of the folder does not have, also in a method handler. A `Layout` reads only the parameters of its own folder: one of a folder below it is `""`.
 - `c.Path()` in a `Layout`, whose data stays while the visitor moves between the pages below it. Read the address in `layout.tsx` with `useRouterState({ select: (s) => s.location.pathname })`.
 - `tifa.Use` with anything but a package-level `Layout` that wraps the caller.
 
