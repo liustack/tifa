@@ -6363,7 +6363,8 @@ function clockReads(program) {
 // searchStr, href, and a parameter in a module that is no page.tsx or layout.tsx, which can render
 // under any page. The useSearch of a route gives the types of its parameters and lets any other
 // through, so only the members read from it are checked. What runs in a callback given to useEffect
-// or useLayoutEffect of react runs in the browser only and is left alone. It is a check of one
+// or useLayoutEffect of react runs in the browser only and is left alone, and so is what their list
+// of dependencies reads: it only tells React when to run the callback again. It is a check of one
 // module, not of what a function it calls does. It returns where each read is, what it reads and
 // the parameters the server renders that code with, undefined when that depends on the page.
 function rawQueryReads(program, file, query = {}) {
@@ -6569,7 +6570,7 @@ function rawQueryReads(program, file, query = {}) {
         const c = call(node, scope)
         visit(node.callee, scope, ctx, node, 'callee')
         node.arguments.forEach((a, i) => {
-          if (c?.effect && i === 0) return visit(a, scope, { ...ctx, effect: true }, node, 'arguments')
+          if (c?.effect && i <= 1) return visit(a, scope, { ...ctx, effect: true }, node, 'arguments')
           const options = bare(a)
           if (c?.select && i === 0 && options.type === 'ObjectExpression') {
             for (const p of options.properties) {

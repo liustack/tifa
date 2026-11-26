@@ -71,7 +71,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
       },
     })
     setRouter(router, () => buildId)
-    cleanAddress(router)
+    cleanAddress(router, window.location.search)
     const hydrated = takeOver(router, htmlAttributes, () => language)
     // What TanStack's RouterClient renders, with the promise of takeOver in place of its own.
     hydrateRoot(
@@ -112,7 +112,7 @@ export function hydrate(routeTree: AnyRoute, htmlAttributes: HTMLAttributes = de
     rewrite: i18n && makeRewrite(i18n, input.language || i18n.default),
   })
   startAlternates(input.alternates, router, i18n)
-  cleanAddress(router)
+  cleanAddress(router, window.location.search)
   const links = pageLinks(router, () => language)
   void router.load().then(() => {
     first = false

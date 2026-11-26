@@ -230,8 +230,8 @@ func pageCacheInBrowser(t *testing.T, base string) {
 	if out := pw("eval", `() => document.getElementById("news")?.textContent ?? ""`); !strings.Contains(out, "page=2") {
 		t.Errorf("page text %s", out)
 	}
-	// The address bar keeps every parameter.
-	if out := pw("eval", "() => location.href"); !strings.Contains(out, `"`+target+`"`) {
+	// The address bar keeps every parameter, in the order of their names.
+	if out := pw("eval", "() => location.href"); !strings.Contains(out, `"`+base+"/news?fbclid=abc&page=2&utm_source=mail&x=r4nd"+`"`) {
 		t.Errorf("address bar %s", out)
 	}
 	// A page with Cache may come from a CDN, so it carries no age and stays undated.

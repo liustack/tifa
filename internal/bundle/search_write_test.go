@@ -9,7 +9,8 @@ import (
 )
 
 // searchWritePage writes queries with stringifySearch of the runtime and with a copy of the way
-// it wrote them before it stopped building a list of parts.
+// it wrote them before it stopped building a list of parts, with the names in the order of their
+// code points, as Go orders their UTF-8 bytes.
 const searchWritePage = `import { stringifySearch } from './runtime/router'
 
 const keptInQuery = /%(24|2C|2F|3A|3F|40|5B|5C|5D|5E|60|7B|7C|7D)/g
@@ -19,9 +20,17 @@ function part(text: string) {
     .replace(/'/g, '%27')
     .replace(/%20/g, '+')
 }
+function byCodePoint(a: string, b: string) {
+  const x = Array.from(a, (c) => c.codePointAt(0)!)
+  const y = Array.from(b, (c) => c.codePointAt(0)!)
+  for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i] - y[i]
+  return x.length - y.length
+}
 function before(search: Record<string, unknown>): string {
   const parts: string[] = []
-  for (const key in search) {
+  const keys: string[] = []
+  for (const key in search) keys.push(key)
+  for (const key of keys.sort(byCodePoint)) {
     const value = search[key]
     if (value === undefined) continue
     for (const item of Array.isArray(value) ? value : [value]) parts.push(part(key) + '=' + part(String(item)))
@@ -57,6 +66,14 @@ const cases: Array<Record<string, unknown>> = [
   { ['\ud800']: undefined, ok: '1' },
   Object.create(null, { a: { value: 'b', enumerable: true } }),
   Object.assign(Object.create({ inherited: 'yes' }), { own: 'no' }),
+  Object.assign(Object.create({ a: 'inherited' }), { b: 'own' }),
+  // Names out of order, as a spread of prev with a new key gives them.
+  { b: '1', a: '2' },
+  { q: 'x', min: 1.5, page: 2 },
+  { z: [], a: '1', m: undefined },
+  { tag: ['y', 'x'], b: 'w', a: ['v'] },
+  { '😀': '1', '\uFFFD': '2', a: '3', B: '4' },
+  { 'é': '1', e: '2', 'E': '3', '': '4' },
 ]
 
 ;(async () => {
@@ -76,7 +93,7 @@ const cases: Array<Record<string, unknown>> = [
 `
 
 // stringifySearch writes the queries it always wrote, an empty one, an undefined value, an empty
-// list and a repeated name among them.
+// list and a repeated name among them, with the names in order.
 func TestStringifySearchWritesTheSameQueries(t *testing.T) {
 	root := prefixLinksRoot(t)
 	files := map[string]string{}
