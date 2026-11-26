@@ -175,13 +175,20 @@ func TestNginxSiteFile(t *testing.T) {
 	none := nginxSiteFile("shop", "", 9527, false, true)
 	has("no domain", none, "# tifa:host -\n", "upstream tifa-shop {\n\tserver 127.0.0.1:9527;\n\tkeepalive 16;\n\tkeepalive_timeout 50s;\n}\n",
 		"listen 80 default_server;", "listen [::]:80 default_server;", "proxy_pass http://tifa-shop;", "proxy_http_version 1.1;",
-		`proxy_set_header Connection "";`, "proxy_set_header Host $http_host;", "proxy_set_header X-Forwarded-For $remote_addr;",
+		"proxy_set_header Upgrade $http_upgrade;", "proxy_set_header Connection $"+nginxConnectionVar("shop")+";",
+		"map $http_upgrade $"+nginxConnectionVar("shop")+" {\n\tdefault upgrade;\n\t'' '';\n}\n",
+		"proxy_set_header Host $http_host;", "proxy_set_header X-Forwarded-For $remote_addr;",
 		"proxy_read_timeout 1d;", "proxy_send_timeout 1d;", "proxy_request_buffering off;", "client_max_body_size 0;", "gzip off;")
+	// Apps whose names differ only in a dot, an underscore or a hyphen get maps of their own, since
+	// nginx refuses one variable defined twice.
+	if a, b, c := nginxConnectionVar("my-app"), nginxConnectionVar("my_app"), nginxConnectionVar("my.app"); a == b || b == c || a == c {
+		t.Errorf("the maps of my-app, my_app and my.app share a name: %s %s %s", a, b, c)
+	}
 	if strings.Contains(none, "443") || strings.Contains(none, "ssl") {
 		t.Errorf("no domain has no HTTPS:\n%s", none)
 	}
 	// Nothing in the site changes Origin or turns off the buffering that X-Accel-Buffering asks for.
-	for _, no := range []string{"Origin", "proxy_ignore_headers", "proxy_buffering", "Upgrade", "add_header"} {
+	for _, no := range []string{"Origin", "proxy_ignore_headers", "proxy_buffering", "add_header"} {
 		if strings.Contains(none, no) {
 			t.Errorf("the site has %q:\n%s", no, none)
 		}

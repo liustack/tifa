@@ -26,6 +26,10 @@ With `front: nginx`, an nginx that Tifa installs serves the visitors of every ap
 The site of an app with a domain, once it has its certificate:
 
 ```nginx
+map $http_upgrade $tifa_connection_8d9001d32c6a {
+	default upgrade;
+	'' '';
+}
 upstream tifa-shop {
 	server 127.0.0.1:9527;
 	keepalive 16;
@@ -49,7 +53,8 @@ server {
 	location / {
 		proxy_pass http://tifa-shop;
 		proxy_http_version 1.1;
-		proxy_set_header Connection "";
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Connection $tifa_connection_8d9001d32c6a;
 		proxy_set_header Host $http_host;
 		proxy_set_header X-Forwarded-For $remote_addr;
 		proxy_read_timeout 1d;
@@ -67,6 +72,7 @@ Without a domain there is one server, with `listen 80 default_server;`. A server
 - nginx waits up to a day for the app, so it never ends a request the app allows to run: the timeouts of the program decide ([Long requests](tuning.md#long-requests)).
 - A request body goes to the app as it arrives, and nginx limits nothing and writes nothing to its disk: `server.body_limit`, or the limit a route sets, answers with 413.
 - An answer with `X-Accel-Buffering: no`, such as server-sent events, is passed on at once, as nginx does when it is not told to ignore that header.
+- A WebSocket reaches the app: `Upgrade` passes, and `Connection` is `upgrade` when the browser asks for one and empty otherwise, which keeps the connections to the app open for the next request. The `map` that picks it has a name of its own in each site, since nginx takes each name once. A site written before Tifa did this gets it when you run setup again.
 - nginx does not compress (`gzip off`), so what the program decides about compression holds, `No-Gzip-Compression` included. Leave `server.compress` on.
 - The connections to the app are kept open for 50 seconds when idle, shorter than the 60 seconds after which the program closes an idle connection.
 

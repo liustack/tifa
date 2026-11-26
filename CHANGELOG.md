@@ -13,6 +13,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - `tifa deploy` runs ssh with `BatchMode=yes` when there is no terminal, so it never waits for an answer no one can give, and gives a server it reaches directly 15 seconds to answer, unless your ssh configuration sets a `ConnectTimeout` (a `ProxyCommand` or `ProxyJump`, such as Cloudflare Access, gets no limit). A host key that is not in `known_hosts` yet, one that changed, and a server ssh cannot reach each get an error that says what to do. See [Deploy](docs/build-and-deploy/deploy.md#deploy-with-tifa-deploy).
 
+### Fixed
+
+- With `deploy.front: nginx`, a WebSocket reaches the app: the site passes `Upgrade` and sets `Connection` to `upgrade` when the browser asks for one. Sites written before get it when you run `go tool tifa deploy setup` again. See [Behind nginx](docs/build-and-deploy/deploy-proxy.md#behind-nginx).
+
 ## [0.7.2] - 2026-11-27
 
 ### Added

@@ -2,7 +2,7 @@
 summary: '在 Tifa 应用前面放 nginx、CDN 或反向代理：`deploy.front: nginx`、CDN 的设置，以及代理后面的跨站 403'
 audience: app
 order: 14
-translatedFrom: db2b4e9bed51
+translatedFrom: c5dc8c021ea6
 read_when:
   - '不用 Cloudflare，用 `deploy.front: nginx` 把几个 Tifa 应用放在同一台服务器上，或者 setup 因为服务器上有一个不是 Tifa 装的 nginx 而停下'
   - '在 Tifa 应用前面放 CDN 或 nginx、Cloudflare、CloudFront 之类的反向代理'
@@ -27,6 +27,10 @@ read_when:
 有域名且已拿到证书的应用，它的站点是这样：
 
 ```nginx
+map $http_upgrade $tifa_connection_8d9001d32c6a {
+	default upgrade;
+	'' '';
+}
 upstream tifa-shop {
 	server 127.0.0.1:9527;
 	keepalive 16;
@@ -50,7 +54,8 @@ server {
 	location / {
 		proxy_pass http://tifa-shop;
 		proxy_http_version 1.1;
-		proxy_set_header Connection "";
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Connection $tifa_connection_8d9001d32c6a;
 		proxy_set_header Host $http_host;
 		proxy_set_header X-Forwarded-For $remote_addr;
 		proxy_read_timeout 1d;
@@ -68,6 +73,7 @@ server {
 - nginx 最多等应用一天，所以它不会结束应用允许继续运行的请求：由程序自己的超时来决定（见[长请求](tuning.zh-CN.md#long-requests)）。
 - 请求体一到就送给应用，nginx 不设任何限制，也不往自己的磁盘上写任何东西：由 `server.body_limit`，或者某个路由设的限制，用 413 来回答。
 - 带 `X-Accel-Buffering: no` 的响应，比如服务器发送事件，会立刻传过去，因为没有叫 nginx 忽略这个头，它就会照着做。
+- WebSocket 能连到应用：`Upgrade` 会传过去，浏览器要升级时 `Connection` 是 `upgrade`，否则为空，这样到应用的连接还能留给下一个请求用。挑这个值的 `map` 在每个站点里各有自己的名字，因为同一个名字 nginx 只认一次。Tifa 加上这一点之前写的站点，再运行一次 setup 就有了。
 - nginx 不做压缩（`gzip off`），所以程序对压缩的决定有效，`No-Gzip-Compression` 也包括在内。请让 `server.compress` 保持开启。
 - 到应用的连接空闲时保持打开 50 秒，比程序关闭空闲连接的 60 秒短。
 

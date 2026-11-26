@@ -13,6 +13,8 @@ package main
 // An nginx without the marker is not Tifa's: setup stops and changes nothing.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -50,10 +52,14 @@ const nginxHostMarker = "# tifa:host "
 //     answer that has a Content-Encoding alone either way.
 //   - X-Accel-Buffering: no of an answer, such as server-sent events, is honoured: nginx does that
 //     unless told to ignore it.
+//   - A WebSocket goes through: Upgrade passes, and Connection is upgrade when the browser asks for
+//     one, else empty, which keeps the connections to the app open for the next request. The map
+//     that picks it is in the site file, under a name of its own for each app (see nginxConnectionVar).
 const nginxLocation = `	location / {
-		proxy_pass http://%s;
+		proxy_pass http://%[1]s;
 		proxy_http_version 1.1;
-		proxy_set_header Connection "";
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Connection $%[2]s;
 		proxy_set_header Host $http_host;
 		proxy_set_header X-Forwarded-For $remote_addr;
 		proxy_read_timeout 1d;
@@ -63,6 +69,14 @@ const nginxLocation = `	location / {
 		gzip off;
 	}
 `
+
+// nginxConnectionVar is the nginx variable of the Connection header of app. Site files share one
+// http block, where a variable may be defined once, and app names that differ only in a dot, an
+// underscore or a hyphen would make the same nginx name, so it is named after a hash of the app.
+func nginxConnectionVar(app string) string {
+	sum := sha256.Sum256([]byte(app))
+	return "tifa_connection_" + hex.EncodeToString(sum[:6])
+}
 
 // nginxUpstream is the name of the upstream of an app.
 func nginxUpstream(app string) string { return "tifa-" + app }
@@ -87,7 +101,8 @@ func nginxSiteFile(app, host string, port int, tls, ipv6 bool) string {
 	fmt.Fprintf(&b, "# Written by tifa deploy setup for the app %s, which writes it again when it differs.\n", app)
 	fmt.Fprintf(&b, "%s%s\n", nginxHostMarker, pick(host == "", "-", host))
 	fmt.Fprintf(&b, "upstream %s {\n\tserver 127.0.0.1:%d;\n\t%s\n}\n", up, port, nginxKeepalive)
-	location := fmt.Sprintf(nginxLocation, up)
+	location := fmt.Sprintf(nginxLocation, up, nginxConnectionVar(app))
+	fmt.Fprintf(&b, "map $http_upgrade $%s {\n\tdefault upgrade;\n\t'' '';\n}\n", nginxConnectionVar(app))
 	switch {
 	case host == "":
 		fmt.Fprintf(&b, "server {\n%s\tserver_name _;\n%s}\n", listen("80 default_server"), location)
