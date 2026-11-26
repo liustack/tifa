@@ -5,8 +5,9 @@ import (
 	"testing"
 )
 
-// A read of import.meta.env.VITE_* in the code of the app gets a warning once per name, at the
-// place of the first read. The names Vite always has, and the reads of a dependency, get none.
+// The reads of import.meta.env.VITE_* in the code of the app get one warning for the build, at the
+// place of the first read, with every name. The names Vite always has, and the reads of a
+// dependency, are left out.
 func TestBuildWarnsOfViteEnvReads(t *testing.T) {
 	server := `import '../vendor/node_modules/dep/index.js'
 export const a = import.meta.env.VITE_KEY
@@ -22,9 +23,7 @@ export const f = [import.meta.env.DEV, import.meta.env.PROD, import.meta.env.MOD
 		"vendor/node_modules/dep/index.js":     "export const x = import.meta.env.VITE_DEP\n",
 	}, "{}")
 	for _, want := range []string{
-		`.tifa/server.ts:2:18: import.meta.env.VITE_KEY is fixed when the build runs`,
-		`.tifa/server.ts:4:18: import.meta.env.VITE_API is fixed when the build runs`,
-		`.tifa/server.ts:5:9: import.meta.env.VITE_FLAG is fixed when the build runs`,
+		`.tifa/server.ts:2:18: import.meta.env.VITE_KEY, import.meta.env.VITE_API, import.meta.env.VITE_FLAG are fixed when the build runs`,
 		"known only when the program runs comes from the Load of the page",
 		"docs/guides/environment.md",
 	} {
@@ -32,8 +31,8 @@ export const f = [import.meta.env.DEV, import.meta.env.PROD, import.meta.env.MOD
 			t.Errorf("the warnings lack %q:\n%s", want, out)
 		}
 	}
-	if n := strings.Count(out, "is fixed when the build runs"); n != 3 {
-		t.Errorf("%d warnings, want 3 (one per name):\n%s", n, out)
+	if n := strings.Count(out, "fixed when the build runs"); n != 1 {
+		t.Errorf("%d warnings, want 1 (one for the build):\n%s", n, out)
 	}
 	for _, not := range []string{"VITE_DEP", "import.meta.env.DEV", "import.meta.env.PROD", "import.meta.env.MODE", "import.meta.env.SSR", "BASE_URL"} {
 		if strings.Contains(out, not) {
