@@ -554,6 +554,58 @@ const i18nWrapperProxy = `const createI18nWrapper = original => new Proxy(origin
   get: (target, prop) => prop === '__original' ? target : Reflect.get(target, prop)
 });
 `
+// useTranslation of react-i18next 18 runs about a dozen hooks on every call: memos, refs, callbacks, a
+// state, an external store and an effect, which keep the translation function and subscribe to the
+// events of i18next so that a component renders again when the language or the strings change. A
+// server renders each component once and runs neither the subscription nor the effect, so none of
+// them does anything there. The plugin changes dist/es/useTranslation.js when its text is one of
+// useTranslationKnown (the sha256 of the whole file, the same in 18.0.0 and 18.0.1), see
+// reactI18nextFast, and leaves any other file as it is, with a warning.
+const reactI18nextES = /[/\\]react-i18next[/\\]dist[/\\]es[/\\]useTranslation\.js$/
+const useTranslationKnown = new Set(['21e61658b8238a4d3914484ec2d6f95d3205f19f0326e40da5af670250b28815'])
+const useTranslationStart = 'export const useTranslation = (ns, props = {}) => {\n'
+// useTranslationFast is what reactI18nextFast adds to the end of the file, as the useTranslation
+// the module exports. When the strings of every namespace the call asks for are in i18n, it does
+// what the original does for such a call, in the same order, without the hooks: it reads the
+// context, merges the options, reports the namespaces, makes the translation function with
+// getFixedT and a wrapper of i18n, and returns them with ready as true. Each call gets its own
+// translation function and wrapper, as each component gets its own from the original. When there
+// is no i18n, it is not initialized, a namespace is not loaded or keyPrefix is a function, it gives
+// the call to the original, which then suspends, warns or computes the key as it does. useContext
+// of React's server renderer keeps no state, so reading the context twice changes nothing.
+const useTranslationFast = `
+export const useTranslation = (ns, props = {}) => {
+  const {
+    i18n: i18nFromProps
+  } = props;
+  const {
+    i18n: i18nFromContext,
+    defaultNS: defaultNSFromContext
+  } = useContext(I18nContext) || {};
+  const i18n = i18nFromProps || i18nFromContext || getI18n();
+  if (!i18n || !(i18n.isInitialized || i18n.initializedStoreOnce)) return tifaUseTranslation(ns, props);
+  if (!i18n.reportNamespaces) i18n.reportNamespaces = new ReportNamespaces();
+  const i18nOptions = {
+    ...getDefaults(),
+    ...i18n?.options?.react,
+    ...props
+  };
+  if (typeof i18nOptions.keyPrefix === 'function') return tifaUseTranslation(ns, props);
+  const nsOrContext = ns || defaultNSFromContext || i18n?.options?.defaultNS;
+  const namespaces = isString(nsOrContext) ? [nsOrContext] : nsOrContext || ['translation'];
+  i18n?.reportNamespaces?.addUsedNamespaces?.(namespaces);
+  if (!namespaces.every(n => hasLoadedNamespace(n, i18n, i18nOptions))) return tifaUseTranslation(ns, props);
+  const t = i18n.getFixedT(props.lng || i18n.language, i18nOptions.nsMode === 'fallback' ? namespaces : namespaces[0], i18nOptions.keyPrefix, {
+    scopeNs: namespaces
+  });
+  const i18nWrapper = createI18nWrapper(i18n);
+  const arr = [t, i18nWrapper, true];
+  arr.t = t;
+  arr.i18n = i18nWrapper;
+  arr.ready = true;
+  return arr;
+};
+`
 // i18nWrapperLists is how many objects reactI18nextCopy keeps a list of keys for.
 const i18nWrapperLists = 8
 // i18nWrapperHelpers is what reactI18nextCopy adds to the end of the module. A list holds the own
@@ -2638,6 +2690,17 @@ export function ssrPlugin(getRoot, loadVite, settings = {}) {
       }
       if (reactI18nextModule.test(id)) {
         const source = fs.readFileSync(id, 'utf8')
+        if (reactI18nextES.test(id) && source.includes(i18nWrapperProxy)) {
+          const fast = reactI18nextFast(source)
+          if (!fast) {
+            this.warn(
+              notRecognized +
+              `react-i18next ${packageVersion(path.resolve(id, '..', '..', '..'))}: ${id} is no useTranslation the ` +
+                'tifa plugin knows, so each call runs the hooks a browser needs. Pages render the same, but take longer to render',
+            )
+          }
+          return fast ?? null
+        }
         const copied = reactI18nextCopy(source)
         if (!copied && source.includes('createI18nWrapper') && source.split(i18nWrapperProxy).length !== 2) {
           this.warn(
@@ -4071,6 +4134,15 @@ function reactI18nextCopy(source) {
   lines[0] += ' const tifaCopy = tifaWrapperCopy(original); if (tifaCopy !== undefined) return tifaCopy;'
   lines[1] += ' tifaWrapperKeep(original, descriptors);'
   return source.replace(i18nWrapperSource, () => lines.join('\n')) + i18nWrapperHelpers
+}
+
+// reactI18nextFast returns the source of react-i18next's dist/es/useTranslation.js with its
+// useTranslation renamed tifaUseTranslation and useTranslationFast exported in its place, or
+// undefined when the file is not one of useTranslationKnown.
+function reactI18nextFast(source) {
+  if (!useTranslationKnown.has(createHash('sha256').update(source).digest('hex'))) return undefined
+  if (source.split(useTranslationStart).length !== 2) return undefined
+  return source.replace(useTranslationStart, () => 'const tifaUseTranslation = (ns, props = {}) => {\n') + useTranslationFast
 }
 
 // rehypeHighlightKept returns the source of rehype-highlight's lib/index.js with the line that
