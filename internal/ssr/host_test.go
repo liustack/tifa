@@ -54,13 +54,16 @@ func TestServerRenderGlobals(t *testing.T) {
 
 func TestServerRenderBehavior(t *testing.T) {
 	cases := []struct{ expr, want string }{
-		// console: log, info, debug and warn print nothing, error and a failed assert fail the render.
+		// console: log, info, debug and warn print nothing in a built app (consolelog_test.go has tifa dev),
+		// error and a failed assert fail the render, and the other methods do nothing.
 		{"console.log('x')", "undefined"},
 		{"console.warn('x')", "undefined"},
 		{"console.error('broken', 1)", "throws Error: broken 1"},
 		{"console.assert(false, 'bad')", "throws Error: Assertion failed: bad"},
 		{"console.assert(true, 'fine')", "undefined"},
-		{"console.time('x')", "throws TypeError: not a function"},
+		{"console.time('x')", "undefined"},
+		{"console.table([{a: 1}])", "undefined"},
+		{"console.group('x')", "undefined"},
 		// TextDecoder knows UTF-8 only.
 		{"new TextDecoder().encoding", "utf-8"},
 		{"new TextDecoder('latin1')", "throws RangeError: Encoding not supported: latin1"},

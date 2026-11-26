@@ -666,6 +666,12 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Instead.** `tifa errors` asks the running `tifa dev` for the errors since the last build, with `--json` and exit code 1 when there are any.
 
+### What the page prints on the server
+
+**Settled (2026-11-26).** Under `tifa dev`, `console.log`, `info`, `debug` and `warn` of a server render go to the log of the app, with the URL of the page and the place of the call in the sources. A built program prints nothing. `error` and a failed `assert` throw in both, and `table`, `dir`, `group`, `groupCollapsed`, `groupEnd`, `time`, `timeEnd`, `timeLog`, `count`, `countReset` and `trace` exist in both and do nothing, except that `table`, `dir` and `group` print as `log` under `tifa dev`.
+
+**Why.** A developer had no way to see what a component printed on the server, and a library that called `console.time` failed the render with a `TypeError`. Printing only changes the log, never whether a render works, so it does not break [Checks that only tifa dev runs](#checks-that-only-tifa-dev-runs): `tifa dev` and the built program succeed and fail together. The VM keeps the calls in a list and Go logs it after the render, so a render still does no I/O. It is not [Browser errors printed in the terminal](#browser-errors-printed-in-the-terminal): that was the browser console, this is the server's.
+
 ### More in tifatest
 
 **Turned down (2026-11-05).** Assertions of its own, browser automation, a mock of `fetch`, and a parameter that overrides settings.

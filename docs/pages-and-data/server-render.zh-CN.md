@@ -2,7 +2,7 @@
 summary: '服务端渲染有什么、缺什么：beastjs 的 API、Node 模块、Intl、Temporal、水合'
 audience: app
 order: 12
-translatedFrom: 54a5973eeb61
+translatedFrom: a97371a1298a
 read_when:
   - '页面在服务端渲染失败或没有水合，想知道服务端有哪些浏览器 API 和库的功能'
   - '某个组件在浏览器画出来之前什么都不显示（比如图表或地图），想知道要不要在服务端渲染它'
@@ -27,7 +27,7 @@ read_when:
 - `AsyncLocalStorage`，作为全局变量，也作为 `node:async_hooks` 的导出连同 `AsyncResource`，和 Cloudflare Workers 提供的一样：`run`、`exit`、`getStore`、`AsyncLocalStorage.bind` 和 `AsyncLocalStorage.snapshot`，没有 `enterWith` 和 `disable`。存储会跟着 `await` 和 promise 回调走，所以把请求状态放在其中的包可以工作。没有定时器或事件供它跟随。
 - `Intl` 和 `toLocale*` 方法，见[服务端渲染里的 Intl](#intl-in-server-rendering)。
 - `Temporal` 和 `Date.prototype.toTemporalInstant`，见[服务端渲染里的 Temporal](#temporal-in-server-rendering)。
-- `console`，有 `log`、`info`、`debug`、`warn`、`error` 和 `assert`。前四个什么也不打印。`error` 和失败的 `assert` 会抛出，所以渲染会带着它们的消息失败。其他方法，比如 `console.time` 或 `console.table`，不存在，调用会抛出 `TypeError`。
+- `console`。`log`、`info`、`debug` 和 `warn` 在构建出的程序里什么也不打印，在 [`tifa dev`](#console-in-tifa-dev) 下会打印到它的日志里。`error` 和失败的 `assert` 在两种模式下都会抛出，所以渲染会带着它们的消息失败。`table`、`dir`、`group`、`groupCollapsed`、`groupEnd`、`time`、`timeEnd`、`timeLog`、`count`、`countReset` 和 `trace` 都存在，调用后什么也不做，只有在 `tifa dev` 下，`table`、`dir` 和 `group` 会像 `log` 一样打印。
 - `Date.now()` 和 `Math.random()`。它们能用，但它们的值不能进入 HTML，见 [SSR 与缓存](ssr-and-cache.zh-CN.md#ssr-and-cache)。
 
 它没有：
@@ -142,6 +142,18 @@ export default function ReceiptPage() {
 ```
 
 当 `locale: 'zh-CN'`、`timeZone: 'Asia/Shanghai'`、`paidAt: '2025-08-16T20:05:09Z'` 时，这会在服务器和浏览器里都渲染出 `¥1,234.50` 和 `2025/8/17`。
+
+### `tifa dev` 里的 console {#console-in-tifa-dev}
+
+在 [`tifa dev`](../build-and-deploy/dev.zh-CN.md) 下，页面在服务器上渲染时打印的内容会进入应用的日志，也就是 `tifa dev` 的终端，以及 `tifa dev logs` 打印的内容。每一行都带着页面和这次调用在你源码中的位置：
+
+```text
+2026/11/26 08:00:00 INFO console.log: cart {"items":3} path=/store/cart at=app/store/cart/page.tsx:14:5
+```
+
+`log`、`info` 和 `debug` 是 `INFO` 行，`warn` 是 `WARN` 行，`console.table(rows)` 和 `console.dir(value)` 会像 `log` 一样打印它们的第一个参数。第一个参数里的 `%s`、`%d`、`%i`、`%f`、`%j`、`%o`、`%O` 和 `%%` 和 Node 里一样起作用。对象按 JSON 打印，JSON 装不下的值按 `String` 给出的结果打印。一次渲染只保留前 100 次调用，每条最多 4,000 个字符，多出来的会在一行里说明有多少次。位置取调用栈里你的代码的第一行，所以包内部的调用会写成引出它的那行你的代码，包没有 source map 时则不写位置。
+
+渲染记忆会保留的页面在 `tifa dev` 下会渲染两次（见 [`tifa dev`](../build-and-deploy/dev.zh-CN.md#log)），只有第一次渲染会打印。失败的渲染会打印它失败之前写下的内容。`error` 和失败的 `assert` 和构建出的程序里一样会抛出，所以在 `tifa dev` 下能渲染的页面，在构建出的程序里也能渲染。构建出的程序什么也不打印，VM 自己也从不写任何东西：它把文字交给 Go，由 Go 记录。
 
 ### `tifa dev` 里的警告 {#warnings-in-tifa-dev}
 

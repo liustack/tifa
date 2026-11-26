@@ -26,7 +26,7 @@ Pages render on the server in a VM of beastjs (the pure Go JavaScript engine Tif
 - `AsyncLocalStorage`, as a global and as an export of `node:async_hooks` with `AsyncResource`, as Cloudflare Workers has them: `run`, `exit`, `getStore`, `AsyncLocalStorage.bind` and `AsyncLocalStorage.snapshot`, without `enterWith` and `disable`. A store follows `await` and promise callbacks, so a package that keeps the state of a request in one works. There are no timers or events for it to follow.
 - `Intl` and the `toLocale*` methods, see [Intl in server rendering](#intl-in-server-rendering).
 - `Temporal` and `Date.prototype.toTemporalInstant`, see [Temporal in server rendering](#temporal-in-server-rendering).
-- `console` with `log`, `info`, `debug`, `warn`, `error` and `assert`. The first four print nothing. `error` and a failed `assert` throw, so the render fails with their message. Other methods, such as `console.time` or `console.table`, are missing, and calling one throws a `TypeError`.
+- `console`. `log`, `info`, `debug` and `warn` print nothing in a built program, and under [`tifa dev`](#console-in-tifa-dev) they print to its log. `error` and a failed `assert` throw in both, so the render fails with their message. `table`, `dir`, `group`, `groupCollapsed`, `groupEnd`, `time`, `timeEnd`, `timeLog`, `count`, `countReset` and `trace` exist and do nothing, except that under `tifa dev` `table`, `dir` and `group` print as `log`.
 - `Date.now()` and `Math.random()`. They work, but their values must not reach the HTML, see [SSR and cache](ssr-and-cache.md#ssr-and-cache).
 
 It does not have:
@@ -141,6 +141,18 @@ export default function ReceiptPage() {
 ```
 
 With `locale: 'zh-CN'`, `timeZone: 'Asia/Shanghai'` and `paidAt: '2025-08-16T20:05:09Z'` this renders `¥1,234.50` and `2025/8/17` on the server and in the browser.
+
+### Console in `tifa dev`
+
+Under [`tifa dev`](../build-and-deploy/dev.md), what a page prints while it renders on the server goes to the log of the app, which is the terminal of `tifa dev` and what `tifa dev logs` prints. Each line has the page and the place of the call in your sources:
+
+```text
+2026/11/26 08:00:00 INFO console.log: cart {"items":3} path=/store/cart at=app/store/cart/page.tsx:14:5
+```
+
+`log`, `info` and `debug` are `INFO` lines, `warn` is a `WARN` line, and `console.table(rows)` and `console.dir(value)` print their first argument as `log` does. `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O` and `%%` in the first argument work as in Node. An object prints as JSON, and a value JSON cannot hold prints as `String` gives it. A render keeps its first 100 calls and each is cut at 4,000 characters, and a line says how many more there were. The place is the first line of your code in the stack, so a call inside a package is named by your code that led to it, and it is left out when the bundle has no source map.
+
+A page the render memo keeps is rendered twice under `tifa dev` (see [`tifa dev`](../build-and-deploy/dev.md#log)), and only the first render prints. A render that fails prints what it wrote before it failed. `error` and a failed `assert` throw as they do in a built program, so a page that renders under `tifa dev` renders in the built program too. A built program prints nothing, and the VM never writes anything itself: it hands the text to Go, which logs it.
 
 ### Warnings in `tifa dev`
 

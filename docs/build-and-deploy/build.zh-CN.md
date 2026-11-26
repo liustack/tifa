@@ -2,7 +2,7 @@
 summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: b9b4db8edc83
+translatedFrom: 022c629f3a1f
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -420,7 +420,7 @@ Vite 默认不给浏览器包写 source map。应用如果在 `vite.config.ts` �
 
 构建会打印 Vite 和 Rolldown 对应用自己的代码给出的警告。Tifa 关掉了应用无法处理的两条提示：Rolldown 对最慢的插件回调给出的 PLUGIN_TIMINGS 列表，以及 Vite 对浏览器包在 1000 kB 以下的代码块大小警告，Tifa 有意把浏览器包做成一个文件。超过 1000 kB 的浏览器入口仍然会得到警告。应用可以在自己的 Vite 配置里设置 `build.chunkSizeWarningLimit` 或 `build.rolldownOptions.checks` 来改变其中任何一条。
 
-SSR 包一开始会导入 `runtime/host.js`，它补上 beastjs 缺少的东西：`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么都不打印、调用 `error` 时会抛出异常的 `console`。在运行包里的模块之前，SSR 加载器会注册引擎的 `URL` 和 `URLSearchParams`（`github.com/liustack/beastjs/url`，它在 Go 里解析），注册用于取新鲜随机字节的 Go 函数，以及用于引擎的异步上下文的 Go 函数，后者是 promise 任务携带的一个对象，`AsyncLocalStorage` 把它的存储放在里面。所以对于在模块加载时就用到 `crypto` 和 `AsyncLocalStorage` 的依赖，它们已经准备好了。克隆完全在 JS 里运行，使用内置的品牌检查和 `Error.isError`，不读引擎的私有字段。它不提供 `crypto.subtle`、`fetch` 或 `Request`。[服务端渲染里有什么](../pages-and-data/server-render.zh-CN.md#what-the-server-render-has)列出了页面在那里能找到的一切。这个脚本已经预先打包进程序，所以应用不用安装构成它的那些包。它怎么构建，以及为什么其中两个包打了补丁，见 [宿主脚本](../internals/ssr-bundle-rewrites.md#the-host-script)。
+SSR 包一开始会导入 `runtime/host.js`，它补上 beastjs 缺少的东西：`TextEncoder`/`TextDecoder`、`AbortController`、`Headers`、`Response`、`queueMicrotask`、`atob`、`btoa`、`DOMException`、`structuredClone`、`crypto.getRandomValues`、`crypto.randomUUID`、`AsyncLocalStorage`，以及一个什么都不打印（在 `tifa dev` 下打印到日志）、调用 `error` 时会抛出异常的 `console`。在运行包里的模块之前，SSR 加载器会注册引擎的 `URL` 和 `URLSearchParams`（`github.com/liustack/beastjs/url`，它在 Go 里解析），注册用于取新鲜随机字节的 Go 函数，以及用于引擎的异步上下文的 Go 函数，后者是 promise 任务携带的一个对象，`AsyncLocalStorage` 把它的存储放在里面。所以对于在模块加载时就用到 `crypto` 和 `AsyncLocalStorage` 的依赖，它们已经准备好了。克隆完全在 JS 里运行，使用内置的品牌检查和 `Error.isError`，不读引擎的私有字段。它不提供 `crypto.subtle`、`fetch` 或 `Request`。[服务端渲染里有什么](../pages-and-data/server-render.zh-CN.md#what-the-server-render-has)列出了页面在那里能找到的一切。这个脚本已经预先打包进程序，所以应用不用安装构成它的那些包。它怎么构建，以及为什么其中两个包打了补丁，见 [宿主脚本](../internals/ssr-bundle-rewrites.md#the-host-script)。
 
 Tifa 插件会改写 SSR 包里的许多 npm 包，比如 React DOM、TanStack Router、i18next，以及给组件加样式和绘图的库，让它们在 beastjs 里渲染得更快。它按代码的形态或文本找到要改的代码，而不是按包的版本，所以 `pnpm update` 不会弄坏构建。当某个发布版本改变了那段代码时，构建会打印一条警告，带上包的版本和文件，并让那段代码保持原样。页面仍然能渲染，只是慢一些。如果 React DOM 的某个发布版本，其字符串渲染器插件没有完整读过，会收到一条这样说明的警告，页面渲染结果相同，只是更慢。每条这样的警告都以 `tifa rewrite not recognized: ` 开头，所以 `grep` 能找到所有的警告。对 React DOM 的改动让它的文件里每一行都保持在原来的位置，所以渲染错误的堆栈给出的是 `node_modules` 里 React DOM 的原样行号。没有设置可以关掉这些改动：它们都不改变 HTML，只有服务器动作的键例外，而 Tifa 没有服务器动作。每处改动做什么，以及维护者怎样审查新版本，见 [SSR 包的改写](../internals/ssr-bundle-rewrites.md)。
 
