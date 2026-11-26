@@ -95,7 +95,9 @@ A sign-in page that sends the visitor on to `?next=...` is an open door to any s
 
 ### Slow down guessing and floods
 
-Tifa has no rate limiter. `OnRequest` sees every request with its method and path, so it is the place to limit by address. Slow down wrong passwords too, as the sign-in guide shows. If visitors who are not signed in may start a session, limit that at the entry, since a flood pushes real sessions out of the memory store. See [Sessions](../pages-and-data/sessions.md#where-to-store-sessions).
+Tifa has no rate limiter. `OnRequest` sees every request with its method and path, so it is the place to limit by address. With `deploy.front: none`, the address is the host part of `c.Request().RemoteAddr`. Behind a proxy, `RemoteAddr` is the proxy, so read the one header your own proxy sets, and never the leftmost value of `X-Forwarded-For`, which the visitor writes. See [The client address](../build-and-deploy/deploy.md#behind-a-cdn-or-proxy). Slow down wrong passwords too, as the sign-in guide shows. If visitors who are not signed in may start a session, limit that at the entry, since a flood pushes real sessions out of the memory store. See [Sessions](../pages-and-data/sessions.md#where-to-store-sessions).
+
+Limit public pages the same way. A query parameter that no `Load` or Layout declares is dropped before the memo key, so any number of values for it hit the same entry and cost nothing. A declared parameter whose values have no bound, such as a search word `q` or a page number `page`, is another matter: each new value runs the `Load` and takes a render on a VM, and it may push other pages out of the memo. Put the limit in `OnRequest`. See [Query parameters](../reference/memo.md#query-parameters).
 
 ### Write queries with parameters
 
@@ -111,5 +113,7 @@ Tifa has no database layer. Your app uses `database/sql`, so pass values as argu
 ### Keep the program and its packages current
 
 Fixes for Tifa land in the latest release, and `go tool tifa upgrade` moves your app to it (see [Upgrading Tifa](../build-and-deploy/build.md#upgrading-tifa)). Tifa does not check your Go modules or npm packages for known holes, so update them on your own schedule.
+
+`net/http` is compiled into your program, so a Go security release reaches the app only when you build and deploy it again. The CI that `tifa new` writes installs the newest patch of the Go minor in `go.mod` and runs `govulncheck`. The workflow of `tifa deploy` installs the newest patch too, so a fix is in the next deploy.
 
 To report a hole in Tifa itself, open a [private security advisory](https://github.com/liustack/tifa/security/advisories/new) and not a public issue.

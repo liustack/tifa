@@ -443,7 +443,13 @@ The test calls the handler directly: `Validate`, the body limit and the read tim
 
 **How long.** The read time is how long the slowest visitor you serve may take to send the largest file you accept. 4 MiB over a line of 1 Mbit/s takes about 34 seconds, so 5 minutes leaves room. A long time lets a slow client hold a connection that long, so do not give it to routes that do not need it.
 
-**What is accepted.** A list of kinds, decided by the bytes. For documents, do the same with their own types and serve them with `Content-Disposition: attachment` so the browser saves them and does not open them.
+**What is accepted.** A list of kinds, decided by the bytes. For documents, do the same with their own types and serve them with `Content-Disposition: attachment` so the browser saves them and does not open them. When the header carries a file name, let `mime.FormatMediaType` write it. Joining the name into a string with `fmt.Sprintf` lets a quote or a line break in it end the value and add parameters. A name you choose, such as the id of the record, is safer than the one the visitor gave.
+
+```go
+name := "report-" + id + ".pdf" // not the name the visitor sent
+disposition := mime.FormatMediaType("attachment", map[string]string{"filename": name})
+c.Writer().Header().Set("Content-Disposition", disposition)
+```
 
 ## Check it
 

@@ -2,7 +2,7 @@
 summary: '怎样让访客在 Tifa 应用里上传文件：文件输入、请求体上限、类型检查、存放位置、测试'
 audience: app
 order: 4
-translatedFrom: cc8ed5741c91
+translatedFrom: f979f44a9b6f
 read_when:
   - '添加文件上传，比如图片、头像或附件'
   - '上传失败，返回 400、408、413、415 或 422，或者处理函数看不到文件'
@@ -444,7 +444,13 @@ func TestPOSTRefusesText(t *testing.T) {
 
 **多久。** 读取时间是你服务的最慢的访客发送你接受的最大文件可能花的时间。4 MiB 在 1 Mbit/s 的线路上大约要 34 秒，所以 5 分钟留有余地。时间长会让慢客户端占住连接那么久，所以不要把它给不需要的路由。
 
-**接受什么。** 一份种类的名单，由字节来决定。对文档，用它们自己的类型做同样的事，并用 `Content-Disposition: attachment` 来提供它们，让浏览器保存而不是打开它们。
+**接受什么。** 一份种类的名单，由字节来决定。对文档，用它们自己的类型做同样的事，并用 `Content-Disposition: attachment` 来提供它们，让浏览器保存而不是打开它们。头里要带文件名时，让 `mime.FormatMediaType` 来写。用 `fmt.Sprintf` 把名字拼进字符串，名字里的引号或换行就能结束这个值并加上别的参数。你自己定的名字（比如记录的 id）比访客给的名字更安全。
+
+```go
+name := "report-" + id + ".pdf" // 不用访客发来的名字
+disposition := mime.FormatMediaType("attachment", map[string]string{"filename": name})
+c.Writer().Header().Set("Content-Disposition", disposition)
+```
 
 ## 检查一下 {#check-it}
 
