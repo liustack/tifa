@@ -15,7 +15,7 @@ A WebSocket starts as an ordinary GET that asks the server to switch protocols, 
 
 If the server only sends to the browser, [server-sent events](streaming.md) are less to run: they are plain HTTP, work through every proxy, and the browser reconnects by itself. Use a WebSocket when the browser sends often too.
 
-The library is [github.com/coder/websocket](https://github.com/coder/websocket) (v1.8.15 here), which is pure Go and keeps `CGO_ENABLED=0`. The code ran in a scratch app made with `tifa new`: `go tool tifa check`, a Go test with a client, the built program with a client and `SIGTERM`, and a page in a browser.
+The library is [github.com/coder/websocket](https://github.com/coder/websocket), which is pure Go and keeps `CGO_ENABLED=0`.
 
 ## The endpoint
 
@@ -126,7 +126,7 @@ What does end a quiet connection is what stands between the browser and the prog
 
 ## Stopping
 
-The program waits for a handler that is running when it stops, up to `server.shutdown_timeout`, and a hijacked connection counts as running. A WebSocket that stays open would hold every deploy for 10 seconds. `tifa.ShuttingDown(ctx)` closes when the stop starts ([Streaming](streaming.md#when-the-program-stops)), and the goroutine above answers with a close frame. With the built program, `SIGTERM` reached a connected client as `StatusGoingAway` and the process was gone in under two seconds. Browsers reconnect after a close in the code of your page: do it with a short, growing wait.
+The program waits for a handler that is running when it stops, up to `server.shutdown_timeout`, and a hijacked connection counts as running. A WebSocket that stays open would hold every deploy for 10 seconds. `tifa.ShuttingDown(ctx)` closes when the stop starts ([Streaming](streaming.md#when-the-program-stops)), and the goroutine above answers with a close frame. A connected client gets a close frame with `StatusGoingAway` and the program exits at once. Browsers reconnect after a close in the code of your page: do it with a short, growing wait.
 
 Over HTTP/2 `Hijack` fails, so the program does not offer WebSockets on HTTP/2 and browsers open them over a separate HTTP/1.1 connection ([What changes over HTTP/2](../build-and-deploy/https.md#what-changes-over-http2)).
 
@@ -135,14 +135,12 @@ Over HTTP/2 `Hijack` fails, so the program does not offer WebSockets on HTTP/2 a
 | `deploy.front` | WebSocket |
 | --- | --- |
 | `none` | The program serves visitors itself, so the handshake reaches it. |
-| `nginx` | It passes. The site sends `Upgrade` on and sets `Connection` to `upgrade` when the browser asks for it ([Behind nginx](../build-and-deploy/deploy-proxy.md#behind-nginx)). Sites written before this fix, which is in the unreleased changes of the CHANGELOG, get it when you run `go tool tifa deploy setup` again. |
-| `cloudflare` | Cloudflare says that proxied WebSocket connections work on all plans without extra setup ([Cloudflare](https://developers.cloudflare.com/network/websockets/)). Its documentation says nothing about WebSockets through a Tunnel, which is what this front uses, and this was not tried. Test your app once through it. |
-
-The `none` row was run on one machine with no proxy in front. The `nginx` row is what the docs of Tifa and its change log say: no nginx was run for this guide.
+| `nginx` | It passes. The site sends `Upgrade` on and sets `Connection` to `upgrade` when the browser asks for it ([Behind nginx](../build-and-deploy/deploy-proxy.md#behind-nginx)). Sites set up before v0.7.3 get it when you run `go tool tifa deploy setup` again. |
+| `cloudflare` | Cloudflare says that proxied WebSocket connections work on all plans without extra setup ([Cloudflare](https://developers.cloudflare.com/network/websockets/)). Cloudflare does not document WebSockets through a Tunnel, which is what this front uses: test yours once through it. |
 
 ## Test it
 
-`app/ws/ws_test.go` starts the app with `tifatest.Start`, and dials with the same client the test server gives, which keeps cookies and trusts the test certificate. It checks that:
+Start the app with `tifatest.Start` and dial it with the client of the test server, which keeps cookies and trusts the test certificate. Check that:
 
 - a handshake without a session gets 401
 - after `POST /login`, with the cookie in the handshake header, a message comes back as `ada: hello`

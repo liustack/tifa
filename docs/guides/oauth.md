@@ -11,13 +11,13 @@ read_when:
 
 # Sign in with Google or GitHub
 
-A visitor presses a button, the provider asks them to agree, and they come back signed in. Tifa keeps the session ([Sessions](../pages-and-data/sessions.md)). The provider says who the visitor is. Your code sends the visitor out, checks the way back, and calls `tifa.SetSession`, as [Sign in and sign out](sign-in.md) does after a password. Tifa has no OAuth of its own. The library is `golang.org/x/oauth2`.
+A visitor presses a button, agrees at the provider, and comes back signed in. Tifa keeps the session ([Sessions](../pages-and-data/sessions.md)) and the provider says who the visitor is. Your code sends the visitor out, checks the way back, and calls `tifa.SetSession`, as [Sign in and sign out](sign-in.md) does after a password. Tifa has no OAuth of its own. The library is `golang.org/x/oauth2`.
 
-Checked with `go tool tifa check` and a Go test that stands in for the provider (see [Test it](#test-it)). **Nothing here has talked to the real Google, GitHub or Apple.** The endpoints come from the `google` and `github` packages of `oauth2`, and the shape of their answers from the provider documentation, linked below. Try each provider once by hand.
+The endpoints come from the `google` and `github` packages of `oauth2`. Try each provider once with a real account.
 
 ## Set it up
 
-At the provider, make an OAuth app and give it the address the visitor comes back to: `https://notes.example.com/auth/google/callback`, and the same with `github`. Keep the client ID and the secret in [options of the app](../build-and-deploy/config.md#options-of-the-app). A `tifa.Secret` comes from the environment or `.env`, never from a flag:
+At the provider, make an OAuth app with the address the visitor comes back to: `https://notes.example.com/auth/google/callback`, and the same with `github`. Keep the client ID and the secret in [options of the app](../build-and-deploy/config.md#options-of-the-app), the secret as a `tifa.Secret`:
 
 ```go
 // options.go, and the same two for GitHub
@@ -28,7 +28,7 @@ var (
 
 ```
 
-`AppURL` (the address visitors use) is the only source of the callback address: never build one from the `Host` of the request. A provider without a client ID is off. Users and sessions are those of [Sign up](sign-up.md). This guide adds a table of identities:
+Build the callback address from `AppURL`, the address visitors use, and never from the `Host` of the request. A provider without a client ID is off. Users and sessions are those of [Sign up](sign-up.md), plus a table of identities:
 
 ```sql
 CREATE TABLE IF NOT EXISTS identities (
@@ -154,9 +154,9 @@ func GitHubProfile(api string) func(context.Context, *http.Client) (Profile, err
 
 ```
 
-- `getJSON` (not shown) is a plain GET with `Accept: application/json` that fails on any status but 200 and reads at most 1 MiB.
-- **Google** is OpenID Connect. The `email` scope gives `email` and `email_verified`, and `sub` is the id that never changes ([Google's documentation](https://developers.google.com/identity/openid-connect/openid-connect)). The profile comes from the userinfo endpoint, with the token just traded for the code, so there is no signature to check. `email_verified` is read as a boolean, as the OpenID Connect standard has it: look at a real answer once.
-- **GitHub** is OAuth 2 without OpenID Connect. The user object has an address only if the person made it public. The list at `GET /user/emails` needs the `user:email` scope and has `email`, `primary` and `verified` for each address ([GitHub's documentation](https://docs.github.com/en/rest/users/emails)). The code takes the primary address, and only if GitHub verified it.
+- `getJSON` (not shown) is a GET that fails unless the status is 200.
+- **Google** is OpenID Connect. The `email` scope gives `email` and `email_verified`, and `sub` never changes ([documentation](https://developers.google.com/identity/openid-connect/openid-connect)). `email_verified` is read as a boolean, as the standard has it.
+- **GitHub** has no OpenID Connect, and its user object has an address only if the person made it public. `GET /user/emails` needs the `user:email` scope and lists `email`, `primary` and `verified` ([documentation](https://docs.github.com/en/rest/users/emails)). The code takes the primary address, if GitHub verified it.
 
 ## Send the visitor out and take them back
 
@@ -313,16 +313,13 @@ func userFor(ctx context.Context, provider string, p Profile) (Session, error) {
 
 ```
 
-`normalizeEmail`, `now` and `Session` (with its `Epoch`) are those of [Sign up](sign-up.md) and [Reset a password](password-reset.md), and `safeNext` is the one of [the sign-in guide](sign-in.md#the-sign-in-route).
+`normalizeEmail`, `now` and `Session` are those of [Sign up](sign-up.md) and [Reset a password](password-reset.md), and `safeNext` is the one of [the sign-in guide](sign-in.md#the-sign-in-route).
 
-What each check is for:
+- **`state`** goes out in the address and comes back in the callback, and must equal the one in the cookie, which only this browser holds. It stops an attacker from signing a victim in as the attacker.
+- **PKCE** (`code_challenge` with `S256`, then the `code_verifier` at the token request) ties the code to the browser that started the flow,. GitHub accepts only `S256` ([documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)), and Google lists it in its discovery document. The verifier stays in the cookie.
+- **The cookie is short and its own**, not the session cookie: `HttpOnly`, `Secure` when `AppURL` is HTTPS, `Path=/auth` so no other page gets it, ten minutes. The callback clears it first, so it works once.
 
-- **`state`** is a random string that goes out in the address and comes back in the callback. It must equal the one in the cookie, which only this browser holds. It stops an attacker from sending a victim's browser a callback address with the attacker's code, which would sign the victim in as the attacker.
-- **PKCE** (`code_challenge` with `S256`, then the `code_verifier` at the token request) ties the code to the browser that started the flow, so a stolen code is no use. GitHub accepts it, and only `S256` ([documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)), and Google lists `S256` in its discovery document. The verifier stays in the cookie, never in an address.
-- **The cookie is short and its own**, not the session cookie: Tifa makes that one in `SetSession`, after the checks pass. This one is `HttpOnly`, `Secure` when `AppURL` is HTTPS, `Path=/auth` so no other page gets it, and lives ten minutes. The callback clears it first, so a callback works once.
-- **A provider error** (`error=access_denied`, the visitor said no) ends the flow before any call. The text of a failed exchange goes to the log, not to the visitor.
-
-The routes are a folder with a parameter, `app/auth/provider+/route.go`, so one pair serves every provider:
+The routes are a folder with a parameter, so one pair serves every provider. `app/auth/provider+/route.go`:
 
 ```go
 package provider
@@ -388,21 +385,19 @@ func POST(c *tifa.Ctx, f Query) error {
 
 ```
 
-The start is a GET that changes only its own cookie, so a link is enough: `<a href="/auth/google?next=%2Faccount">Sign in with Google</a>`. The callback is a GET too, since the provider redirects the visitor back, and it may call `SetSession` ([Where to call what](../pages-and-data/sessions.md#where-to-call-what)). Tifa does not check the site of a GET. `next` goes through `safeNext` of [the sign-in guide](sign-in.md#the-sign-in-route) before the redirect.
+The start only changes its own cookie, so a link is enough: `<a href="/auth/google?next=%2Faccount">Sign in with Google</a>`. The callback is a GET too, since the provider redirects the visitor back, and it may call `SetSession` ([where](../pages-and-data/sessions.md#where-to-call-what)).
 
 ## Linking to an account that exists
 
-`userFor` in `oauth.go` decides which user a profile is, in this order:
+`userFor` decides which user a profile is, in this order:
 
-1. **The identity is known.** The pair (provider, `Subject`) is the key, not the address: people change addresses, and a dropped address can be given to someone else.
-2. **A new identity and an account with the same address.** The provider must say the address is verified, and the address of the account must be confirmed too. Then the identity joins the account. An account whose address was never confirmed is refused with a 409: anyone can sign up with an address that is not theirs and knows the password of that account, so joining it would give them a way into the real owner's ([Sign up](sign-up.md)).
-3. **A new person.** The user is made with a confirmed address and an empty password hash, which `CheckHash` refuses, so only the provider signs them in. They can choose a password later with [Reset a password](password-reset.md).
-
-A provider that does not vouch for the address gets no new account and no link.
+1. **The identity is known.** The key is (provider, `Subject`), not the address.
+2. **A new identity, and an account with the same address.** The provider must say the address is verified and the account's address must be confirmed too. Then the identity joins the account. An account whose address was never confirmed is refused with a 409: anyone can sign up with an address that is not theirs and knows that password, so joining it would let them into the real owner's account ([Sign up](sign-up.md)).
+3. **A new person.** The user gets a confirmed address and an empty password hash, which `CheckHash` refuses, so only the provider signs them in.
 
 ## A provider that posts the callback
 
-Sign in with Apple can send the visitor back with a POST of a form instead of a redirect: Apple's documentation says that with `response_mode=form_post` Apple sends the results as a POST to the redirect address, with a form body (`application/x-www-form-urlencoded`), and that the `user` field with the name and the address comes in that form, the first time only ([Apple's documentation](https://developer.apple.com/documentation/signinwithapplerestapi/request-an-authorization-to-the-sign-in-with-apple-server)). That request is a write from another site, and Tifa refuses it with 403 (see [Cross-site writes](../build-and-deploy/headers-and-origins.md#cross-site-writes)). List the path:
+With `response_mode=form_post`, Sign in with Apple sends the results as a POST with a form body to the redirect address, the `user` field with the name and address in it the first time only ([documentation](https://developer.apple.com/documentation/signinwithapplerestapi/request-an-authorization-to-the-sign-in-with-apple-server)). That is a write from another site, which Tifa refuses with 403 ([Cross-site writes](../build-and-deploy/headers-and-origins.md#cross-site-writes)). List the path:
 
 ```yaml
 # tifa.yaml
@@ -410,18 +405,12 @@ server:
   cross_site_paths: "POST /auth/apple/callback"
 ```
 
-Nothing checks the site of a request to that path, so the handler proves the request is real itself with the `state` and the cookie, which `FinishSignIn` checks the same way for the POST. List only that path. The `POST` above reads the form fields into the same `Query` type.
+That path is no longer checked, so the handler proves the request is real with the `state` and the cookie, which `FinishSignIn` checks for the POST too. List only that path.
 
-A browser does not send a `SameSite=Lax` cookie with a POST that another site makes. That is why the cookie of a provider with `FormPost` is `SameSite=None`, which needs `Secure`, so this works on HTTPS and not on plain HTTP.
+A `SameSite=Lax` cookie is not sent with a POST from another site, so the cookie of a provider with `FormPost` is `SameSite=None`, which needs HTTPS.
 
-Not done for Apple: it wants a client secret that is a signed token you make yourself and gives the profile in an `id_token`, so it needs its own `Profile` function and a token library. Only the path, the cookie and the form are shown and tested, against a stand-in that posts the callback.
+Apple also needs a client secret that is a signed token you make yourself and a `Profile` that reads its `id_token`.
 
 ## Test it
 
-`app/account/oauth_test.go` of the scratch app starts the app with `tifatest.Start` and a stand-in provider: an `httptest` server with `/token`, `/userinfo`, `/user` and `/user/emails`. Its token endpoint keeps the `code_challenge` it was sent for each code, and gives a token once, only when the SHA-256 of the `code_verifier` matches. The test plays the provider's page by reading `state` and `code_challenge` out of the address the app redirects to, then calls the callback with a browser that keeps cookies. It checks:
-
-- the redirect and the cookie (`S256`, `HttpOnly`, `Path=/auth`, ten minutes)
-- a new person, the same person after the address changed, a verified address joining a confirmed account, an unconfirmed account refused, and an address nobody vouches for making no user
-- a callback that fails the second time, with another `state`, with no cookie, with the cookie of another provider, with `error=`, and with a code the provider does not know
-- GitHub's primary verified address and numeric id
-- a cross-site POST to `/auth/apple/callback`: 403 without the line in `tifa.yaml`, accepted with it, and 403 for another path
+A test needs no real provider. Start the app with `tifatest.Start` and stand a provider up in an `httptest` server with `/token`, `/userinfo`, `/user` and `/user/emails`. Let its token endpoint give a token once for each code, only when the SHA-256 of the `code_verifier` matches the `code_challenge` it was sent. Read `state` and the challenge from the redirect, then call the callback with a client that keeps cookies. Check the linking rules above, and that a callback fails the second time, with another `state`, with no cookie, with `error=` and with an unknown code. A cross-site POST to the Apple path should get 403 without the line in `tifa.yaml` and pass with it.

@@ -2,7 +2,7 @@
 summary: '用 github.com/coder/websocket 给 Tifa 应用加一个 WebSocket 端点：一个接管连接的 GET 处理函数，OnRequest 和会话怎么作用于它，超时，停止，以及每种 deploy.front 怎么对待它'
 audience: app
 order: 18
-translatedFrom: d0b5c7135aa2
+translatedFrom: 86b6da115f23
 read_when:
   - '加一个 WebSocket 端点，做聊天、实时更新或多人协作的页面'
   - 'WebSocket 在 `tifa dev` 下能用，放到 nginx 或 Cloudflare 后面就不行，或者连接过一阵就断了'
@@ -16,7 +16,7 @@ WebSocket 一开始是一个普通的 GET，请服务器切换协议，之后双
 
 如果只是服务器往浏览器发，[服务器发送事件](streaming.zh-CN.md) 更省事：它是普通 HTTP，能穿过所有代理，浏览器还会自己重连。浏览器也经常要发的时候，再用 WebSocket。
 
-用的库是 [github.com/coder/websocket](https://github.com/coder/websocket)（这里用 v1.8.15），它是纯 Go 的，`CGO_ENABLED=0` 照样可用。代码在一个 `tifa new` 建的临时应用里跑过：`go tool tifa check`、一个带客户端的 Go 测试、用一个客户端加 `SIGTERM` 去试构建出的程序，还有浏览器里的一个页面。
+用的库是 [github.com/coder/websocket](https://github.com/coder/websocket)，它是纯 Go 的，`CGO_ENABLED=0` 照样可用。
 
 ## 端点 {#the-endpoint}
 
@@ -121,13 +121,13 @@ ws.onopen = () => ws.send('hi')
 
 ## 时间限制 {#time-limits}
 
-`server.read_timeout` 和 `server.write_timeout` 是 10 秒，而安静超过这个时间的连接会继续活着。一个客户端对着默认设置的程序沉默了 13 秒，它的下一条消息仍然得到了回显。`net/http` 的 `Hijack` 会清掉它交出的连接上的截止时间，所以这两个设置对它不起作用，处理函数也不需要 `http.ResponseController`。其余的见 [长请求](../build-and-deploy/tuning.zh-CN.md#long-requests)。
+`server.read_timeout` 和 `server.write_timeout` 是 10 秒，而安静超过这个时间的连接会继续活着。沉默 13 秒的客户端，下一条消息仍然会得到回显。`net/http` 的 `Hijack` 会清掉它交出的连接上的截止时间，所以这两个设置对它不起作用，处理函数也不需要 `http.ResponseController`。其余的见 [长请求](../build-and-deploy/tuning.zh-CN.md#long-requests)。
 
 真正会让安静的连接断掉的，是浏览器和程序之间的东西。nginx 等一天（`proxy_read_timeout 1d`）。Cloudflare 在一段时间里两个方向都没有数据时会关掉 WebSocket，并建议做心跳（[Cloudflare](https://developers.cloudflare.com/network/websockets/)）。上面的处理函数每 30 秒发一个 ping，库在循环读的时候会回答浏览器的 ping。
 
 ## 停止 {#stopping}
 
-程序停止时，会等正在运行的处理函数，最多等 `server.shutdown_timeout`，被接管的连接也算在运行。一个一直开着的 WebSocket 会让每次部署多等 10 秒。`tifa.ShuttingDown(ctx)` 在停止开始时关闭（[流式输出](streaming.zh-CN.md#when-the-program-stops)），上面的 goroutine 会用一个 close 帧来回应。用构建出的程序，`SIGTERM` 以 `StatusGoingAway` 到达已连接的客户端，进程在两秒内就退出了。浏览器在关闭之后的重连要写在你页面的代码里：等的时间短一点，再逐渐加长。
+程序停止时，会等正在运行的处理函数，最多等 `server.shutdown_timeout`，被接管的连接也算在运行。一个一直开着的 WebSocket 会让每次部署多等 10 秒。`tifa.ShuttingDown(ctx)` 在停止开始时关闭（[流式输出](streaming.zh-CN.md#when-the-program-stops)），上面的 goroutine 会用一个 close 帧来回应。已连接的客户端会收到带 `StatusGoingAway` 的 close 帧，程序马上退出。浏览器在关闭之后的重连要写在你页面的代码里：等的时间短一点，再逐渐加长。
 
 HTTP/2 上 `Hijack` 会失败，所以程序不在 HTTP/2 上提供 WebSocket，浏览器会另开一条 HTTP/1.1 连接来用它（[HTTP/2 下有什么不同](../build-and-deploy/https.zh-CN.md#what-changes-over-http2)）。
 
@@ -136,14 +136,12 @@ HTTP/2 上 `Hijack` 会失败，所以程序不在 HTTP/2 上提供 WebSocket，
 | `deploy.front` | WebSocket |
 | --- | --- |
 | `none` | 程序自己接待访客，所以握手能到它那里。 |
-| `nginx` | 能通过。站点把 `Upgrade` 传下去，浏览器要求时把 `Connection` 设成 `upgrade`（[在 nginx 后面](../build-and-deploy/deploy-proxy.zh-CN.md#behind-nginx)）。在这个修复之前写好的站点（修复在 CHANGELOG 的未发布改动里），再运行一次 `go tool tifa deploy setup` 就有了。 |
-| `cloudflare` | Cloudflare 说，经过它代理的 WebSocket 连接在所有套餐上都不需要额外设置（[Cloudflare](https://developers.cloudflare.com/network/websockets/)）。它的文档没有说 WebSocket 经过 Tunnel 会怎样，而这个 front 用的正是 Tunnel，这一点没有试过。请让你的应用经过它试一次。 |
-
-`none` 这一行是在一台没有代理的机器上跑的。`nginx` 这一行依据的是 Tifa 的文档和它的更新记录：写这篇时没有运行过 nginx。
+| `nginx` | 能通过。站点把 `Upgrade` 传下去，浏览器要求时把 `Connection` 设成 `upgrade`（[在 nginx 后面](../build-and-deploy/deploy-proxy.zh-CN.md#behind-nginx)）。v0.7.3 之前设置的站点，再运行一次 `go tool tifa deploy setup` 就有了。 |
+| `cloudflare` | Cloudflare 说，经过它代理的 WebSocket 连接在所有套餐上都不需要额外设置（[Cloudflare](https://developers.cloudflare.com/network/websockets/)）。Cloudflare 没有说明 WebSocket 经过 Tunnel 会怎样，而这个 front 用的正是 Tunnel：请让你的应用经过它试一次。 |
 
 ## 测试 {#test-it}
 
-`app/ws/ws_test.go` 用 `tifatest.Start` 启动应用，用测试服务器给的同一个客户端去拨号，这个客户端会保存 cookie，也信任测试证书。它检查：
+用 `tifatest.Start` 启动应用，用测试服务器给的客户端去拨号，这个客户端会保存 cookie，也信任测试证书。检查：
 
 - 没有会话的握手得到 401
 - `POST /login` 之后，握手头里带上 cookie，一条消息会以 `ada: hello` 回来

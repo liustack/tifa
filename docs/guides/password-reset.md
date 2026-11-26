@@ -13,8 +13,6 @@ read_when:
 
 A visitor who forgot the password asks for a link, gets it by mail, and chooses a new password. The link is the proof that they own the mailbox. This guide uses the tokens, the tables and the mail of [Sign up and confirm an e-mail address](sign-up.md), so read it first. Tifa has no password reset of its own: it is two functions and two routes.
 
-The code was run as written in the same scratch app, with `go tool tifa check`, a Go test of the whole flow and the built program.
-
 ## Ask for a link
 
 `reset.go`:
@@ -232,11 +230,11 @@ Use `Current` where [Sign in and sign out](sign-in.md#the-guard) calls `tifa.Ses
 
 ## Test it
 
-`app/account/accounts_test.go` of the scratch app, with the same helpers as in [Sign up](sign-up.md#test-it), checks that:
+The test of the whole flow, built with the same helpers as in [Sign up](sign-up.md#test-it), checks that:
 
 - an unknown address gets the same redirect and no mail
 - the new password works, the old one and the old session do not, and the token works once
 - a form with a password that is too short is refused with the token unspent
 - the fourth request in an hour sends no mail, and a reset removes the other open links
 
-An old token is refused in a root package test that moves the clock.
+A second test that moves the clock checks that an old token is refused.

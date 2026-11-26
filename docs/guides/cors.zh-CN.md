@@ -2,7 +2,7 @@
 summary: '让另一个网站上的页面调用 Tifa 应用的 API：在 OnRequest 里回答 OPTIONS 预检，设置 Access-Control-Allow-*，以及它和 server.trusted_origins 的关系'
 audience: app
 order: 17
-translatedFrom: 774442611349
+translatedFrom: f897ab2f5db5
 read_when:
   - '另一个前端或合作方网站在浏览器里调用应用的 API 路由，控制台说「blocked by CORS policy」，或者调用以「Failed to fetch」失败'
   - '回答 OPTIONS 请求，或者设置 `Access-Control-Allow-Origin`'
@@ -13,7 +13,7 @@ read_when:
 
 你自己的页面调用你自己的路由，是同源的，这里的内容都用不上。这篇讲的是**另一个源**上的页面，比如 `https://app.example.com` 在浏览器里调用 `https://api.example.com/api/items`。来自服务器、curl 或 App 的调用不受 CORS 限制。
 
-Tifa 不发 CORS 头，也没有相关的设置。它是 `OnRequest` 里的几行代码。代码在一个 `tifa new` 建的临时应用里跑过：`go tool tifa check`、一个 Go 测试、用 curl 跑构建出的程序，还有浏览器里一个在第二个端口上的页面。
+Tifa 不发 CORS 头，也没有相关的设置。它是 `OnRequest` 里的几行代码。
 
 ## 两道关，两处设置 {#two-gates-two-settings}
 
@@ -24,7 +24,7 @@ Tifa 不发 CORS 头，也没有相关的设置。它是 `OnRequest` 里的几�
 | **CORS**：页面能不能发这个请求并读到回答？ | 浏览器，依据 `Access-Control-Allow-*` 头 | 你的 `OnRequest`，见下 |
 | **跨站写入**：来自另一个网站的 POST、PUT、PATCH 或 DELETE 到底能不能运行？ | 程序，在 `OnRequest` 之前（[跨站写入](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes)） | `server.trusted_origins`，或者对某个路径用 `server.cross_site_paths` |
 
-读（GET）只需要 CORS。写两个都要。在浏览器里试过，页面在 `http://127.0.0.1:39520`，API 在 39519 端口，是另一个源：
+读（GET）只需要 CORS。写两个都要。对另一个源上的页面：
 
 | 设置 | GET | 带 JSON 正文的 POST |
 | --- | --- | --- |
@@ -115,9 +115,9 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - **`Vary: Origin`**，对每个带 `Origin` 的调用都加上，这样缓存不会把给某个源做的回答交给另一个源。用的是添加而不是设置，这样 Tifa 的 `Vary: Accept-Encoding` 还在。
 - **只有 `/api/`。** 应用的页面和导航数据不是给其他源的。
 - **预检用 204 回答**，不会到达路由，所以 `Validate` 和 `Load` 都不会为它运行。`Access-Control-Allow-Headers` 列出页面在简单头之外可以发的头：JSON 要 `Content-Type`，令牌要 `Authorization`。`Access-Control-Max-Age` 让浏览器把这个回答记十分钟。
-- **没有凭据。** 代码不发 `Access-Control-Allow-Credentials`，所以浏览器既不会随这些调用发 cookie，也不会让页面读为 cookie 做的回答。Tifa 的会话 cookie 是 `SameSite=Lax`（[cookie](../pages-and-data/sessions.zh-CN.md#the-cookie)），不是另一个网站的页面该依赖的东西。给这样的客户端一个放在 `Authorization` 里的令牌，在 Go 里检查它。带 cookie 从另一个源调用，这里没有试过。
+- **没有凭据。** 代码不发 `Access-Control-Allow-Credentials`，所以浏览器既不会随这些调用发 cookie，也不会让页面读为 cookie 做的回答。Tifa 的会话 cookie 是 `SameSite=Lax`（[cookie](../pages-and-data/sessions.zh-CN.md#the-cookie)），不是另一个网站的页面该依赖的东西。给这样的客户端一个放在 `Authorization` 里的令牌，在 Go 里检查它。带 cookie 从另一个源调用，这里不讲。
 
-对没有 cookie 也没有令牌的公开只读 API，另一个选择是 `Access-Control-Allow-Origin: *`，那样就不需要清单了。这个也没有试过。
+对没有 cookie 也没有令牌的公开只读 API，另一个选择是 `Access-Control-Allow-Origin: *`，那样就不需要清单了。
 
 ## 放行写入 {#allow-the-writes}
 
@@ -129,18 +129,18 @@ server:
   trusted_origins: "https://app.example.com"
 ```
 
-只信任你自己控制的网站，因为受信任的源上的页面可以替你的用户做事。如果 API 用的是 bearer 令牌，不用 cookie，而且任何网站都可以调用，那么用 `server.cross_site_paths` 配上那个路径的模式，就能让所有源写入它，这只在那里没有任何东西依赖 cookie 时才安全（这里没试过）。这两个设置，以及源的准确写法，见 [跨站写入](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes)。
+只信任你自己控制的网站，因为受信任的源上的页面可以替你的用户做事。如果 API 用的是 bearer 令牌，不用 cookie，而且任何网站都可以调用，那么用 `server.cross_site_paths` 配上那个路径的模式，就能让所有源写入它，这只在那里没有任何东西依赖 cookie 时才安全。这两个设置，以及源的准确写法，见 [跨站写入](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes)。
 
 ## 测试 {#test-it}
 
-`app/api/items/cors_test.go` 用 `tifatest.Start` 启动应用，检查：
+用 `tifatest.Start` 启动应用，检查：
 
 - 来自清单中的源的预检得到 204，带上这个源、方法和 `Vary: Origin`
 - 来自另一个源的预检得到 405，没有 CORS 头，`/api/` 之外的路径也一样
 - 来自清单中的源的 GET 带 `Access-Control-Allow-Origin`
 - 跨站 POST 得到 403，直到这个源进了 `server.trusted_origins`
 
-对构建出的程序用 curl：
+手动对构建出的程序试一下：
 
 ```sh
 curl -i -X OPTIONS http://127.0.0.1:9527/api/items \

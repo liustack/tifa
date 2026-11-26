@@ -13,7 +13,7 @@ read_when:
 
 [Sign in and sign out](sign-in.md) starts with a user who already exists. This guide makes the user and proves that the address is the visitor's. [Reset a password](password-reset.md) uses the same tokens. Tifa has no users and no passwords of its own, so this is your code and your table, a few functions.
 
-It builds on `HashPassword` and `CheckHash` from [Sign in and sign out](sign-in.md#passwords), `QueueMail` from [Sending email](email.md) and the database of [Keeping data in SQLite](database.md). The code was run as written in a scratch app made with `tifa new` (module `example.com/notes`): with `go tool tifa check`, with a Go test that walks the whole flow, and in the built program.
+It builds on `HashPassword` and `CheckHash` from [Sign in and sign out](sign-in.md#passwords), `QueueMail` from [Sending email](email.md) and the database of [Keeping data in SQLite](database.md).
 
 ## Two tables
 
@@ -288,7 +288,7 @@ func POST(c *tifa.Ctx, in Form) error {
 
 ## Who may sign in
 
-An account that is not confirmed should not sign in. The sign-in of the scratch app reads the user row and checks the password first, then `verified_at`:
+An account that is not confirmed should not sign in. The sign-in reads the user row and checks the password first, then `verified_at`:
 
 ```go
 	ok, err := CheckHash(password, hash)
@@ -318,14 +318,14 @@ An account that never confirmed holds nothing: no mail sent from it, nothing pos
 
 ## Test it
 
-`app/account/accounts_test.go` of the scratch app starts the app with `tifatest.Start`, replaces `notes.SendMail` with a function that sends each mail to a channel, lets the real worker run (`jobs.PollEvery` set short) and reads the token out of the mail. It checks that:
+A test of the whole flow starts the app with `tifatest.Start`, replaces `notes.SendMail` with a function that sends each mail to a channel, lets the real worker run (`jobs.PollEvery` set short) and reads the token out of the mail. It checks that:
 
 - a new address and a taken one get the same redirect and different mails
 - the right password does not sign in before the address is confirmed
 - the confirm link can be opened twice without spending it, and the button works once
 - the table holds the hash and not the token
 
-A test in the root package moves `now` (a variable in `tokens.go`) to show that a token expires and that a reset token does not confirm an address. A test with a real mail server is yours to run once by hand ([Sending email](email.md#test-without-sending)).
+A second test moves `now` (a variable in `tokens.go`) to check that a token expires and that a reset token does not confirm an address. A test with a real mail server is yours to run once by hand ([Sending email](email.md#test-without-sending)).
 
 ## Check it
 

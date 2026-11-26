@@ -2,7 +2,7 @@
 summary: '在 Tifa 应用里用 golang.org/x/oauth2 做 Google 或 GitHub 登录：放在短 cookie 里的 state 和 PKCE，调用 SetSession 的回调，按已验证邮箱关联账号，以及用 POST 回调的服务商'
 audience: app
 order: 15
-translatedFrom: a2b2a8165a19
+translatedFrom: da787be15cd2
 read_when:
   - '加「用 Google 登录」「用 GitHub 登录」，或其他 OAuth 2 或 OpenID Connect 登录'
   - '服务商用 POST 把访客送回来（用 Apple 登录），回调得到 403 `cross-origin request detected`'
@@ -12,13 +12,13 @@ read_when:
 
 # 用 Google 或 GitHub 登录 {#sign-in-with-google-or-github}
 
-访客点一个按钮，服务商请他同意，然后他回来时已经登录了。Tifa 保存会话（[会话](../pages-and-data/sessions.zh-CN.md)）。访客是谁由服务商说了算。你的代码把访客送出去，检查他回来的路，再调用 `tifa.SetSession`，就像 [登录与退出](sign-in.zh-CN.md) 在密码通过之后做的那样。Tifa 自己没有 OAuth。用的库是 `golang.org/x/oauth2`。
+访客点一个按钮，在服务商那里同意，然后回来时已经登录了。Tifa 保存会话（[会话](../pages-and-data/sessions.zh-CN.md)），访客是谁由服务商说了算。你的代码把访客送出去，检查他回来的路，再调用 `tifa.SetSession`，就像 [登录与退出](sign-in.zh-CN.md) 在密码通过之后做的那样。Tifa 自己没有 OAuth。用的库是 `golang.org/x/oauth2`。
 
-检查过的：`go tool tifa check`，以及一个替代服务商的 Go 测试（见 [测试](#test-it)）。**这里的任何东西都没有真正连过 Google、GitHub 或 Apple。** 端点来自 `oauth2` 的 `google` 和 `github` 包，它们回答的形状来自服务商的文档，链接在下面。每个服务商请你亲手试一次。
+端点来自 `oauth2` 的 `google` 和 `github` 包。每个服务商请你用真实账号亲手试一次。
 
 ## 设置 {#set-it-up}
 
-在服务商那里建一个 OAuth 应用，把访客回来的地址告诉它：`https://notes.example.com/auth/google/callback`，`github` 也一样。客户端 ID 和密钥放在 [应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app) 里。`tifa.Secret` 从环境变量或 `.env` 读，不从命令行参数读：
+在服务商那里建一个 OAuth 应用，把访客回来的地址告诉它：`https://notes.example.com/auth/google/callback`，`github` 也一样。客户端 ID 和密钥放在 [应用的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app) 里，密钥用 `tifa.Secret`：
 
 ```go
 // options.go, and the same two for GitHub
@@ -29,7 +29,7 @@ var (
 
 ```
 
-`AppURL`（访客用的地址）是回调地址的唯一来源：不要用请求里的 `Host` 拼。没有客户端 ID 的服务商就是关着的。用户和会话用的是 [注册](sign-up.zh-CN.md) 里的。这篇加一张身份表：
+回调地址要用 `AppURL`（访客用的地址）拼，不要用请求里的 `Host`。没有客户端 ID 的服务商就是关着的。用户和会话用的是 [注册](sign-up.zh-CN.md) 里的，再加一张身份表：
 
 ```sql
 CREATE TABLE IF NOT EXISTS identities (
@@ -155,9 +155,9 @@ func GitHubProfile(api string) func(context.Context, *http.Client) (Profile, err
 
 ```
 
-- `getJSON`（没有列出）是一个普通的 GET，带 `Accept: application/json`，状态码不是 200 就失败，最多读 1 MiB。
-- **Google** 是 OpenID Connect。`email` scope 会给出 `email` 和 `email_verified`，`sub` 是永远不变的 id（[Google 的文档](https://developers.google.com/identity/openid-connect/openid-connect)）。资料来自 userinfo 端点，用的是刚拿授权码换来的令牌，所以没有签名要检查。`email_verified` 按 OpenID Connect 标准当作布尔值读：请看一次真实的回答。
-- **GitHub** 是没有 OpenID Connect 的 OAuth 2。用户对象里只有在本人公开了邮箱时才有地址。`GET /user/emails` 的列表需要 `user:email` scope，每个地址有 `email`、`primary` 和 `verified`（[GitHub 的文档](https://docs.github.com/en/rest/users/emails)）。代码取主地址，而且只在 GitHub 验证过它时才取。
+- `getJSON`（没有列出）是一个 GET，状态码不是 200 就失败。
+- **Google** 是 OpenID Connect。`email` scope 会给出 `email` 和 `email_verified`，`sub` 永远不变（[文档](https://developers.google.com/identity/openid-connect/openid-connect)）。`email_verified` 按标准当作布尔值读。
+- **GitHub** 没有 OpenID Connect，用户对象里只有在本人公开了邮箱时才有地址。`GET /user/emails` 需要 `user:email` scope，列出每个地址的 `email`、`primary` 和 `verified`（[文档](https://docs.github.com/en/rest/users/emails)）。代码取主地址，前提是 GitHub 验证过它。
 
 ## 把访客送出去，再接回来 {#send-the-visitor-out-and-take-them-back}
 
@@ -314,16 +314,13 @@ func userFor(ctx context.Context, provider string, p Profile) (Session, error) {
 
 ```
 
-`normalizeEmail`、`now` 和 `Session`（带它的 `Epoch`）是 [注册](sign-up.zh-CN.md) 和 [重置密码](password-reset.zh-CN.md) 里的，`safeNext` 是 [登录那一篇](sign-in.zh-CN.md#the-sign-in-route) 里的。
+`normalizeEmail`、`now` 和 `Session` 是 [注册](sign-up.zh-CN.md) 和 [重置密码](password-reset.zh-CN.md) 里的，`safeNext` 是 [登录那一篇](sign-in.zh-CN.md#the-sign-in-route) 里的。
 
-每项检查是做什么的：
+- **`state`** 放在地址里发出去，在回调里带回来，必须和 cookie 里的相等，而 cookie 只有这个浏览器有。它能防止攻击者把受害者登录成攻击者。
+- **PKCE**（`code_challenge` 配 `S256`，换令牌时再带上 `code_verifier`）把授权码绑定到发起流程的那个浏览器。GitHub 只支持 `S256`（[文档](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)），Google 在它的 discovery 文档里列了它。verifier 只留在 cookie 里。
+- **这个 cookie 又短又是它自己的**，不是会话 cookie：带 `HttpOnly`，`AppURL` 是 HTTPS 时带 `Secure`，`Path=/auth` 所以别的页面收不到，存活十分钟。回调一开始就清掉它，所以它只能用一次。
 
-- **`state`** 是一个随机字符串，放在地址里发出去，在回调里带回来。它必须和 cookie 里的相等，而 cookie 只有这个浏览器有。它能防止攻击者给受害者的浏览器发一个带攻击者授权码的回调地址，那样受害者会被登录成攻击者。
-- **PKCE**（`code_challenge` 配 `S256`，换令牌时再带上 `code_verifier`）把授权码绑定到发起流程的那个浏览器，所以被偷走的授权码没有用。GitHub 支持它，并且只支持 `S256`（[文档](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)），Google 在它的 discovery 文档里列了 `S256`。verifier 只留在 cookie 里，从不放进地址。
-- **这个 cookie 又短又是它自己的**，不是会话 cookie：会话 cookie 是 Tifa 在检查通过后由 `SetSession` 做的。这个 cookie 带 `HttpOnly`，`AppURL` 是 HTTPS 时带 `Secure`，`Path=/auth` 所以别的页面收不到，存活十分钟。回调一开始就清掉它，所以一个回调只能用一次。
-- **服务商报错**（`error=access_denied`，访客说了不）在任何调用之前就结束流程。换令牌失败的错误文本写进日志，不给访客看。
-
-路由是一个带参数的文件夹 `app/auth/provider+/route.go`，所以一对路由服务所有服务商：
+路由是一个带参数的文件夹，所以一对路由服务所有服务商。`app/auth/provider+/route.go`：
 
 ```go
 package provider
@@ -389,21 +386,19 @@ func POST(c *tifa.Ctx, f Query) error {
 
 ```
 
-起点是一个只改动自己 cookie 的 GET，所以放一个链接就够了：`<a href="/auth/google?next=%2Faccount">Sign in with Google</a>`。回调也是 GET，因为服务商是用重定向把访客送回来的，它可以调用 `SetSession`（[什么地方调什么](../pages-and-data/sessions.zh-CN.md#where-to-call-what)）。Tifa 不检查 GET 来自哪个网站。`next` 在重定向之前要经过 [登录那一篇](sign-in.zh-CN.md#the-sign-in-route) 里的 `safeNext`。
+起点只设一个 cookie，所以放一个链接就够了：`<a href="/auth/google?next=%2Faccount">Sign in</a>`。回调也是 GET，因为服务商是用重定向把访客送回来的，它可以调用 `SetSession`（[什么地方调什么](../pages-and-data/sessions.zh-CN.md#where-to-call-what)）。
 
 ## 关联到已有的账号 {#linking-to-an-account-that-exists}
 
-`oauth.go` 里的 `userFor` 按这个顺序决定一份资料是哪个用户：
+`userFor` 按这个顺序决定一份资料是哪个用户：
 
-1. **身份已知。** 键是（服务商，`Subject`）这一对，不是地址：人会换地址，被弃用的地址以后还可能给了别人。
-2. **新身份，而且有一个同地址的账号。** 服务商必须说这个地址已验证，账号的地址也必须已确认。然后这个身份并入这个账号。地址从没确认过的账号会被拒绝，返回 409：任何人都可以用不属于自己的地址注册，并且知道那个账号的密码，并入它就等于给了他们进入真正主人账号的路（[注册](sign-up.zh-CN.md)）。
-3. **新的人。** 用户以已确认的地址和空的密码哈希创建，`CheckHash` 会拒绝空哈希，所以只有服务商能让他们登录。他们以后可以用 [重置密码](password-reset.zh-CN.md) 来选一个密码。
-
-不为地址担保的服务商，既得不到新账号，也关联不上任何账号。
+1. **身份已知。** 键是（服务商，`Subject`）这一对，不是地址。
+2. **新身份，而且有一个同地址的账号。** 服务商必须说这个地址已验证，账号的地址也必须已确认。然后这个身份并入这个账号。地址从没确认过的账号会被拒绝，返回 409：任何人都可以用不属于自己的地址注册，并且知道那个密码，并入它就会让他们进入真正主人的账号（[注册](sign-up.zh-CN.md)）。
+3. **新的人。** 用户得到已确认的地址和空的密码哈希，`CheckHash` 会拒绝空哈希，所以只有服务商能让他们登录。
 
 ## 用 POST 回调的服务商 {#a-provider-that-posts-the-callback}
 
-用 Apple 登录可以用一个表单的 POST，而不是重定向，把访客送回来：Apple 的文档说，用 `response_mode=form_post` 时，Apple 把结果以 POST 发到重定向地址，正文是表单（`application/x-www-form-urlencoded`），带姓名和地址的 `user` 字段也在这个表单里，只有第一次才有（[Apple 的文档](https://developer.apple.com/documentation/signinwithapplerestapi/request-an-authorization-to-the-sign-in-with-apple-server)）。这个请求是来自另一个网站的写操作，Tifa 会用 403 拒绝它（见 [跨站写入](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes)）。把这个路径列出来：
+用 `response_mode=form_post` 时，用 Apple 登录会把结果以 POST 发到重定向地址，正文是表单，带姓名和地址的 `user` 字段也在其中，只有第一次才有（[文档](https://developer.apple.com/documentation/signinwithapplerestapi/request-an-authorization-to-the-sign-in-with-apple-server)）。这是来自另一个网站的写操作，Tifa 会用 403 拒绝它（[跨站写入](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes)）。把这个路径列出来：
 
 ```yaml
 # tifa.yaml
@@ -411,18 +406,12 @@ server:
   cross_site_paths: "POST /auth/apple/callback"
 ```
 
-到这个路径的请求不再检查来自哪个网站，所以要由处理函数自己用 `state` 和 cookie 证明请求是真的，`FinishSignIn` 对这个 POST 的检查方式是一样的。只列这一个路径。上面的 `POST` 把表单字段读进同一个 `Query` 类型。
+这个路径不再检查请求来自哪个网站，所以处理函数要自己用 `state` 和 cookie 证明请求是真的，`FinishSignIn` 对这个 POST 也是这样检查的。只列这一个路径。
 
-浏览器不会把 `SameSite=Lax` 的 cookie 随另一个网站发起的 POST 发出去。所以带 `FormPost` 的服务商用的是 `SameSite=None` 的 cookie，它需要 `Secure`，因此这套做法在 HTTPS 下可以，在普通 HTTP 下不行。
+`SameSite=Lax` 的 cookie 不会随另一个网站发起的 POST 发出去，所以带 `FormPost` 的服务商用的是 `SameSite=None` 的 cookie，它需要 HTTPS。
 
-没有为 Apple 做的事：它要的客户端密钥是一个要你自己签出来的令牌，它的资料放在 `id_token` 里，所以需要它自己的 `Profile` 函数和一个处理令牌的库。这里只展示并测试了路径、cookie 和表单，用的是一个会 POST 回调的替身。
+Apple 还需要一个要你自己签出来的客户端密钥令牌，以及一个读它的 `id_token` 的 `Profile`。
 
 ## 测试 {#test-it}
 
-临时应用的 `app/account/oauth_test.go` 用 `tifatest.Start` 和一个替身服务商启动应用：一个 `httptest` 服务器，有 `/token`、`/userinfo`、`/user` 和 `/user/emails`。它的令牌端点为每个授权码记下收到的 `code_challenge`，只有 `code_verifier` 的 SHA-256 对得上时才给令牌，而且每个授权码只给一次。测试读出应用重定向的地址里的 `state` 和 `code_challenge`，扮演服务商的页面，再用一个保存 cookie 的浏览器去调回调。它检查：
-
-- 重定向和 cookie（`S256`、`HttpOnly`、`Path=/auth`、十分钟）
-- 新的人，地址变了之后的同一个人，已验证的地址并入已确认的账号，未确认的账号被拒绝，以及没人担保的地址不会建出用户
-- 回调第二次失败，换了 `state`、没有 cookie、用了别的服务商的 cookie、带 `error=`，以及服务商不认识的授权码，都会失败
-- GitHub 的已验证主地址和数字 id
-- 对 `/auth/apple/callback` 的跨站 POST：`tifa.yaml` 里没有那一行时是 403，有了就通过，换一个路径还是 403
+测试不需要真实的服务商。用 `tifatest.Start` 启动应用，在一个 `httptest` 服务器里搭一个服务商，有 `/token`、`/userinfo`、`/user` 和 `/user/emails`。让它的令牌端点对每个授权码只给一次令牌，而且只在 `code_verifier` 的 SHA-256 和收到的 `code_challenge` 对得上时才给。从重定向里读出 `state` 和 challenge，再用一个保存 cookie 的客户端去调回调。检查上面的关联规则，以及回调在第二次、换了 `state`、没有 cookie、带 `error=` 和授权码未知时都会失败。对 Apple 的路径，跨站 POST 在 `tifa.yaml` 里没有那一行时应得到 403，有了就通过。

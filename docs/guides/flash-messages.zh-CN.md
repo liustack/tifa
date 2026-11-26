@@ -2,7 +2,7 @@
 summary: '在 Tifa 应用里重定向之后只显示一次的消息（「已保存」）：处理函数设一个短 cookie，下一个页面读出并清掉它，以及带 Cache 的页面怎么办'
 audience: app
 order: 16
-translatedFrom: c9b57cf1ef83
+translatedFrom: 69a951d3510c
 read_when:
   - '写入后重定向，要只显示一次「已保存」「已删除」或「已退出」'
   - '消息显示了两次，在带 `Cache` 的页面上不显示，或者客户端导航之后不显示'
@@ -13,7 +13,7 @@ read_when:
 
 一次写入以重定向结束，下一个页面应该说一次「Item saved」。消息不是地址的一部分，所以得有东西把它从处理函数带到下一个请求。常见的办法，也是这篇讲的办法，是一个短 cookie：处理函数设上它，下一个页面读出它再清掉。
 
-Tifa 没有 flash 功能，也不需要。用到的零件是 `c.SetCookie`（可以在方法处理函数和 `Load` 里用，见 [Ctx](../reference/ctx.zh-CN.md)）、`c.Cookie` 和重定向。代码在一个 `tifa new` 建的临时应用里跑过：`go tool tifa check`、一个 Go 测试、用 curl 跑构建出的程序，还有浏览器。
+Tifa 没有 flash 功能，也不需要。用到的零件是 `c.SetCookie`（可以在方法处理函数和 `Load` 里用，见 [Ctx](../reference/ctx.zh-CN.md)）、`c.Cookie` 和重定向。
 
 ## cookie {#the-cookie}
 
@@ -114,7 +114,7 @@ func Load(c *tifa.Ctx) (View, error) {
 
 页面在 `notice` 不为空时显示它，放在带 `role="status"` 的元素里，屏幕阅读器会读出来。
 
-在浏览器里：在 `/items/new` 上，按钮调用生成的 `POST`，重定向经过路由器，`/items` 立刻显示「Item saved.」。刷新之后没有消息。用 curl 的话，POST 拿到 cookie，下一个 `/items` 的 GET 显示消息，没有脚本的表单看到的也是这样。
+在 `/items/new` 上，按钮调用生成的 `POST`，重定向经过路由器，`/items` 立刻显示「Item saved.」。刷新之后没有消息。没有脚本的表单也一样：POST 回答里带着 cookie，下一个 `/items` 的 GET 显示消息。
 
 - **重定向到你正在看的页面。** 重定向的地址就是页面已有的地址时，路由器没有重新加载页面，消息要刷新之后才出现。请重定向到别的页面，就像表单之后去列表页那样。
 - **304 也会清掉它。** `Load` 设的 `Set-Cookie` 会随 304、memo 命中和一次渲染一起发出，所以不管回答是怎么产生的，消息都会被取走。
@@ -128,7 +128,7 @@ func Load(c *tifa.Ctx) (View, error) {
 带 `const Cache` 的页面对所有人都一样：它的请求在你的代码运行之前就丢掉了 cookie，它的 HTML 上的 `Set-Cookie` 会被去掉（[给 CDN 用的 Cache](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns)）。由此有两件事：
 
 - 它的 `Load` 看不到 flash cookie。里面直接写 `c.Cookie("flash")`，`tifa check` 会报「c.Cookie is always empty here」。通过另一个包里的辅助函数来读，比如上面的 `TakeFlash`，检查**不会**报，它只是什么也显示不出来。
-- 它的回答什么也清不掉（curl 里看到它没有 `Set-Cookie`）。为这样一个页面设的 flash 会留在浏览器里，60 秒之内第一个不带 `Cache`、又调用 `TakeFlash` 的页面会把它显示出来，晚了一个页面。
+- 它的回答什么也清不掉。为这样一个页面设的 flash 会留在浏览器里，60 秒之内第一个不带 `Cache`、又调用 `TakeFlash` 的页面会把它显示出来，晚了一个页面。
 
 两条出路：
 
@@ -159,7 +159,7 @@ export function useFlash(): string {
 
 ```
 
-页面调用 `const notice = useFlash()`，不为空时显示它。这个 effect 只在浏览器里、hydration 之后运行，所以服务器的 HTML 对所有人一样，也不会不匹配。在浏览器里，从 `/report/edit` 重定向到一个带 `Cache` 的页面，会显示「Item removed.」，刷新之后就没有了。`flash.ts` 里的表要和 `flash.go` 里的 `Messages` 保持一致。
+页面调用 `const notice = useFlash()`，不为空时显示它。这个 effect 只在浏览器里、hydration 之后运行，所以服务器的 HTML 对所有人一样，也不会不匹配。从 `/report/edit` 重定向到一个带 `Cache` 的页面，会显示「Item removed.」，刷新之后就没有了。`flash.ts` 里的表要和 `flash.go` 里的 `Messages` 保持一致。
 
 ## 其他办法 {#other-ways}
 

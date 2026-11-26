@@ -12,7 +12,7 @@ read_when:
 
 Your own pages call your own routes, which is the same origin, and nothing here applies. This guide is for a page on **another origin**, such as `https://app.example.com` calling `https://api.example.com/api/items`, from a browser. A call from a server, from curl or from an app is not limited by CORS.
 
-Tifa sends no CORS headers and has no setting for them. It is a few lines in `OnRequest`. The code ran in a scratch app made with `tifa new`: `go tool tifa check`, a Go test, curl against the built program, and a page on a second port in a browser.
+Tifa sends no CORS headers and has no setting for them. It is a few lines in `OnRequest`.
 
 ## Two gates, two settings
 
@@ -23,7 +23,7 @@ A browser call from another origin passes two checks, and each has its own answe
 | **CORS**: may the page send this request and read the answer? | The browser, from `Access-Control-Allow-*` headers | Your `OnRequest`, below |
 | **Cross-site writes**: may a POST, PUT, PATCH or DELETE from another site run at all? | The program, before `OnRequest` ([Cross-site writes](../build-and-deploy/headers-and-origins.md#cross-site-writes)) | `server.trusted_origins`, or `server.cross_site_paths` for a path |
 
-A read (GET) needs only CORS. A write needs both. Tried in a browser, with the page on `http://127.0.0.1:39520` and the API on port 39519, which is another origin:
+A read (GET) needs only CORS. A write needs both. For a page on another origin:
 
 | Settings | GET | POST with a JSON body |
 | --- | --- | --- |
@@ -114,9 +114,9 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - **`Vary: Origin`**, added for every call that has an `Origin`, so a cache never gives the answer made for one origin to another. It is added, not set, to keep the `Vary: Accept-Encoding` of Tifa.
 - **Only `/api/`.** The pages and the navigation data of the app are not for other origins.
 - **The preflight is answered with 204** and does not reach the route, so nothing in `Validate` or a `Load` runs for it. `Access-Control-Allow-Headers` lists the headers the page may send beyond the simple ones: `Content-Type` for JSON, `Authorization` for a token. `Access-Control-Max-Age` lets the browser keep the answer for ten minutes.
-- **No credentials.** The code does not send `Access-Control-Allow-Credentials`, so a browser neither sends cookies with these calls nor lets the page read an answer made for cookies. The session cookie of Tifa is `SameSite=Lax` ([The cookie](../pages-and-data/sessions.md#the-cookie)) and is not what a page of another site should rely on. Give such a client a token in `Authorization` and check it in Go. Calls with cookies from another origin were not tried here.
+- **No credentials.** The code does not send `Access-Control-Allow-Credentials`, so a browser neither sends cookies with these calls nor lets the page read an answer made for cookies. The session cookie of Tifa is `SameSite=Lax` ([The cookie](../pages-and-data/sessions.md#the-cookie)) and is not what a page of another site should rely on. Give such a client a token in `Authorization` and check it in Go. Calls with cookies from another origin are not covered here.
 
-For a public read-only API with no cookies and no tokens, `Access-Control-Allow-Origin: *` is the other choice, and then the list is not needed. It was not tried here either.
+For a public read-only API with no cookies and no tokens, `Access-Control-Allow-Origin: *` is the other choice, and then the list is not needed.
 
 ## Allow the writes
 
@@ -128,18 +128,18 @@ server:
   trusted_origins: "https://app.example.com"
 ```
 
-Trust only sites you control, since a page of a trusted origin can act for your users. If the API takes a bearer token and no cookie, and any site may call it, `server.cross_site_paths` with the pattern of that path lets every origin write to it, which is safe only when nothing there relies on a cookie (not tried here). The two settings, and the exact way to write an origin, are in [Cross-site writes](../build-and-deploy/headers-and-origins.md#cross-site-writes).
+Trust only sites you control, since a page of a trusted origin can act for your users. If the API takes a bearer token and no cookie, and any site may call it, `server.cross_site_paths` with the pattern of that path lets every origin write to it, which is safe only when nothing there relies on a cookie. The two settings, and the exact way to write an origin, are in [Cross-site writes](../build-and-deploy/headers-and-origins.md#cross-site-writes).
 
 ## Test it
 
-`app/api/items/cors_test.go` starts the app with `tifatest.Start` and checks that:
+Start the app with `tifatest.Start` and check that:
 
 - a preflight from the listed origin gets 204 with the origin, the methods and `Vary: Origin`
 - the same from another origin gets 405 and no CORS header, and so does a path outside `/api/`
 - a GET from the listed origin carries `Access-Control-Allow-Origin`
 - a cross-site POST gets 403 until the origin is in `server.trusted_origins`
 
-With curl against the built program:
+To try it by hand against the built program:
 
 ```sh
 curl -i -X OPTIONS http://127.0.0.1:9527/api/items \

@@ -12,7 +12,7 @@ read_when:
 
 A write ends in a redirect, and the next page should say "Item saved" once. The message is not part of the address, so something has to carry it from the handler to the next request. The usual way, and the one this guide shows, is a short cookie: the handler sets it, the next page reads it and clears it.
 
-Tifa has no flash feature, and does not need one. The pieces are `c.SetCookie` (allowed in a method handler and in a `Load`, see [Ctx](../reference/ctx.md)), `c.Cookie` and a redirect. The code ran in a scratch app made with `tifa new`: `go tool tifa check`, a Go test, the built program with curl, and a browser.
+Tifa has no flash feature, and does not need one. The pieces are `c.SetCookie` (allowed in a method handler and in a `Load`, see [Ctx](../reference/ctx.md)), `c.Cookie` and a redirect.
 
 ## The cookie
 
@@ -113,7 +113,7 @@ func Load(c *tifa.Ctx) (View, error) {
 
 The page shows `notice` when it is not empty, in an element with `role="status"` so a screen reader says it.
 
-In a browser: from `/items/new`, the button calls the generated `POST`, the redirect goes through the router, and `/items` shows "Item saved." at once. A reload shows no message. With curl, the POST gets the cookie and the next GET of `/items` shows the message, as a form without script would see it.
+From `/items/new`, the button calls the generated `POST`, the redirect goes through the router, and `/items` shows "Item saved." at once. A reload shows no message. A form without script gets the same: the POST answers with the cookie and the next GET of `/items` shows the message.
 
 - **A redirect to the page you are on.** When the redirect goes to the address the page already has, the router did not load the page again, and the message showed only after a reload. Redirect to another page, as the list after a form does.
 - **A 304 clears it too.** The `Set-Cookie` of a `Load` goes out on a 304, on a memo hit and on a render alike, so the message is taken whichever way the answer is made.
@@ -127,7 +127,7 @@ The render memo ([The render memo](../reference/memo.md)) keys a page by its dat
 A page with `const Cache` is the same for everyone: its requests lose their cookies before your code runs, and a `Set-Cookie` on its HTML is removed ([Cache for CDNs](../pages-and-data/ssr-and-cache.md#cache-for-cdns)). Two things follow:
 
 - Its `Load` sees no flash cookie. A direct `c.Cookie("flash")` in it fails `tifa check` with "c.Cookie is always empty here". A read through a helper in another package, as `TakeFlash` above, is **not** reported by the check, so it just shows nothing.
-- Its answer clears nothing (curl showed no `Set-Cookie` on it). A flash set for such a page stays in the browser, and the first page without `Cache` that calls `TakeFlash` within the 60 seconds shows it, a page late.
+- Its answer clears nothing. A flash set for such a page stays in the browser, and the first page without `Cache` that calls `TakeFlash` within the 60 seconds shows it, a page late.
 
 Two ways out:
 
@@ -158,7 +158,7 @@ export function useFlash(): string {
 
 ```
 
-A page calls `const notice = useFlash()` and shows it when it is not empty. The effect runs only in the browser, after hydration, so the server HTML is the same for everyone and nothing mismatches. In a browser, a redirect from `/report/edit` to a page with `Cache` shows "Item removed." and a reload does not. Keep the table in `flash.ts` in step with `Messages` in `flash.go`.
+A page calls `const notice = useFlash()` and shows it when it is not empty. The effect runs only in the browser, after hydration, so the server HTML is the same for everyone and nothing mismatches. A redirect from `/report/edit` to a page with `Cache` shows "Item removed." and a reload does not. Keep the table in `flash.ts` in step with `Messages` in `flash.go`.
 
 ## Other ways
 

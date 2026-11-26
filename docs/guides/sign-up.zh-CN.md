@@ -2,7 +2,7 @@
 summary: '给 Tifa 应用加上注册和邮箱确认：只能用一次、以哈希保存的令牌，不泄露哪些邮箱已有账号的回答，链接打开页面、按钮才用掉令牌'
 audience: app
 order: 13
-translatedFrom: 963facf5967f
+translatedFrom: c015a14ee20f
 read_when:
   - '加注册页，或者邮件里一个用来确认邮箱地址的链接'
   - '做一个只能用一次、会过期的链接，比如确认链接或邀请链接'
@@ -14,7 +14,7 @@ read_when:
 
 [登录与退出](sign-in.zh-CN.md) 从一个已经存在的用户开始。这篇做出这个用户，并证明这个邮箱地址确实是访客的。[重置密码](password-reset.zh-CN.md) 用的是同样的令牌。Tifa 自己没有用户，也没有密码，所以这些都是你的代码和你的表，只有几个函数。
 
-它建立在这几篇之上：[登录与退出](sign-in.zh-CN.md#passwords) 里的 `HashPassword` 和 `CheckHash`，[发送邮件](email.zh-CN.md) 里的 `QueueMail`，以及 [在 SQLite 里保存数据](database.zh-CN.md) 里的数据库。代码照原样跑过，用的是一个 `tifa new` 建的临时应用（模块 `example.com/notes`）：跑了 `go tool tifa check`，跑了一个走完整个流程的 Go 测试，也在构建出的程序里跑过。
+它建立在这几篇之上：[登录与退出](sign-in.zh-CN.md#passwords) 里的 `HashPassword` 和 `CheckHash`，[发送邮件](email.zh-CN.md) 里的 `QueueMail`，以及 [在 SQLite 里保存数据](database.zh-CN.md) 里的数据库。
 
 ## 两张表 {#two-tables}
 
@@ -289,7 +289,7 @@ func POST(c *tifa.Ctx, in Form) error {
 
 ## 谁可以登录 {#who-may-sign-in}
 
-没确认的账号不该能登录。这个临时应用的登录先读用户那一行并检查密码，然后再看 `verified_at`：
+没确认的账号不该能登录。登录先读用户那一行并检查密码，然后再看 `verified_at`：
 
 ```go
 	ok, err := CheckHash(password, hash)
@@ -320,14 +320,14 @@ func POST(c *tifa.Ctx, in Form) error {
 
 ## 测试 {#test-it}
 
-临时应用的 `app/account/accounts_test.go` 用 `tifatest.Start` 启动应用，把 `notes.SendMail` 换成一个把每封邮件送进 channel 的函数，让真正的 worker 跑起来（`jobs.PollEvery` 设得很短），再从邮件里读出令牌。它检查：
+走完整个流程的测试用 `tifatest.Start` 启动应用，把 `notes.SendMail` 换成一个把每封邮件送进 channel 的函数，让真正的 worker 跑起来（`jobs.PollEvery` 设得很短），再从邮件里读出令牌。它检查：
 
 - 新地址和已被占用的地址得到同样的重定向，收到的邮件不同
 - 地址确认前，正确的密码也登录不了
 - 确认链接可以打开两次而不被用掉，按钮只能用一次
 - 表里存的是哈希，不是令牌
 
-根包里还有一个测试，移动 `now`（`tokens.go` 里的一个变量），证明令牌会过期，而重置令牌确认不了地址。用真实邮件服务器的测试要你自己手动跑一次（[发送邮件](email.zh-CN.md#test-without-sending)）。
+再用第二个测试移动 `now`（`tokens.go` 里的一个变量），检查令牌会过期，而重置令牌确认不了地址。用真实邮件服务器的测试要你自己手动跑一次（[发送邮件](email.zh-CN.md#test-without-sending)）。
 
 ## 试一试 {#check-it}
 
