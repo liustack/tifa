@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
 audience: app
 order: 3
-translatedFrom: 2c5180b2848a
+translatedFrom: 5734e94891b6
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -99,7 +99,7 @@ func Load(c *tifa.Ctx, q Filter) (products.List, error) {
 - 所以 Go 分不清一个参数是没传，还是传了零值：`?page=0` 和没有 `page` 都得到 0。让零值就是默认值（page 为 0 就是第一页，`max` 为 0 就是不限）。需要单独开关的选择，比如只看免费书，用一个单独的 `bool` 字段。字段不能是指针。
 - 没有字段对应的参数会被忽略。
 - 访客改地址栏，或者填一个不用 JavaScript 的普通 `<form method="get">`，可以写 `007`、`1.0` 或 `.5`，页面照收。这些规则只管页面的查询字符串：`GET` 或 `DELETE` 处理函数的输入照旧，由 `c.BindQuery` 解码。
-- 这个结构体不带 `Validate`，带了构建就失败。请在 `Load` 里检查值，返回 `tifa.Error{Status: 400, Message: "page must be at least 1"}` 或 `tifa.ErrNotFound`。
+- 结构体的 `Validate() error` 或 `Validate(c *tifa.Ctx) error` 方法在值解码之后、`Load` 之前运行，和方法处理函数的输入一样，所以页面和处理函数可以共用一个筛选类型。它返回的就是 `Load` 的错误：`tifa.Error{Status: 400, Message: "page must be at least 1"}` 或 `tifa.ErrNotFound` 原样到达访客，其他错误交给 `OnError`，答 500。浏览器不运行它：客户端导航时，它拒绝的值会作为数据请求的错误返回，由页面的 `ErrorBoundary` 显示。
 - 测试直接用结构体调用函数：`Load(c, Filter{Sort: "price"})`（见[测试应用](testing-apps.zh-CN.md)）。
 
 ## page.tsx {#pagetsx}

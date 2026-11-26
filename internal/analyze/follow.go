@@ -39,13 +39,21 @@ type useCall struct {
 }
 
 // walkLoad walks the function decl of pkg that loads the data of the route or Layout in the
-// directory owner. layout reports whether it is a Layout function.
-func (a *analyzer) walkLoad(pkg *packages.Package, owner string, layout bool, load *Load, decl *ast.FuncDecl) []paramUse {
+// directory owner. layout reports whether it is a Layout function. validate is the Validate
+// method of its query struct when that takes the Ctx: it runs with the Ctx of the function, before
+// it, so the walk goes through it as through a function it calls.
+func (a *analyzer) walkLoad(pkg *packages.Package, owner string, layout bool, load *Load, decl *ast.FuncDecl, validate *types.Func) []paramUse {
 	w := &loadWalk{a: a, owner: owner, load: load, visited: map[string]bool{}, layout: layout}
 	if layout {
 		w.self = pkg.PkgPath
 	}
 	w.body(pkg.TypesInfo, decl.Body, false)
+	if validate != nil {
+		key := validate.Origin().FullName()
+		if src, ok := a.funcs[key]; ok {
+			w.follow(key, src)
+		}
+	}
 	return w.uses
 }
 

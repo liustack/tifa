@@ -98,7 +98,7 @@ A `Load` that reads none takes only the Ctx. The second parameter is a struct va
 - So Go cannot tell a parameter that was not passed from one passed as the zero value: `?page=0` and no `page` both give 0. Let the zero value be the default (page 0 is the first page, a `max` of 0 is no limit). A choice that needs its own on and off, such as free books only, is a `bool` field of its own. Fields cannot be pointers.
 - A parameter that no field names is ignored.
 - A visitor who edits the address bar, or fills a plain `<form method="get">` with no JavaScript, can write `007`, `1.0` or `.5` and the page takes it. These rules are for the query string of a page only: the input of a `GET` or `DELETE` handler is decoded as before, by `c.BindQuery`.
-- The struct has no `Validate`: the build fails for a struct that has one. Check the values in `Load` and return `tifa.Error{Status: 400, Message: "page must be at least 1"}` or `tifa.ErrNotFound`.
+- A `Validate() error` or `Validate(c *tifa.Ctx) error` method of the struct runs once the values are decoded and before `Load`, as for the input of a method handler, so a page and a handler can share one filter type. What it returns is the error of `Load`: `tifa.Error{Status: 400, Message: "page must be at least 1"}` or `tifa.ErrNotFound` reaches the visitor as it is, and any other error goes to `OnError` and answers 500. The browser does not run it: on a navigation, a value it refuses comes back as the error of the data request, and the `ErrorBoundary` of the page shows it.
 - A test calls the function with the struct: `Load(c, Filter{Sort: "price"})` (see [Testing the app](testing-apps.md)).
 
 ## page.tsx

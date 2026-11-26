@@ -878,8 +878,9 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 	load := &Load{Type: typeString(result), Result: result}
 
 	decl := a.funcDecl(pkg, fn)
+	var validate *types.Func
 	if sig.Params().Len() == 2 {
-		a.readQuery(load, name, sig.Params().At(1).Type(), fieldTypePos(decl.Type.Params, 1))
+		validate = a.readQuery(load, name, sig.Params().At(1).Type(), fieldTypePos(decl.Type.Params, 1))
 	}
 	problems, html := checkTSHTML(result)
 	a.reportTS(fieldTypePos(decl.Type.Results, 0), name+" result", problems)
@@ -895,7 +896,7 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 		a.errorAt(fieldTypePos(decl.Type.Results, 0), "%s result: a tifa.HTML on its own would come with the page twice, in its markup and in its data: put it in a struct field, and the data carries only a marker in its place", name)
 	}
 
-	return load, a.walkLoad(pkg, owner, name == "Layout", load, decl)
+	return load, a.walkLoad(pkg, owner, name == "Layout", load, decl, validate)
 }
 
 // queryAt is a field of the query struct of a Load, with where it is declared.
@@ -908,25 +909,22 @@ type queryAt struct {
 // readQuery reads the second parameter of a Load or Layout, the struct that the query string of
 // the page is decoded into: the names of its fields are the query parameters of the page, and
 // their types say how the values are read. what is "Load" or "Layout" and pos the place of the
-// parameter type.
-func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Pos) {
+// parameter type. It returns the Validate method of the struct when it takes the Ctx: it runs
+// before the function, with its Ctx, so the walk of the function goes through it too.
+func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Pos) (validate *types.Func) {
 	st, isStruct := q.Underlying().(*types.Struct)
 	if !isStruct || isNamed(q, multipartPath, "FileHeader") {
 		a.errorAt(pos, "the second parameter of %s, %s, must be a struct, not a pointer or another type: it holds the query parameters, one field for each. For example type Filter struct { Page int `json:\"page\"` } and func %s(c *tifa.Ctx, q Filter) (T, error)", what, typeString(q), what)
-		return
+		return nil
 	}
 	load.Input = typeString(q)
 	label := what + " query"
 	if !a.checkQueryStruct(label, q, st, nil, pos, "a "+what+" query comes from the query string") {
-		return
+		return nil
 	}
-	// Validate belongs to the input of a method handler. A Load checks its values itself, where it can
-	// answer in its own words.
-	if fn, _, _ := types.LookupFieldOrMethod(q, true, nil, "Validate"); fn != nil {
-		if _, isFunc := fn.(*types.Func); isFunc {
-			a.errorAt(pos, "%s %s has a Validate method, which tifa runs only for the input of a method handler: check the values in %s and return tifa.Error{Status: 400, Message: \"page must be at least 1\"} or tifa.ErrNotFound for one that is not allowed", label, types.TypeString(q, shortQualifier), what)
-			return
-		}
+	validate, ok := a.readValidate(q, "the query parameters before "+what+" runs")
+	if !ok {
+		return nil
 	}
 	for i := range st.NumFields() {
 		f := st.Field(i)
@@ -956,6 +954,7 @@ func (a *analyzer) readQuery(load *Load, what string, q types.Type, pos token.Po
 	slices.SortFunc(load.Fields, func(x, y QueryField) int { return strings.Compare(x.Name, y.Name) })
 	slices.Sort(load.Query)
 	load.Query = slices.Compact(load.Query)
+	return validate
 }
 
 // queryKind names the kind of a basic type as the manifest says it, an alias such as byte or rune by

@@ -319,7 +319,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 ### Validate on the query struct of a Load
 
-**Settled (2026-11-26), to be built with the removal of the five places a Ctx may go.** A `Validate` method on the struct a `Load` or `Layout` takes runs after the query is decoded and before the function, and its error is the error of that function. It used to fail the build.
+**Settled (2026-11-26).** A `Validate` method on the struct a `Load` or `Layout` takes runs after the query is decoded and before the function, and its error is the error of that function: a `tifa.Error` or `tifa.Fields` as it is, any other error through `OnError` as a 500. It used to fail the build. It has the signature of the `Validate` of a handler input, and a `Validate(c *tifa.Ctx)` runs with the Ctx of the function, so the build checks it as a function that `Load` or `Layout` calls.
 
 **Why.** `Validate` says when a value of the type is valid, which does not depend on where it is decoded, so a page and a handler can share a filter type. The browser does not run it: a value it refuses reaches the `ErrorBoundary` as the 400 of the data request, the same as a `Load` that returns one.
 

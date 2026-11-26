@@ -139,19 +139,31 @@ func (a *analyzer) checkInput(method string, in types.Type, pos token.Pos) (ok, 
 			ok = false
 		}
 	}
-	if fn, _, _ := types.LookupFieldOrMethod(in, true, nil, "Validate"); fn != nil {
-		if fn, isFunc := fn.(*types.Func); isFunc {
-			s := fn.Signature()
-			takesCtx := s.Params().Len() == 1 && typeString(s.Params().At(0).Type()) == ctxType
-			if !(s.Params().Len() == 0 || takesCtx) || s.Results().Len() != 1 || typeString(s.Results().At(0).Type()) != "error" {
-				a.errorAt(fn.Pos(), "Validate must have the signature func() error or func(c *tifa.Ctx) error: it checks the input of %s before the handler runs", method)
-				ok = false
-			} else if takesCtx && !a.walkValidate(fn) {
-				ok = false
-			}
-		}
+	if fn, valid := a.readValidate(in, "the input of "+method+" before the handler runs"); !valid || fn != nil && !a.walkValidate(fn) {
+		ok = false
 	}
 	return ok, form
+}
+
+// readValidate looks up the Validate method of t, the input of a handler or the query struct of a
+// Load or Layout, and reports one of another signature, which tifa would not run. checks says what
+// it checks and when. It returns the method when it takes the Ctx, for the caller to walk its body.
+func (a *analyzer) readValidate(t types.Type, checks string) (withCtx *types.Func, ok bool) {
+	obj, _, _ := types.LookupFieldOrMethod(t, true, nil, "Validate")
+	fn, isFunc := obj.(*types.Func)
+	if !isFunc {
+		return nil, true
+	}
+	s := fn.Signature()
+	takesCtx := s.Params().Len() == 1 && typeString(s.Params().At(0).Type()) == ctxType
+	if !(s.Params().Len() == 0 || takesCtx) || s.Results().Len() != 1 || typeString(s.Results().At(0).Type()) != "error" {
+		a.errorAt(fn.Pos(), "Validate must have the signature func() error or func(c *tifa.Ctx) error: it checks %s", checks)
+		return nil, false
+	}
+	if takesCtx {
+		return fn, true
+	}
+	return nil, true
 }
 
 // checkFlatInput checks an input whose fields come as a flat list of names and string values: the

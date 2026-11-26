@@ -90,3 +90,57 @@ func TestQueryReadInALoadPanicsWithTheFix(t *testing.T) {
 		}
 	}
 }
+
+type checkedFilter struct {
+	Page int `json:"page"`
+}
+
+func (f checkedFilter) Validate() error {
+	if f.Page < 0 {
+		return Error{Status: 400, Message: "page must be at least 0"}
+	}
+	return nil
+}
+
+type ctxFilter struct {
+	Page int `json:"page"`
+}
+
+var validateLang atomic.Value
+
+// Validate with a pointer receiver and the Ctx: it sees the request of the Load.
+func (f *ctxFilter) Validate(c *Ctx) error {
+	validateLang.Store(c.Path())
+	if f.Page > 9 {
+		return errors.New("too far")
+	}
+	return nil
+}
+
+var checkedRuns atomic.Int32
+
+func checkedLoad(c *Ctx, q checkedFilter) (int, error) { checkedRuns.Add(1); return q.Page, nil }
+
+func ctxLoad(c *Ctx, q ctxFilter) (int, error) { return q.Page, nil }
+
+// A Validate method on the query struct of a Load runs once the query is decoded and before the
+// Load, and what it returns is the error of the Load, a tifa.Error as it is.
+func TestLoadInputRunsValidate(t *testing.T) {
+	checkedRuns.Store(0)
+	var e Error
+	if _, err := LoadInput(checkedLoad)(newQueryCtx("/list?page=-1")); !errors.As(err, &e) || e.Status != 400 || e.Message != "page must be at least 0" {
+		t.Fatalf("got %v", err)
+	}
+	if checkedRuns.Load() != 0 {
+		t.Error("the Load ran for a query its Validate refused")
+	}
+	if v, err := LoadInput(checkedLoad)(newQueryCtx("/list?page=3")); err != nil || v != 3 || checkedRuns.Load() != 1 {
+		t.Fatalf("a valid query: %v, %v, %d runs", v, err, checkedRuns.Load())
+	}
+	if _, err := LoadInput(ctxLoad)(newQueryCtx("/list?page=10")); err == nil || err.Error() != "too far" {
+		t.Fatalf("Validate(c) with a pointer receiver: %v", err)
+	}
+	if v, err := LoadInput(ctxLoad)(newQueryCtx("/list?page=2")); err != nil || v != 2 || validateLang.Load() != "/list" {
+		t.Fatalf("got %v, %v, Validate saw %v", v, err, validateLang.Load())
+	}
+}

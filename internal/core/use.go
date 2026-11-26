@@ -25,10 +25,10 @@ func Use[T any](c *Ctx, load func(*Ctx) (T, error)) (T, error) {
 
 // LoadInput wraps a Load or Layout function that takes its query parameters as a second parameter:
 // the returned function decodes the query string into a Q (see decodePageQuery, a value that is not valid
-// answers 400 and the Load does not run) and runs load once per request, in the same table as the
-// Loads that go through Use. The key is the code pointer of load itself, so two Loads never share
-// one through the wrapper, which is a closure of this one function. The generated app.go makes the
-// wrapper for every such function when the program starts.
+// answers 400 and the Load does not run), runs the Validate method of Q when it has one, and runs load
+// once per request, in the same table as the Loads that go through Use. The key is the code pointer of
+// load itself, so two Loads never share one through the wrapper, which is a closure of this one
+// function. The generated app.go makes the wrapper for every such function when the program starts.
 func LoadInput[T, Q any](load func(*Ctx, Q) (T, error)) func(*Ctx) (any, error) {
 	key := reflect.ValueOf(load).Pointer()
 	return func(c *Ctx) (any, error) {
@@ -38,9 +38,26 @@ func LoadInput[T, Q any](load func(*Ctx, Q) (T, error)) func(*Ctx) (any, error) 
 				var zero T
 				return zero, err
 			}
+			if err := validateQuery(c, &q); err != nil {
+				var zero T
+				return zero, err
+			}
 			return load(c, q)
 		})
 	}
+}
+
+// validateQuery runs the Validate method of the query struct v points to, Validate() error or
+// Validate(c *tifa.Ctx) error as for the input of a handler, and returns its error, which is the
+// error of the Load. A query struct without one is valid once it decodes.
+func validateQuery(c *Ctx, v any) error {
+	switch v := v.(type) {
+	case interface{ Validate(*Ctx) error }:
+		return v.Validate(c)
+	case interface{ Validate() error }:
+		return v.Validate()
+	}
+	return nil
 }
 
 // useKeyed is Use for the Load that key names.
