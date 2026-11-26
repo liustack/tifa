@@ -64,6 +64,8 @@ What you need: a Linux server with systemd, on x86_64 or aarch64, that you can r
 
 The first time, run `go tool tifa deploy setup`, see [Set up the server](deploy-setup.md). After that you only deploy and, when a release is bad, roll back.
 
+Without a terminal, as when an agent or a script runs the command, ssh asks nothing: a server whose host key is not in your `known_hosts` yet stops the command, and the error gives the command that accepts the key. A server that ssh reaches directly gets 15 seconds to answer, unless your ssh configuration sets its own `ConnectTimeout`. One reached through a `ProxyCommand` or `ProxyJump`, such as the login of Cloudflare Access in the browser, waits as long as it takes.
+
 ## When root cannot log in
 
 Many cloud images, such as those of AWS, Google Cloud and Azure, let no one log in as root. Put the user you log in with in front of the host: `ubuntu@203.0.113.7`, or `ssh://ubuntu@203.0.113.7:2222`. That user needs passwordless sudo. Tifa logs in as it for the steps that need root (the first setup, the ports, ufw, nginx, the tunnel) and runs them with `sudo -n`. Deploys, logs and the other steps still log in as `tifa`. Without passwordless sudo, setup stops at its first look at the server, before it changes anything there, and says what to add. With no user, or with `root@`, Tifa logs in as root.
