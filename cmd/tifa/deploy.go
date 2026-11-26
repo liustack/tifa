@@ -536,17 +536,30 @@ winget and logs it in, then the plan of the rest. It removes only what Tifa made
 		},
 	}
 	rollback := &cobra.Command{
-		Use:   "rollback",
-		Short: "Run the release before the current one again",
+		Use:   "rollback [release]",
+		Short: "Run the release before the current one again, or the one you name",
 		Long: `rollback points current at the newest earlier release that passed its health check and
-restarts the app through its socket. Run it again to go further back.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+restarts the app through its socket. Run it again to go further back.
+
+With a release, as tifa deploy status lists it (such as 20261120T110000Z), rollback points
+current at that release instead, older or newer than the current one. The release must still be
+on the server and have passed its health check when it was deployed. Otherwise rollback changes
+nothing and lists the releases it can go to. If that release is the current one, rollback says so
+and changes nothing. The restart and the health check are the same as without a release.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			release := ""
+			if len(args) == 1 {
+				release = args[0]
+				if !releaseIDShape.MatchString(release) {
+					return fmt.Errorf("%q is not a release ID: use one as tifa deploy status lists it, such as 20261120T110000Z", release)
+				}
+			}
 			t, err := loadDeployTarget(dir, host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			return deployRollback(cmd.Context(), t, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deployRollback(cmd.Context(), t, release, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	setup.Flags().BoolVarP(&sf.yes, "yes", "y", false, "apply the plan without asking")
@@ -733,7 +746,8 @@ func pick(cond bool, a, b string) string {
 	return b
 }
 
-func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err error) {
+// deployRollback runs the release named by release, or the newest earlier good one when it is empty.
+func deployRollback(ctx context.Context, t deployTarget, release string, stdout, stderr io.Writer) (err error) {
 	maskHost(stdout, t)
 	started := time.Now()
 	sum := deploySummary{App: t.app, Action: "rollback"}
@@ -743,18 +757,33 @@ func deployRollback(ctx context.Context, t deployTarget, stdout, stderr io.Write
 	if err != nil {
 		return err
 	}
-	target, err := rollbackTarget(s)
+	var target deployRecord
+	if release == "" {
+		target, err = rollbackTarget(s)
+	} else {
+		var current bool
+		if target, current, err = rollbackTo(s, release); err == nil && current {
+			sum.Release = release
+			fmt.Fprintf(stdout, "%s on %s already runs release %s: nothing to change\n", t.app, t.host, release)
+			return nil
+		}
+	}
 	if err != nil {
 		return err
 	}
 	sum.Release, sum.Commit = target.ID, target.Commit
-	fmt.Fprintf(stdout, "rolling %s on %s back from %s to %s (commit %s)\n", t.app, t.host, s.Current, target.ID, target.Commit)
+	// Release IDs are times, so a later one sorts after an earlier one.
+	way := "back"
+	if target.ID > s.Current {
+		way = "forward"
+	}
+	fmt.Fprintf(stdout, "rolling %s on %s %s from %s to %s (commit %s)\n", t.app, t.host, way, s.Current, target.ID, target.Commit)
 	a := activation{App: t.app, ID: target.ID, Commit: target.Commit, Port: s.Port, Action: "rollback",
 		Back: s.Current, Tries: healthTries}
 	if err := t.activate(ctx, a, health, stderr); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "rolled back to %s in %s\n", target.ID, time.Since(started).Round(100*time.Millisecond))
+	fmt.Fprintf(stdout, "rolled %s to %s in %s\n", way, target.ID, time.Since(started).Round(100*time.Millisecond))
 	sum.Cache = clearCache(ctx, t, stderr)
 	printCache(stdout, sum.Cache)
 	return nil

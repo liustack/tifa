@@ -435,6 +435,42 @@ func rollbackTarget(s serverState) (deployRecord, error) {
 	return deployRecord{}, fmt.Errorf("there is no earlier release on the server that passed its health check (the current one is %s)", s.Current)
 }
 
+// releaseIDShape is the shape of a release ID: the UTC time of its deploy, as tifa deploy status
+// lists it. It is checked on this machine before anything is sent to a server script.
+var releaseIDShape = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z$`)
+
+// rollbackTo checks that release id is a place a rollback can go: still on the server and
+// passed its health check. current is true when it already runs, and then nothing is to be done.
+// A release it cannot go to is refused with the ones it can go to.
+func rollbackTo(s serverState, id string) (target deployRecord, current bool, err error) {
+	if s.Current == "" {
+		return deployRecord{}, false, errors.New("nothing is deployed on the server yet")
+	}
+	if id == s.Current {
+		return deployRecord{}, true, nil
+	}
+	var options []string
+	for _, kept := range slices.Backward(s.Releases) {
+		if kept == s.Current {
+			continue
+		}
+		if r, ok := s.good(kept); ok {
+			if kept == id {
+				return r, false, nil
+			}
+			options = append(options, fmt.Sprintf("  %s  commit %s", r.ID, r.Commit))
+		}
+	}
+	why := "is not kept on the server"
+	if slices.Contains(s.Releases, id) {
+		why = "did not pass its health check when it was deployed"
+	}
+	if len(options) == 0 {
+		return deployRecord{}, false, fmt.Errorf("release %s %s, and no other release can be rolled back to", id, why)
+	}
+	return deployRecord{}, false, fmt.Errorf("release %s %s. It can go to:\n%s", id, why, strings.Join(options, "\n"))
+}
+
 // fallback is the release to go back to when a new one fails its check: the one that runs now,
 // if it ever passed. Empty means there is none, and the app is stopped.
 func fallback(s serverState) string {

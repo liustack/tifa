@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa deploy rollback` takes an optional release ID, as `tifa deploy status` lists it (such as `20261120T110000Z`), and goes to that release, older or newer than the one that runs, with the same restart and health check. The release must still be on the server and have passed its health check when it was deployed, else nothing changes and the error lists the releases it can go to. See [Roll back](docs/build-and-deploy/deploy.md#roll-back).
+
 ### Changed
 
 - `tifa deploy` runs ssh with `BatchMode=yes` when there is no terminal, so it never waits for an answer no one can give, and gives a server it reaches directly 15 seconds to answer, unless your ssh configuration sets a `ConnectTimeout` (a `ProxyCommand` or `ProxyJump`, such as Cloudflare Access, gets no limit). A host key that is not in `known_hosts` yet, one that changed, and a server ssh cannot reach each get an error that says what to do. See [Deploy](docs/build-and-deploy/deploy.md#deploy-with-tifa-deploy).
