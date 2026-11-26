@@ -1405,43 +1405,75 @@ func (a *analyzer) cacheConst(pkg *packages.Package) (time.Duration, bool) {
 	return time.Duration(ns), false
 }
 
-// checkCacheIdentity reports the reads of cookies, headers and the session in the Load of a page
-// with Cache and in the Layout function of each Layout around it, the functions they call included.
-// The request of such a page is anonymous, so the read is always empty, which is a mistake in the
-// code and not a visitor without a cookie. A Layout shared with a page that has no Cache is
-// still reported, since it also runs for the page that has.
+// checkCacheIdentity reports the reads of cookies, headers and the session in code that runs for
+// pages with Cache alone, the functions it calls included: the Load of such a page, and the Layout
+// function of a Layout whose pages all have Cache. The request of such a page is anonymous, so the
+// read is always empty there, which is a mistake in the code and not a visitor without a cookie. A
+// read that a page without Cache reaches too, such as one in a Layout shared with it or in a helper
+// its Load calls, gives that page what it asks for and the page with Cache the anonymous answer,
+// which is right for a page that is the same for everyone, so it is left alone.
 func (a *analyzer) checkCacheIdentity(routes []*route, layouts []*layout) {
-	byID := map[string]*layout{}
-	for _, l := range layouts {
-		byID[l.ID] = l
-	}
-	reported := map[token.Pos]bool{}
+	pages := map[string]*route{}
 	for _, r := range routes {
-		if !r.Shared() || !r.Page || r.broken {
+		if r.Page {
+			pages[r.ID] = r
+		}
+	}
+	// why says, for each Load, whether it runs for pages with Cache alone and which.
+	why := map[*Load]string{}
+	for _, r := range routes {
+		if r.Page && r.Load != nil && r.Shared() {
+			why[r.Load] = r.Dir + " has Cache"
+		}
+	}
+	for _, l := range layouts {
+		if l.Load == nil {
 			continue
 		}
-		loads := []*Load{r.Load}
-		for _, id := range r.Layouts {
-			if l := byID[id]; l != nil {
-				loads = append(loads, l.Load)
+		shared := 0
+		for _, id := range l.Routes {
+			if p := pages[id]; p != nil && !p.Shared() {
+				shared = -1
+				break
+			} else if p != nil {
+				shared++
 			}
 		}
-		for _, load := range loads {
-			if load == nil {
-				continue
+		if shared > 0 {
+			why[l.Load] = "every page below " + l.Dir + " has Cache"
+		}
+	}
+	type read struct {
+		identityRead
+		why   string
+		mixed bool // a Load that does not run for pages with Cache alone reaches it too
+	}
+	var reads []*read
+	byPos := map[token.Pos]*read{}
+	for load, list := range a.identity {
+		for _, r := range list {
+			x := byPos[r.pos]
+			if x == nil {
+				x = &read{identityRead: r}
+				byPos[r.pos] = x
+				reads = append(reads, x)
 			}
-			for _, read := range a.identity[load] {
-				if reported[read.pos] {
-					continue
-				}
-				reported[read.pos] = true
-				why := read.what + " is always empty here"
-				if read.what == "c.Header" {
-					why = "c.Header sees only Host, Accept-Encoding, If-None-Match, If-Modified-Since, Cache-Control, Pragma, Content-Length, Connection, Origin and Sec-Fetch-* here, every other header is always empty"
-				}
-				a.errorAt(read.pos, "%s: %s has Cache, so its requests are anonymous and the answer is kept for everyone. Remove Cache from %s, or move what depends on the visitor into the browser, where the page can read it after it loads", why, r.Dir, r.Dir)
+			if w, ok := why[load]; !ok {
+				x.mixed = true
+			} else if x.why == "" || w < x.why {
+				x.why = w // the same text whatever the order of the map
 			}
 		}
+	}
+	for _, r := range reads {
+		if r.mixed {
+			continue
+		}
+		what := r.what + " is always empty here"
+		if r.what == "c.Header" {
+			what = "c.Header sees only Host, Accept-Encoding, If-None-Match, If-Modified-Since, Cache-Control, Pragma, Content-Length, Connection, Origin and Sec-Fetch-* here, every other header is always empty"
+		}
+		a.errorAt(r.pos, "%s: %s, so its requests are anonymous and the answer is kept for everyone. Remove Cache, or move what depends on the visitor into the browser, where the page can read it after it loads", what, r.why)
 	}
 }
 

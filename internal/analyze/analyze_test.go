@@ -576,9 +576,11 @@ func TestViolations(t *testing.T) {
 			{"app/variable/route.go:5:", "Cache must be true, false or a time.Duration constant"},
 			{"app/api/route.go:9:", "Cache is not allowed without page.tsx"},
 		}},
+		// Reported only in code that runs for pages with Cache alone: not in the root Layout, which wraps
+		// pages without it too, nor in auth.Lang, which a page without Cache calls too.
 		{"cacheidentity", [][]string{
-			{"app/route.go:5:", "c.Header sees only Host", "every other header is always empty", "app/feed has Cache", "Remove Cache"},
-			{"app/news/route.go:14:", "tifa.Session is always empty here", "app/news has Cache"},
+			{"app/blog/route.go:13:", "c.Cookie is always empty here", "every page below app/blog has Cache", "Remove Cache"},
+			{"app/news/route.go:15:", "tifa.Session is always empty here", "app/news has Cache"},
 			{"internal/auth/auth.go:6:", "c.Cookie is always empty here", "app/feed has Cache"},
 			{"app/flag/route.go:12:", "tifa.Session is always empty here", "app/flag has Cache"},
 		}},
