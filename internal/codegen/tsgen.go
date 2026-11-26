@@ -652,33 +652,6 @@ func paramKey(s pathSeg) string {
 	return s.text[1 : len(s.text)-1]
 }
 
-// readParams returns the TanStack keys of the path parameters that the Load of n reads, itself
-// or through the Layouts it uses with tifa.Use, in path order. The component remounts when they
-// change. A parameter in the path that no Load reads changes neither the data nor the state.
-func readParams(n *tsNode, byID map[string]*tsNode) []string {
-	read := map[string]bool{}
-	var collect func(l *analyze.Load)
-	collect = func(l *analyze.Load) {
-		if l == nil {
-			return
-		}
-		for _, p := range l.Params {
-			read[p] = true
-		}
-		for _, id := range l.Uses {
-			collect(byID[id].load)
-		}
-	}
-	collect(n.load)
-	var keys []string
-	for _, s := range n.segs {
-		if k := paramKey(s); k != "" && read[strings.TrimSuffix(strings.Trim(s.text, "{}"), "...")] {
-			keys = append(keys, k)
-		}
-	}
-	return keys
-}
-
 func params(segs []pathSeg) []string {
 	var keys []string
 	for _, s := range segs {
@@ -929,11 +902,15 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 		} else if len(static) > 0 {
 			opts = append(opts, staticData)
 		}
-		// A route remounts when a path parameter it reads changes. Another value of a query
-		// parameter loads the data again and keeps the component and its state, as TanStack
-		// Router does by default, so a page keeps what its visitor set while a filter changes.
+		// A route remounts when a path parameter of its folder changes, or of a folder above it:
+		// the path names the thing the page shows, so state such as a draft or the values of a
+		// form never carries over to another order, as in Next.js, which keys each segment by its
+		// parameters. What reads the parameter does not matter, so a page without a Load that
+		// fetches in the browser remounts too. Another value of a query parameter loads the data
+		// again and keeps the component and its state, as TanStack Router does by default, so a
+		// page keeps what its visitor set while a filter changes.
 		var deps []string
-		for _, k := range readParams(n, byID) {
+		for _, k := range params(n.segs) {
 			deps = append(deps, "params."+k)
 		}
 		if len(deps) > 0 {

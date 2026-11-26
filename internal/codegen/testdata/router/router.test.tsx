@@ -1637,7 +1637,7 @@ function remountKey(router: any, routeId: string) {
   return JSON.stringify(route.options.remountDeps?.({ routeId, loaderDeps: match.loaderDeps, params: match._strictParams, search: match._strictSearch }))
 }
 
-test('a route remounts when a path parameter it reads changes, not a query parameter', async () => {
+test('a route remounts when a path parameter of its folder changes, not a query parameter', async () => {
   const { router, calls } = await client('/teams/x/one?tab=a')
   const team = (Object.values(router.routesById) as any[]).find((r) => r.id.endsWith('/teams/$team')).id
   const first = remountKey(router, team)
@@ -1649,7 +1649,7 @@ test('a route remounts when a path parameter it reads changes, not a query param
   await router.load()
   assert(calls.some(([u, id]) => id === 'app/teams/team+/layout' && u.includes('tab=b')), `no new data for tab=b: ${JSON.stringify(calls)}`)
   assert(remountKey(router, team) === first, `a query parameter remounted the Layout: ${first} became ${remountKey(router, team)}`)
-  // Another value of a path parameter it reads gives it a new component.
+  // Another value of a path parameter of its folder gives it a new component.
   router.history.push('/teams/y/one?tab=b')
   await router.load()
   assert(remountKey(router, team) !== first, `a path parameter kept the Layout: ${first}`)
