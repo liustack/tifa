@@ -176,7 +176,7 @@ func (a *analyzer) guardWarning(pos token.Pos, lit string, prefix bool, near []s
 	if len(near) > 0 {
 		msg += ". Closest routes: " + strings.Join(near, ", ")
 	}
-	msg += ". c.Pattern() is the path of the matched route, such as /projects/{project}, without the method. Update the string to the route as it is now, or remove the guard"
+	msg += ". c.Pattern() is the path of the matched route, such as /projects/{project}, without the method. Update the string to the route as it is now, or remove the guard."
 	return Warning{Pos: p, Msg: msg + see(docGuard)}
 }
 
