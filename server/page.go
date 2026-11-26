@@ -1164,9 +1164,22 @@ func writeRenderRedirect(c *tifa.Ctx, redirect *ssr.RedirectError, keep []string
 // browser reads it as a path of this site whatever the router built it from. The router makes such
 // a URL from the path of the request, and a path may hold an escaped / or \ (/%2F%5Cevil.example).
 // Each \ is written %5C, since a browser reads \ as /, and the slashes at the start become one, since
-// a URL that starts with // names another host.
+// a URL that starts with // names another host. Each control character is written in percent form
+// too: a browser drops a tab, a line feed and a carriage return from a URL, so /<tab>/evil.example
+// is read as //evil.example.
 func sameSite(location string) string {
-	location = strings.ReplaceAll(location, `\`, "%5C")
+	var b strings.Builder
+	for i := 0; i < len(location); i++ {
+		switch ch := location[i]; {
+		case ch == '\\':
+			b.WriteString("%5C")
+		case ch < 0x20 || ch == 0x7f:
+			fmt.Fprintf(&b, "%%%02X", ch)
+		default:
+			b.WriteByte(ch)
+		}
+	}
+	location = b.String()
 	if strings.HasPrefix(location, "/") {
 		location = "/" + strings.TrimLeft(location, "/")
 	}
