@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-27
+
 ### Added
 
 - `tifa deploy` works on servers where root cannot log in, as on the images of AWS, Google Cloud and Azure. Name the user you log in with in front of the host, as `TIFA_DEPLOY_HOST=ubuntu@203.0.113.7` or `--host ssh://ubuntu@203.0.113.7:2222`. That user needs passwordless sudo: setup logs in as it for the steps that need root and runs them with `sudo -n`, and stops before it changes anything when sudo asks for a password. Deploys and the other steps still log in as `tifa`, which setup gives the keys of that user. The user stays with the host in `~/.tifa/config.yaml` and in `.env`. See [When root cannot log in](docs/build-and-deploy/deploy.md#when-root-cannot-log-in).
