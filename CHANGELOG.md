@@ -11,6 +11,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
+- A `tifa deploy` that went live remembers the server in `~/.tifa/config.yaml`, as setup does, so a server set up before that file existed or from another machine gets its entry on the first deploy from this machine, and `tifa deploy status --all` and the default server know it. A deploy in GitHub Actions writes nothing. See [The servers Tifa remembers](docs/build-and-deploy/deploy.md#the-servers-tifa-remembers).
 - `tifa build` passes `-trimpath` to `go build`, so the program holds no folder of the machine that built it, and a panic names a file by its path in its module. `build.debug_info: true` keeps the full paths with the debug info, and `-trimpath=false` in `GOFLAGS` keeps them alone.
 - Pages that use react-i18next 18 render faster. On the server, `useTranslation` no longer runs its hooks, which only keep its result between renders and listen for changes of the language or the strings, when the strings it asks for are loaded. On the example shop the storefront pages render in 6.2% less time (1% to 10% by page, cart and checkout 6.4%) and run 4.8% fewer instructions. The pages are byte for byte the same. The browser runs `useTranslation` as before.
 - The build errors of the analysis, from `tifa build`, `tifa check` and `tifa dev`, now end with the doc section that explains the fix, as the messages about code from other frameworks already did. A few say more than one way out.

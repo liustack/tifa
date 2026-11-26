@@ -491,6 +491,7 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err 
 	if err != nil {
 		return err
 	}
+	machine := s.Machine
 	if s.Port == 0 {
 		if s, err = t.createApp(ctx, s, stdout, stderr); err != nil {
 			return err
@@ -522,6 +523,12 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err 
 		return err
 	}
 	fmt.Fprintf(stdout, "deployed %s release %s (commit %s) in %s\n", t.app, id, a.Commit, time.Since(started).Round(100*time.Millisecond))
+	// The release is live and passed its check, so the server goes into ~/.tifa as setup puts it
+	// there: a server set up from another machine, or before the file was there, gets its entry.
+	// CI never reads the file.
+	if os.Getenv(envGitHubActions) != "true" && machine != "" {
+		rememberAndSay(machine, t.dest.raw, knownApp{Name: t.app, Path: t.root}, stdout, stderr)
+	}
 	sum.Cache = clearCache(ctx, t, stderr)
 	printCache(stdout, sum.Cache)
 	t.printVisitors(ctx, stdout, s)

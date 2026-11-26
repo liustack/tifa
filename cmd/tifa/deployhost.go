@@ -2,7 +2,7 @@ package main
 
 // Where tifa deploy finds the server. tifa.yaml is committed, so the server is not written in it:
 // it comes from --host, the environment variable TIFA_DEPLOY_HOST, or TIFA_DEPLOY_HOST in the .env of the
-// app, which git ignores, else from the servers setup remembered in ~/.tifa. The value is what ssh takes as a destination: a host
+// app, which git ignores, else from the servers setup and deploy remembered in ~/.tifa. The value is what ssh takes as a destination: a host
 // name or a Host of ~/.ssh/config, or ssh://host[:port], with or without a user in front. Tifa picks
 // the user it logs in as: tifa for the apps, and for the steps of root the user of the value
 // through sudo, or root when the value names none.
@@ -191,7 +191,7 @@ func deployHostURL(host string, port int) string {
 
 // readDeployHost finds the server of the app: the flag, else TIFA_DEPLOY_HOST in the environment,
 // else TIFA_DEPLOY_HOST in the .env file at the root of the app, else the servers tifa deploy
-// setup remembered in ~/.tifa (see deployservers.go). It says where the value came from in an
+// setup and deploy remembered in ~/.tifa (see deployservers.go). It says where the value came from in an
 // error. A server taken from ~/.tifa is announced with one line on notice.
 func readDeployHost(root, app, flagValue string, notice io.Writer) (deployHost, error) {
 	value, from, err := readDeployInput(root, "--host", flagValue, deployHostEnv)
@@ -220,7 +220,7 @@ func noServerError() error {
 		"  2. the environment variable %[1]s\n"+
 		"  3. a line in the file .env at the root of the app (git ignores it, so the address stays out of the repository): %[1]s=ssh://203.0.113.7:22\n"+
 		"The value is an ssh alias (a Host of ~/.ssh/config) or ssh://host[:port]. When root cannot log in, put the user you log in with in front, such as ubuntu@203.0.113.7: it needs passwordless sudo.\n"+
-		"go tool tifa deploy setup remembers the server in %[2]s, and the next app of this machine needs no line", deployHostEnv, shownServersPath())
+		"go tool tifa deploy setup and each deploy that works remember the server in %[2]s, and the next app of this machine needs no line", deployHostEnv, shownServersPath())
 }
 
 // homeDeployHost takes the server from the file of ~/.tifa when nothing else names one: the server

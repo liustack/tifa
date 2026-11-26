@@ -1541,18 +1541,7 @@ func (r *setupRun) remember(stdout, stderr io.Writer) {
 	if r.tunnelHost != "" {
 		host = r.t.dest.withUser(r.tunnelHost)
 	}
-	changed, err := rememberServer(r.st.Machine, host, knownApp{Name: r.t.app, Path: r.t.root})
-	switch {
-	case err != nil:
-		fmt.Fprintf(stderr, "Could not remember the server in %s: %v\n", shownServersPath(), err)
-	case changed:
-		s := knownServer{ID: r.st.Machine}
-		line := fmt.Sprintf("Remembered %s (%s) in %s", s.name(), host, shownServersPath())
-		if all, err := readServers(); err == nil && len(all) == 1 {
-			line += fmt.Sprintf(", so the next app on this machine needs no %s", deployHostEnv)
-		}
-		fmt.Fprintln(stdout, line+".")
-	}
+	rememberAndSay(r.st.Machine, host, knownApp{Name: r.t.app, Path: r.t.root}, stdout, stderr)
 }
 
 // needsYou is the error of a setup that left n things to the developer, nil for none.

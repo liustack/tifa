@@ -930,6 +930,12 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Turned down.** Asking for a sudo password: a deploy runs without a terminal, and a coding agent must never get the password.
 
+### Who writes the servers of ~/.tifa
+
+**Settled (2026-11-27).** A `tifa deploy` whose release went live and passed its health check remembers the server in `~/.tifa/config.yaml`, as setup does: the machine ID the deploy read from the server, the host as named (with its admin user), and the app. It prints one line when the file changed, and a file it cannot write is a warning, since the release is live. In GitHub Actions it writes nothing, because CI never reads the file.
+
+**Why.** Only setup wrote the file, so a server set up before the file existed, or from another machine or CI, never got an entry, and `status --all` and the default server did not know it. A separate command to add it would be one more thing to learn.
+
 ### Several targets, and the options of GitHub Actions in tifa.yaml
 
 **Turned down (2026-11-20 to 2026-11-23).** Environments such as staging and production in `tifa.yaml`, and keys for the runner, the Node version, approvals, timeouts or path filters.
