@@ -574,6 +574,7 @@ func (v siteURLValue) Set(s string) error {
 	*v.p = u.Scheme + "://" + u.Host
 	return nil
 }
+
 // plainHost says host is an IP address, or a DNS name of labels of letters, digits and hyphens, with
 // no hyphen at either end of a label, and one dot at the end at most. Punycode (xn--) is such a name.
 // The name goes into the configuration of nginx, so no character with a meaning there passes.
