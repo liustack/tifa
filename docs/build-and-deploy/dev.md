@@ -99,9 +99,22 @@ A page the browser opens during the first build (a GET or HEAD that accepts `tex
 
 The step names are `static analysis`, `code generation`, `bundle`, `styles`, `content` and `go build`. After static analysis there is also a `route manifest changed` or `route manifest unchanged` line. Vite's warnings and errors are printed as `tifa dev:` lines too. The app's own output is printed as usual, without the `tifa: listening on` line of a built program, since the app listens on a port only `tifa dev` talks to. Its stderr passes through `tifa dev`, which keeps the last lines for the overlay (see below), so a logger that colors its output only on a terminal writes plain text there.
 
+Under `tifa dev` the app also writes a line for each request of a route, once it has answered: the method, the URL, the status, the time, the route and what the [render memo](../pages-and-data/ssr-and-cache.md#ssr-and-cache) did:
+
+```text
+2026/11/26 08:00:00 INFO GET /projects/studio 200 38ms /projects/{project} memo miss
+2026/11/26 08:00:01 INFO GET /projects/studio 200 1ms /projects/{project} memo hit
+2026/11/26 08:00:03 INFO GET /projects/studio?page=2 200 9ms /projects/{project} data
+2026/11/26 08:00:04 INFO POST /api/orders 201 4ms /api/orders
+```
+
+`memo miss` is a page rendered in a VM, `memo hit` one the memo had, `memo shared` one that waited for the render another request had started, and `memo off` a page the memo does not keep (`Memo = false`, a 404 or an error page). `data` is the navigation data a client move asks for, which renders nothing. The route is the template of the page or handler and is missing when no route matched. The files of the browser bundle and of `public/`, the requests of `tifa dev` and Vite's modules get no line. A built program writes none, and `tifa dev` adds no header to answers: the memo word is read from `X-Tifa-Render`, which pages always carry. For a line in a built program, see [Logging each request](../guides/logs.md#logging-each-request).
+
 When a render calls Intl or a `toLocale*` method without a locale, or for a date without a `timeZone`, the app logs a `tifa: ssr:` warning that names the place in your sources, once per place. The page renders as usual. See [Warnings in `tifa dev`](../pages-and-data/server-render.md#warnings-in-tifa-dev).
 
 `tifa dev` renders each page twice, the second time with the clock 36 hours on. When the two renders of the same data differ, the page read the time or a random number while rendering, and the render memo would freeze that value. The terminal and an overlay on the page say so, with the HTML around the first place where the renders part and the places in your code that read the time (`Date.now()`, `new Date()`, `Date()`) or a random number (`Math.random()`, `crypto`). Reads inside packages are named by the line of your code that called them, and those of React, TanStack Router and Tifa are left out. Change the component, or write `Memo = false` in the `route.go` of the page (see [SSR and cache](../pages-and-data/ssr-and-cache.md#ssr-and-cache)). Such a page is not cached until it is fixed. A built program does not render twice.
+
+Under `tifa dev`, what a page prints with `console.log` and the other console methods while it renders on the server is logged too, with the page and the place in your sources. See [Console in `tifa dev`](../pages-and-data/server-render.md#console-in-tifa-dev).
 
 ## When a build fails
 

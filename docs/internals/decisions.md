@@ -672,6 +672,12 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why.** A developer had no way to see what a component printed on the server, and a library that called `console.time` failed the render with a `TypeError`. Printing only changes the log, never whether a render works, so it does not break [Checks that only tifa dev runs](#checks-that-only-tifa-dev-runs): `tifa dev` and the built program succeed and fail together. The VM keeps the calls in a list and Go logs it after the render, so a render still does no I/O. It is not [Browser errors printed in the terminal](#browser-errors-printed-in-the-terminal): that was the browser console, this is the server's.
 
+### A line for each request in `tifa dev`
+
+**Settled (2026-11-26).** The app under `tifa dev` logs one line per request of a route: method, URL, status, time, route and what the render memo did (`memo hit`, `memo miss`, `memo shared`, `memo off`) or `data` for navigation data. Files of the bundle and `public/`, and the requests of `tifa dev` and Vite, get none. A built program has no request log, as before: the recipe in [Logs](../guides/logs.md#logging-each-request) stays the way to get one.
+
+**Why.** A developer who asks "was that a hit?" or "what did the click ask for?" had to read response headers. The app writes the line itself, in the `serve` of a route, so `tifa dev` needs no second place to know the route, and no header is added: the memo word comes from `X-Tifa-Render`, which pages carry anyway.
+
 ### More in tifatest
 
 **Turned down (2026-11-05).** Assertions of its own, browser automation, a mock of `fetch`, and a parameter that overrides settings.

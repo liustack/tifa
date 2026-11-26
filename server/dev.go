@@ -1,13 +1,17 @@
 package server
 
 import (
+	"fmt"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/liustack/tifa"
 	"github.com/liustack/tifa/internal/config"
 	"github.com/liustack/tifa/internal/content"
+	"github.com/liustack/tifa/internal/core"
 	"github.com/liustack/tifa/internal/deverrors"
 )
 
@@ -111,4 +115,48 @@ func (s *server) devRequestError(c *tifa.Ctx, e tifa.Error, err error) {
 	}
 	r := c.Request()
 	s.devErrors.requests.Add(deverrors.Request{Method: r.Method, URL: r.URL.RequestURI(), Status: e.Status, Message: e.Message, Error: err.Error()})
+}
+
+// implicitStatus records the 200 that net/http sends when the first write has no WriteHeader
+// before it.
+func (w *writer) implicitStatus() {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+}
+
+// logDevRequest writes the line of tifa dev for a request of a route, once the app has answered:
+// the method, the URL, the status, the time and the route, then what the render memo did for a
+// page ("memo hit", "memo miss", "memo shared", or "memo off" for a page the memo does not keep: one with
+// Memo = false, a 404 and an error page) or
+// "data" for a navigation data request. A 304 renders nothing and says nothing more. Files of the
+// bundle and of the public folder, and the requests of tifa dev, never get here: they are answered
+// before a route is. The memo word comes from the X-Tifa-Render header the page already
+// carries, so the line adds nothing to the answer. Only DevMain turns this on.
+func (s *server) logDevRequest(w *writer, r *http.Request, pattern string, start time.Time) {
+	status := "-" // the connection was cut before an answer
+	if w.status != 0 {
+		status = strconv.Itoa(w.status)
+	}
+	took := time.Since(start).Round(time.Microsecond)
+	if took >= time.Millisecond {
+		took = took.Round(time.Millisecond)
+	}
+	line := fmt.Sprintf("%s %s %s %s", r.Method, r.URL.RequestURI(), status, took)
+	if pattern != "" {
+		line += " " + pattern
+	}
+	switch {
+	case core.DataOf(r) != nil:
+		line += " data"
+	case w.Header().Get(renderHeader) == "vm" && (s.uncached[pattern] || w.status != http.StatusOK):
+		line += " memo off"
+	case w.Header().Get(renderHeader) == "vm":
+		line += " memo miss"
+	case w.Header().Get(renderHeader) == "memo":
+		line += " memo hit"
+	case w.Header().Get(renderHeader) == "shared":
+		line += " memo shared"
+	}
+	core.Logger().Info(line)
 }
