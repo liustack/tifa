@@ -72,12 +72,9 @@ func (w *loadWalk) call(info *types.Info, call *ast.CallExpr, helper bool) {
 			return
 		}
 		// checkUses reports arguments that are not the Layout function of a wrapping Layout.
-		if fn := packageFunc(info, call.Args[1]); fn != nil && fn.Name() == "Layout" {
-			if fn.Pkg().Path() == w.self {
-				a.errorAt(call.Args[1].Pos(), "tifa.Use(c, Layout) is reached from the Layout function of %s itself, which would wait for its own result", w.owner)
-				return
-			}
-			a.used[w.load] = append(a.used[w.load], fn.Pkg().Path())
+		if fn := packageFunc(info, call.Args[1]); fn != nil && fn.Name() == "Layout" && fn.Pkg().Path() == w.self {
+			a.errorAt(call.Args[1].Pos(), "tifa.Use(c, Layout) is reached from the Layout function of %s itself, which would wait for its own result", w.owner)
+			return
 		}
 		if helper {
 			a.helperUses = append(a.helperUses, useCall{info: info, call: call, caller: w.owner})

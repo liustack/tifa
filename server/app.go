@@ -67,7 +67,8 @@ type Layout struct {
 	// Languages are the languages of the area the Layout is in, the default one first, nil for a
 	// Layout outside every area.
 	Languages []string
-	// Query lists the query parameters the Layout function reads (AllQuery), sorted.
+	// Query lists the query parameters the Layout function takes, the fields of its second
+	// parameter, sorted.
 	Query []string
 	// Whole, Floats and Bools list those of Query that are a whole number, a float64 or a bool, or a
 	// list of them, sorted. An empty value of one is a parameter that was not passed, and a number may
@@ -106,7 +107,7 @@ type Route struct {
 	// Languages are the languages of the area the route is in, the default one first. A route
 	// outside every area has none: it is never prefixed, in both prefix modes.
 	Languages []string
-	// Query lists the query parameters the Load reads (AllQuery), sorted.
+	// Query lists the query parameters the Load takes, the fields of its second parameter, sorted.
 	Query []string
 	// Whole, Floats and Bools list those of Query that are a whole number, a float64 or a bool, or a
 	// list of them, sorted.

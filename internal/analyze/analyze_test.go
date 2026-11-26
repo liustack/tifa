@@ -65,11 +65,10 @@ func TestValidApp(t *testing.T) {
 		}
 	}
 	if got := layouts[project+"/layout"].Load; got == nil || got.Type != "example.com/valid/"+project+".Project" ||
-		!reflect.DeepEqual(got.Params, []string{"projectId"}) || len(got.Query) != 0 || len(got.AllQuery) != 0 || got.Input != "" ||
-		!reflect.DeepEqual(got.Uses, []string{"app/layout"}) {
+		len(got.Query) != 0 || got.Input != "" {
 		t.Errorf("project layout Load = %+v", got)
 	}
-	if got := layouts["app/layout"].Load; got == nil || len(got.Query) != 0 || len(got.Uses) != 0 {
+	if got := layouts["app/layout"].Load; got == nil || len(got.Query) != 0 {
 		t.Errorf("root layout Load = %+v", got)
 	}
 	// A Layout takes its query parameters as its second parameter too.
@@ -118,22 +117,17 @@ func TestValidApp(t *testing.T) {
 		}
 	}
 
-	if r := routes["app/route"]; r.Load == nil || r.Load.Type != "string" || !reflect.DeepEqual(r.Load.Query, []string{"ref"}) ||
-		!reflect.DeepEqual(r.Load.AllQuery, []string{"ref"}) {
+	if r := routes["app/route"]; r.Load == nil || r.Load.Type != "string" || !reflect.DeepEqual(r.Load.Query, []string{"ref"}) {
 		t.Errorf("home Load = %+v", r.Load)
 	}
-	// The project page takes page and sort as its second parameter. The Layouts it reaches through
-	// tifa.Use take none, since a Layout with query parameters cannot be passed to tifa.Use.
+	// The project page takes page and sort as its second parameter.
 	if r := routes[project+"/route"]; r.Load == nil || r.Load.Type != "[]string" ||
-		!reflect.DeepEqual(r.Load.Query, []string{"page", "sort"}) || len(r.Load.Params) != 0 ||
-		!reflect.DeepEqual(r.Load.AllQuery, []string{"page", "sort"}) ||
-		!reflect.DeepEqual(r.Load.Fields, []QueryField{{Name: "page", Type: "int", Kind: "int"}, {Name: "sort", Type: "string", Kind: "string"}}) ||
-		!reflect.DeepEqual(r.Load.Uses, []string{project + "/layout"}) {
+		!reflect.DeepEqual(r.Load.Query, []string{"page", "sort"}) ||
+		!reflect.DeepEqual(r.Load.Fields, []QueryField{{Name: "page", Type: "int", Kind: "int"}, {Name: "sort", Type: "string", Kind: "string"}}) {
 		t.Errorf("project page Load = %+v", r.Load)
 	}
 	detail := routes[project+"/orders/orderId+/route"]
-	if detail.Load == nil || detail.Load.Type != "*example.com/valid/"+project+"/orders/orderId+.Order" ||
-		!reflect.DeepEqual(detail.Load.Params, []string{"orderId", "projectId"}) {
+	if detail.Load == nil || detail.Load.Type != "*example.com/valid/"+project+"/orders/orderId+.Order" {
 		t.Errorf("detail Load = %+v", detail.Load)
 	}
 	if detail.Package != "example.com/valid/"+project+"/orders/orderId+" {
@@ -169,13 +163,6 @@ func TestDomainsUnderApp(t *testing.T) {
 		w, ok := wantRoutes[r.ID]
 		if !ok || r.Package != w.pkg || r.Load == nil || r.Load.Type != w.load {
 			t.Errorf("route %s = %+v, Load %+v, want %+v", r.ID, r, r.Load, w)
-		}
-	}
-	detail := project + "/orders/order+/route"
-	for _, r := range m.Routes {
-		if r.ID == detail && (!reflect.DeepEqual(r.Load.Uses, []string{project + "/layout"}) ||
-			!reflect.DeepEqual(r.Load.Params, []string{"order"})) {
-			t.Errorf("detail Load = %+v", r.Load)
 		}
 	}
 	layouts := map[string]string{}
@@ -1254,28 +1241,6 @@ func TestQueryStructFields(t *testing.T) {
 	}
 	if load.Input != "example.com/queryfields/app/list.Filter" {
 		t.Errorf("Input = %q", load.Input)
-	}
-}
-
-// Helpers that receive the Ctx are followed, across packages, through two levels, through a struct
-// embedding the Ctx and through recursion. Each Load gets what it reaches. A helper that only reads
-// c.Context(), like auth.User, adds nothing and passes.
-func TestFollowHelpers(t *testing.T) {
-	m, err := analyzeApp(t, "follow")
-	if err != nil {
-		t.Fatalf("Analyze: %v", err)
-	}
-	loads := map[string]*Load{}
-	for _, r := range m.Routes {
-		loads[r.ID] = r.Load
-	}
-	list, other := loads["app/items/id+/route"], loads["app/items/id+/other/route"]
-	if !reflect.DeepEqual(list.Params, []string{"id"}) || !reflect.DeepEqual(list.Uses, []string{"app/layout"}) || len(list.Query) != 0 {
-		t.Errorf("list Load = %+v", list)
-	}
-	// The Layout is used through a helper of the list Load, and the other Load does not reach it.
-	if !reflect.DeepEqual(other.Params, []string{"id"}) || len(other.Uses) != 0 {
-		t.Errorf("other Load = %+v", other)
 	}
 }
 

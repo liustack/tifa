@@ -113,10 +113,10 @@ type Route struct {
 type Load struct {
 	// Type is the Go result type T, qualified by full import paths.
 	Type string `json:"type"`
-	// Params lists the path parameters read with c.Param in the body of Load, sorted and deduplicated.
-	Params []string `json:"params"`
 	// Query lists the names of the fields of the query struct, the second parameter of Load, sorted
-	// and deduplicated. A name is the json tag of the field, or its Go name.
+	// and deduplicated. A name is the json tag of the field, or its Go name. They are all the query
+	// parameters the data of the Load depends on: a Layout that tifa.Use passes takes none, since it
+	// cannot take a second parameter.
 	Query []string `json:"query"`
 	// Input is the Go type of the second parameter of Load, the query struct, qualified by full
 	// import paths, and empty when Load has none.
@@ -124,12 +124,6 @@ type Load struct {
 	// Fields are the fields of the query struct with the type of each, sorted by name. The page
 	// reads the type of a parameter from them.
 	Fields []QueryField `json:"fields"`
-	// Uses lists the IDs of the Layouts whose Layout function this Load calls through tifa.Use, sorted.
-	Uses []string `json:"uses"`
-	// AllQuery is Query together with the AllQuery of every Load in Uses, sorted and deduplicated.
-	// A result computed from a used Load changes with that Load's query parameters too, so
-	// loaderDeps is generated from AllQuery.
-	AllQuery []string `json:"allQuery"`
 	// HTML reports whether the JSON of the result may hold a tifa.HTML value. A page the server
 	// renders carries the data of such a Load with a marker in place of each one.
 	HTML bool `json:"html"`

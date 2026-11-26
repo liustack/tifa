@@ -227,7 +227,7 @@ func TestRemountFollowsTheParametersOfTheFolder(t *testing.T) {
 		},
 		Routes: []analyze.Route{
 			{ID: project + "/route", Dir: project, Path: "/projects/{projectId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Result: str}},
-			{ID: project + "/orders/orderId+/route", Dir: project + "/orders/orderId+", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Params: []string{"orderId"}, Result: str}},
+			{ID: project + "/orders/orderId+/route", Dir: project + "/orders/orderId+", Path: "/projects/{projectId}/orders/{orderId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Result: str}},
 			{ID: project + "/files/path++/route", Dir: project + "/files/path++", Path: "/projects/{projectId}/files/{path...}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}, Load: &analyze.Load{Result: str}},
 			// A page without a Load, which may fetch its data in the browser.
 			{ID: project + "/notes/noteId+/route", Dir: project + "/notes/noteId+", Path: "/projects/{projectId}/notes/{noteId}", Page: true, SSR: true, Layouts: []string{"app/layout", project + "/layout"}},
@@ -959,14 +959,14 @@ func TestQueryTableReachesVite(t *testing.T) {
 	m := &analyze.Manifest{
 		Module: "example.com/x",
 		Layouts: []analyze.Layout{
-			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{AllQuery: []string{"page"}, Result: str}},
-			{ID: "app/news/layout", Dir: "app/news", Parent: "app/layout", Path: "/news", TSX: true, Load: &analyze.Load{AllQuery: []string{"tab", "page"}, Result: str}},
+			{ID: "app/layout", Dir: "app", Path: "/", TSX: true, Load: &analyze.Load{Query: []string{"page"}, Result: str}},
+			{ID: "app/news/layout", Dir: "app/news", Parent: "app/layout", Path: "/news", TSX: true, Load: &analyze.Load{Query: []string{"tab", "page"}, Result: str}},
 			{ID: "app/bare/layout", Dir: "app/bare", Parent: "app/layout", Path: "/bare", TSX: true},
 		},
 		Routes: []analyze.Route{
-			{ID: "app/news/route", Dir: "app/news", Path: "/news", Page: true, SSR: true, Layouts: []string{"app/layout", "app/news/layout"}, Load: &analyze.Load{AllQuery: []string{"q"}, Result: str}},
+			{ID: "app/news/route", Dir: "app/news", Path: "/news", Page: true, SSR: true, Layouts: []string{"app/layout", "app/news/layout"}, Load: &analyze.Load{Query: []string{"q"}, Result: str}},
 			{ID: "app/plain/route", Dir: "app/plain", Path: "/plain", Page: true, SSR: true, Layouts: []string{"app/layout"}},
-			{ID: "app/api/route", Dir: "app/api", Path: "/api", Layouts: []string{"app/layout"}, Load: &analyze.Load{AllQuery: []string{"x"}, Result: str}},
+			{ID: "app/api/route", Dir: "app/api", Path: "/api", Layouts: []string{"app/layout"}, Load: &analyze.Load{Query: []string{"x"}, Result: str}},
 		},
 	}
 	root := t.TempDir()

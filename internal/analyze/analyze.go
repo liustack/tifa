@@ -70,7 +70,7 @@ func AnalyzeWith(dir string, opts Options) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &analyzer{root: root, opts: opts, dirs: map[string]*dirInfo{}, used: usedLoads{}, identity: map[*Load][]identityRead{}, queryAt: map[*Load][]queryAt{}}
+	a := &analyzer{root: root, opts: opts, dirs: map[string]*dirInfo{}, identity: map[*Load][]identityRead{}, queryAt: map[*Load][]queryAt{}}
 	if a.module, err = modulePath(root); err != nil {
 		return nil, err
 	}
@@ -141,7 +141,6 @@ type analyzer struct {
 	funcs               map[string]funcSource // functions of module packages that type check, by full name
 	helperUses          []useCall
 	errs                Errors
-	used                usedLoads
 	identity            map[*Load][]identityRead // the reads of cookies, headers and the session by each Load
 	queryAt             map[*Load][]queryAt      // the fields of the query struct of each Load, with where they are declared
 }
@@ -494,9 +493,6 @@ type layout struct {
 	uses  []paramUse
 }
 
-// usedLoads maps a Load to the import paths of the packages whose Layout function it passes to tifa.Use.
-type usedLoads map[*Load][]string
-
 // reservedQuery is the query parameter of the navigation data requests (see docs/build-and-deploy/build.md). The
 // server takes it off the URL, so a Load could never read it.
 const reservedQuery = "_tifa"
@@ -538,7 +534,6 @@ func (a *analyzer) build() *Manifest {
 	a.checkLayoutURLs(routes, layouts)
 	a.checkUses(layouts)
 	a.checkBindTags()
-	a.propagateQuery(routes, layouts)
 	a.checkQueryTypes(routes, layouts)
 	a.checkCacheIdentity(routes, layouts)
 
@@ -859,7 +854,8 @@ func typeString(t types.Type) string {
 
 // readLoad reads the function that loads the data of a route (Load) or Layout (Layout): its
 // result type, the fields of its query struct, the second parameter, and the constant parameter
-// names passed to c.Param in its body. owner is the directory of the route or Layout.
+// names passed to c.Param in its body, for checkPaths and linkLayouts to check against the path.
+// owner is the directory of the route or Layout.
 func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, []paramUse) {
 	obj := pkg.Types.Scope().Lookup(name)
 	if obj == nil {
@@ -899,15 +895,7 @@ func (a *analyzer) readLoad(pkg *packages.Package, owner, name string) (*Load, [
 		a.errorAt(fieldTypePos(decl.Type.Results, 0), "%s result: a tifa.HTML on its own would come with the page twice, in its markup and in its data: put it in a struct field, and the data carries only a marker in its place", name)
 	}
 
-	uses := a.walkLoad(pkg, owner, name == "Layout", load, decl)
-	for _, u := range uses {
-		if u.method == "Param" {
-			load.Params = append(load.Params, u.name)
-		}
-	}
-	slices.Sort(load.Params)
-	load.Params = slices.Compact(load.Params)
-	return load, uses
+	return load, a.walkLoad(pkg, owner, name == "Layout", load, decl)
 }
 
 // queryAt is a field of the query struct of a Load, with where it is declared.
@@ -1365,52 +1353,6 @@ func packageFunc(info *types.Info, expr ast.Expr) *types.Func {
 		return nil
 	}
 	return fn
-}
-
-// propagateQuery fills Uses and AllQuery of every Load. tifa.Use only reaches the Layouts of the
-// same and ancestor directories, and a Layout function never uses itself, so the graph has no
-// cycles once checkUses passes. The visiting set still guards against them when checkUses has
-// reported a violation.
-func (a *analyzer) propagateQuery(routes []*route, layouts []*layout) {
-	byPkg := map[string]*layout{}
-	for _, l := range layouts {
-		if l.Package != "" && l.Load != nil {
-			byPkg[l.Package] = l
-		}
-	}
-	done, visiting := map[*Load]bool{}, map[*Load]bool{}
-	var all func(load *Load) []string
-	all = func(load *Load) []string {
-		if done[load] || visiting[load] {
-			return load.AllQuery
-		}
-		visiting[load] = true
-		defer func() { delete(visiting, load); done[load] = true }()
-		q := slices.Clone(load.Query)
-		for _, path := range a.used[load] {
-			l := byPkg[path]
-			if l == nil {
-				continue // not a Layout function, checkUse reports it
-			}
-			load.Uses = append(load.Uses, l.ID)
-			q = append(q, all(l.Load)...)
-		}
-		slices.Sort(load.Uses)
-		load.Uses = slices.Compact(load.Uses)
-		slices.Sort(q)
-		load.AllQuery = slices.Compact(q)
-		return load.AllQuery
-	}
-	for _, l := range layouts {
-		if l.Load != nil {
-			all(l.Load)
-		}
-	}
-	for _, r := range routes {
-		if r.Load != nil {
-			all(r.Load)
-		}
-	}
 }
 
 func isTifaUse(info *types.Info, call *ast.CallExpr) bool {

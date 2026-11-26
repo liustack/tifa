@@ -14,7 +14,7 @@ func TestGeneratedAppImportsTifaOnlyWhenItUsesIt(t *testing.T) {
 	handler := analyze.Route{ID: "app/a/route", Path: "/a", Package: "example.com/x/app/a", Dir: "app/a",
 		Handlers: []analyze.Handler{{Method: "POST", Input: "example.com/x/app/a.In"}, {Method: "GET", Input: "example.com/x/app/a.Q", Output: "string"}}}
 	queryLoad := analyze.Route{ID: "app/b/route", Path: "/b", Page: true, Package: "example.com/x/app/b", Dir: "app/b",
-		Load: &analyze.Load{Input: "example.com/x/app/b.Filter", Query: []string{"page"}, AllQuery: []string{"page"}}}
+		Load: &analyze.Load{Input: "example.com/x/app/b.Filter", Query: []string{"page"}}}
 	plainLoad := analyze.Route{ID: "app/c/route", Path: "/c", Page: true, Package: "example.com/x/app/c", Dir: "app/c", Load: &analyze.Load{}}
 	const importTifa = "\t\"github.com/liustack/tifa\"\n"
 	for name, tc := range map[string]struct {
