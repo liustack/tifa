@@ -273,12 +273,12 @@ func (r *setupRun) firewallFor(ctx context.Context, p *setupPlan, o ufwOwner, ne
 		if len(need) > 0 {
 			p.notes = append(p.notes, planNote{
 				what: fmt.Sprintf("firewall: check that ufw lets visitors reach %s on %s", app, portList(need)),
-				why: fmt.Sprintf("ufw is on, and only root can read its rules, but setup cannot log in to %s as root: %v. If ufw blocks them, run sudo %s on the server",
-					r.t.host, err, strings.Join(ufwCommandsFor("allow", o.comment, need), " and sudo ")),
+				why: fmt.Sprintf("ufw is on, and only root can read its rules, but setup cannot log in to %s as %s: %v. If ufw blocks them, run sudo %s on the server",
+					r.t.host, r.t.rootLogin(), err, strings.Join(ufwCommandsFor("allow", o.comment, need), " and sudo ")),
 			})
 		} else {
 			p.cannot(fmt.Sprintf("firewall: the rules of ufw with the comment '%s'", o.comment),
-				fmt.Sprintf("%s no longer serves visitors itself, so the rules setup added for it in ufw go, and only root can read and delete them, but setup cannot log in to %s as root: %v. Run sudo ufw status numbered on the server and delete the rules with that comment", app, r.t.host, err))
+				fmt.Sprintf("%s no longer serves visitors itself, so the rules setup added for it in ufw go, and only root can read and delete them, but setup cannot log in to %s as %s: %v. Run sudo ufw status numbered on the server and delete the rules with that comment", app, r.t.host, r.t.rootLogin(), err))
 		}
 		return
 	}
@@ -381,7 +381,7 @@ func (r *setupRun) removeFirewall(ctx context.Context, p *setupPlan) {
 	u, err := r.readUFW(ctx)
 	if err != nil {
 		p.cannot(fmt.Sprintf("firewall: the rules of ufw with the comment '%s'", ufwComment(app)),
-			fmt.Sprintf("only root can read and delete them, but remove cannot log in to %s as root: %v. Run sudo ufw status numbered on the server and delete the rules with that comment", r.t.host, err))
+			fmt.Sprintf("only root can read and delete them, but remove cannot log in to %s as %s: %v. Run sudo ufw status numbered on the server and delete the rules with that comment", r.t.host, r.t.rootLogin(), err))
 		return
 	}
 	if ports := u.tifaPorts(app); len(ports) > 0 {

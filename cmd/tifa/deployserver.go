@@ -548,6 +548,10 @@ func script(body string, vars ...string) string {
 	return b.String() + body
 }
 
+// sudoCheckBody is the first step of root setup runs when the host names an admin user and the
+// deploy user already logs in: sudoScript stops it when the admin user cannot run sudo.
+const sudoCheckBody = "# tifa: check sudo\ntrue\n"
+
 // setupProbeBody runs as root before the server is prepared. It checks the server has what the
 // scripts need, and prints its system.
 const setupProbeBody = `set -eu
@@ -606,8 +610,32 @@ if [ -n "$before" ]; then
 fi
 `
 
+// copyKeysBody runs as root, in serverBody. Who may log in as the admin user may deploy: the keys
+// of $admin, root or the user of the host, go to the deploy user $user, whose home is $home. The
+// home of another admin user is the one getent knows.
+const copyKeysBody = `install -d -o "$user" -g "$user" -m 700 "$home/.ssh"
+keys="$home/.ssh/authorized_keys"
+touch "$keys"
+chown "$user:$user" "$keys"
+chmod 600 "$keys"
+if [ "$admin" = root ]; then
+	from=/root/.ssh/authorized_keys
+else
+	admin_home=$(getent passwd "$admin" | cut -d: -f6)
+	if [ -z "$admin_home" ]; then echo "tifa: the server has no user $admin, whose keys the user $user gets" >&2; exit 1; fi
+	from="$admin_home/.ssh/authorized_keys"
+fi
+if [ -f "$from" ]; then
+	while IFS= read -r key || [ -n "$key" ]; do
+		case "$key" in ''|'#'*) continue ;; esac
+		grep -qxF -- "$key" "$keys" || printf '%s\n' "$key" >> "$keys"
+	done < "$from"
+fi
+`
+
 // serverBody runs as root. Each step leaves what is already there, so it can run again. It makes
-// the deploy user, lets whoever logs in as root log in as it, and starts its systemd without a login.
+// the deploy user, lets whoever logs in as the admin user log in as it, and starts its systemd
+// without a login.
 const serverBody = `set -eu
 if ! id -u "$user" >/dev/null 2>&1; then
 	useradd --create-home --home-dir "$home" --shell /bin/bash --user-group "$user"
@@ -617,19 +645,7 @@ if ! id -u "$user" >/dev/null 2>&1; then
 fi
 home=$(getent passwd "$user" | cut -d: -f6)
 uid=$(id -u "$user")
-# Who may log in as root may deploy: the keys of root go to the deploy user.
-install -d -o "$user" -g "$user" -m 700 "$home/.ssh"
-keys="$home/.ssh/authorized_keys"
-touch "$keys"
-chown "$user:$user" "$keys"
-chmod 600 "$keys"
-if [ -f /root/.ssh/authorized_keys ]; then
-	while IFS= read -r key || [ -n "$key" ]; do
-		case "$key" in ''|'#'*) continue ;; esac
-		grep -qxF -- "$key" "$keys" || printf '%s\n' "$key" >> "$keys"
-	done < /root/.ssh/authorized_keys
-fi
-# Linger starts the systemd of the user at boot, without a login.
+` + copyKeysBody + `# Linger starts the systemd of the user at boot, without a login.
 loginctl enable-linger "$user"
 i=0
 while [ ! -S "/run/user/$uid/bus" ]; do
@@ -639,9 +655,9 @@ while [ ! -S "/run/user/$uid/bus" ]; do
 done
 `
 
-// serverScript is serverBody for the deploy user.
-func serverScript() string {
-	return script(serverBody, "user", deployUser, "home", deployHome)
+// serverScript is serverBody for the deploy user, with the keys of admin, the admin user of the host.
+func serverScript(admin string) string {
+	return script(serverBody, "user", deployUser, "home", deployHome, "admin", admin)
 }
 
 // appBody runs as the deploy user, on a server that serverBody prepared. It makes the folder of

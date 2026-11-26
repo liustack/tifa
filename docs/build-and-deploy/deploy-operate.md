@@ -77,13 +77,13 @@ vps
     health    GET /healthz answered 200
     memory    38.7 MB
 
-Only the servers set up from this machine, the ones in ~/.tifa/config.yaml, are shown.
+Only the servers this machine has set up or deployed to, the ones in ~/.tifa/config.yaml, are shown.
 ```
 
 - Servers are asked in parallel and printed in the order of the file, the apps of a server by name. A server that does not answer prints its error, and the others still print. A host that now answers as another machine is reported as that, and its apps are not shown.
 - The exit status is 0 when every server answers and every deployed app is active with a passing health check. Otherwise everything is printed and the command exits with 1, and its message says how many servers could not be checked and how many apps are not well. A script or an agent can rely on that.
 - `--json` prints the same as one JSON document on stdout: a list of servers. A server has `name`, `id`, `host`, `reached`, `error` (when it was not reached) and `apps`, and `facts` when it was reached: `os`, `arch`, `cpus`, `memoryTotalKiB`, `memoryAvailableKiB`, `diskTotalKiB`, `diskUsedKiB` (the disk of the home of `tifa`), `uptimeSeconds`, `load1`, `load5` and `load15`. A number the server did not say is 0. An app has `name`, `host`, `deployed`, `release`, `commit`, `checkPassed`, `service`, `activeSince`, `restarts`, `health` (the status of `GET /healthz`, empty while the service does not run, `000` for no answer), `memoryKiB`, `ok` and `error`.
-- It is a look at one moment, not monitoring: it does not refresh, alert or keep a history. It covers only the servers in that file, which are the ones set up from this machine. For alerts, use a probe outside the server, such as UptimeRobot or the health checks of Cloudflare, since a probe on the server dies with the server.
+- It is a look at one moment, not monitoring: it does not refresh, alert or keep a history. It covers only the servers in that file, which are the ones this machine has set up or deployed to. For alerts, use a probe outside the server, such as UptimeRobot or the health checks of Cloudflare, since a probe on the server dies with the server.
 - `--all` takes no `--host` and no `--dir`.
 
 `remove` takes the app off the server and takes back what Tifa made for it, and nothing else:

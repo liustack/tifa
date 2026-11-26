@@ -133,7 +133,10 @@ if [ -f "$d/sshcfg" ]; then if [ -f "$(cat "$d/sshcfg")" ]; then echo present >>
 user=$2
 while [ "$1" != "--" ]; do shift; done
 script=$3
+# An admin user without passwordless sudo: the command runs, and sudo wants a password.
+if [ "$user" != root ] && [ "$user" != tifa ] && [ -f "$d/nosudo" ]; then PATH="$d/bin:$PATH" exec sh -c "$script"; fi
 case "$script" in
+*"tifa: check sudo"*) echo "sudocheck $user" >> "$d/calls" ;;
 true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF\nConnection closed by UNKNOWN port 65535\n' >&2; exit 255; }; [ -f "$d/checkfail" ] && { echo "Permission denied (publickey)." >&2; exit 255; }; true ;;
 *"tifa: read nginx"*) echo "nginxread $user" >> "$d/calls"; cat "$d/nginxfacts" 2>/dev/null; true ;;
 *"tifa: install nginx"*) echo "nginxinstall $user" >> "$d/calls"; echo "installed" ;;
@@ -144,7 +147,7 @@ true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF
 *"tifa: nginx remove certificate"*) echo "nginxremovecert $user" >> "$d/calls"; echo "deleted the certificate" ;;
 *"tifa: nginx uninstall"*) echo "nginxuninstall $user" >> "$d/calls"; [ -f "$d/uninstallkept" ] && { echo "kept nginx: /etc/nginx/conf.d/tifa-blog.conf is there"; exit 0; }; echo "uninstalled nginx" ;;
 *ssh_host_*) [ "$user" = tifa ] && [ -f "$d/denied" ] && { echo "tifa@vps: Permission denied (publickey)." >&2; exit 255; }; echo "probe $user" >> "$d/calls"; cat "$d/facts" ;;
-*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; printf 'os Linux\narch x86_64\nmachine vps-1234\n'; cat "$d/rootfacts" 2>/dev/null; true ;;
+*"deploy setup needs root"*) echo "probe $user" >> "$d/calls"; [ "$user" = root ] && [ -f "$d/rootdenied" ] && { echo "root@vps: Permission denied (publickey)." >&2; exit 255; }; printf 'os Linux\narch x86_64\nmachine vps-1234\n'; cat "$d/rootfacts" 2>/dev/null; true ;;
 *"tifa: who listens"*) echo "listeners $user" >> "$d/calls"; [ "$user" = root ] && [ -f "$d/rootdenied" ] && { echo "root@vps: Permission denied (publickey)." >&2; exit 255; }; cat "$d/rootfacts" 2>/dev/null; true ;;
 *"tifa: open ports"*) echo "ports $user" >> "$d/calls"; echo "net.ipv4.ip_unprivileged_port_start was 1024, now 80" ;;
 *"tifa: close ports"*) echo "unports $user" >> "$d/calls"; echo "net.ipv4.ip_unprivileged_port_start is 1024 again" ;;
@@ -167,6 +170,10 @@ esac
 	if err := os.Chmod(prog, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(dir, "bin", "sudo"), "#!/bin/sh\necho 'sudo: a password is required' >&2\nexit 1\n")
+	if err := os.Chmod(filepath.Join(dir, "bin", "sudo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	old := sshProgram
 	sshProgram = prog
 	t.Cleanup(func() { sshProgram = old })
@@ -174,6 +181,9 @@ esac
 }
 
 func (s *setupServer) deny(t *testing.T) { writeFile(t, filepath.Join(s.dir, "denied"), "") }
+
+// noSudo makes sudo of an admin user ask for a password.
+func (s *setupServer) noSudo(t *testing.T) { writeFile(t, filepath.Join(s.dir, "nosudo"), "") }
 
 // failRemoveApp makes the step that removes the app on the server fail.
 func (s *setupServer) failRemoveApp(t *testing.T) {
@@ -1627,4 +1637,104 @@ func withoutTunnelCheck(out string) string {
 		}
 	}
 	return strings.Join(keep, "\n")
+}
+
+// A host with an admin user: the steps of root log in as that user and run through sudo, the
+// steps of tifa log in as tifa, ssh gets the host without the user, the plan names whose keys
+// tifa gets, and ~/.tifa remembers the host with the user.
+func TestSetupAdminUser(t *testing.T) {
+	root := setupApp(t, "deploy:\n", nil)
+	t.Setenv(deployHostEnv, "ubuntu@vps")
+	t.Setenv(tifaHomeEnv, t.TempDir())
+	srv := newSetupServer(t, "", freshFacts)
+	srv.deny(t)
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "so setup creates it (home /srv/tifa) with the keys of ubuntu") {
+		t.Errorf("plan:\n%s", out)
+	}
+	if !strings.Contains(srv.calls(), "probe ubuntu\nserver ubuntu\nprobe tifa\napp tifa") {
+		t.Errorf("order of calls:\n%s", srv.calls())
+	}
+	// Each call of ssh is logged with its script, over several lines.
+	for _, call := range strings.Split(strings.TrimPrefix(srv.argv(), "-l "), "\n-l ") {
+		switch {
+		case strings.HasPrefix(call, "ubuntu -- vps sh -c "):
+			if !strings.Contains(call, "sudo -n -H sh -c") {
+				t.Errorf("a step of root without sudo: %.200s", call)
+			}
+		case strings.HasPrefix(call, "tifa -- vps sh -c "):
+			if strings.Contains(call, "sudo -n") {
+				t.Errorf("a step of tifa through sudo: %.200s", call)
+			}
+		default:
+			t.Errorf("ssh got -l %.200s", call)
+		}
+	}
+	servers, err := readServers()
+	if err != nil || len(servers) != 1 || servers[0].Host != "ubuntu@vps" || servers[0].Apps[0].Host != "ubuntu@vps" {
+		t.Errorf("remembered %+v, %v", servers, err)
+	}
+}
+
+// root@ is root as before: no sudo, no check of it.
+func TestSetupRootUserAsBefore(t *testing.T) {
+	root := setupApp(t, "deploy:\n", nil)
+	t.Setenv(deployHostEnv, "root@vps")
+	srv := newSetupServer(t, "", freshFacts)
+	srv.deny(t)
+	if out, err := runSetup(t, root, false, "", "--yes"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(srv.calls(), "probe root\nserver root\nprobe tifa\napp tifa") || strings.Contains(srv.argv(), "sudo") {
+		t.Errorf("calls:\n%s\n%s", srv.calls(), srv.argv())
+	}
+}
+
+// An admin user without passwordless sudo stops setup at its first look at the server, before
+// anything changed, on a new server and on one tifa already logs in to, and the error says what
+// is needed.
+// A server where neither tifa nor root can log in, as on the images of most clouds, gets an error
+// that says to name the user that can log in in front of the host.
+func TestSetupRootDeniedNamesAdminUser(t *testing.T) {
+	root := setupApp(t, "deploy:\n", nil)
+	t.Setenv(deployHostEnv, "vps")
+	srv := newSetupServer(t, "", freshFacts)
+	srv.deny(t)
+	writeFile(t, filepath.Join(srv.dir, "rootdenied"), "")
+	out, err := runSetup(t, root, false, "", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "When root cannot log in to this server, put the user you log in with in front of the host, such as ubuntu@vps") {
+		t.Errorf("got %v\n%s", err, out)
+	}
+}
+
+func TestSetupAdminWithoutSudo(t *testing.T) {
+	for name, facts := range map[string]string{"new": freshFacts, "prepared": factsOf("shop", 80, "")} {
+		root := setupApp(t, "deploy:\n", nil)
+		t.Setenv(deployHostEnv, "ubuntu@vps")
+		srv := newSetupServer(t, "", facts)
+		if facts == freshFacts {
+			srv.deny(t)
+		}
+		srv.noSudo(t)
+		out, err := runSetup(t, root, false, "", "--yes")
+		if err == nil || !strings.Contains(err.Error(), "passwordless sudo") || !strings.Contains(err.Error(), "ubuntu") {
+			t.Errorf("%s: got %v\n%s", name, err, out)
+		}
+		if c := srv.calls(); strings.Contains(c, "server ") || strings.Contains(c, "app ") || strings.Contains(c, "ports ") {
+			t.Errorf("%s: something changed:\n%s", name, c)
+		}
+	}
+	// With sudo the check passes, and the prepared server needs nothing more.
+	root := setupApp(t, "deploy:\n", nil)
+	t.Setenv(deployHostEnv, "ubuntu@vps")
+	srv := newSetupServer(t, "", factsOf("shop", 80, ""))
+	if out, err := runSetup(t, root, false, "", "--yes"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(srv.calls(), "sudocheck ubuntu") {
+		t.Errorf("no check of sudo:\n%s", srv.calls())
+	}
 }

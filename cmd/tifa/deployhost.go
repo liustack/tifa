@@ -2,8 +2,10 @@ package main
 
 // Where tifa deploy finds the server. tifa.yaml is committed, so the server is not written in it:
 // it comes from --host, the environment variable TIFA_DEPLOY_HOST, or TIFA_DEPLOY_HOST in the .env of the
-// app, which git ignores, else from the servers setup remembered in ~/.tifa. The value is what ssh takes as a destination, without a user: a host
-// name or a Host of ~/.ssh/config, or ssh://host[:port].
+// app, which git ignores, else from the servers setup and deploy remembered in ~/.tifa. The value is what ssh takes as a destination: a host
+// name or a Host of ~/.ssh/config, or ssh://host[:port], with or without a user in front. Tifa picks
+// the user it logs in as: tifa for the apps, and for the steps of root the user of the value
+// through sudo, or root when the value names none.
 
 import (
 	"errors"
@@ -18,10 +20,13 @@ import (
 
 // deployHost is a checked value for the server of a deploy.
 type deployHost struct {
-	raw  string // as given, and as passed to ssh
-	name string // the host name or address, without the port
+	raw  string // as given, and as remembered in ~/.tifa
+	name string // the host name or address, without the user and the port
 	port int    // 0 when the value has none
 	url  bool   // ssh://host[:port]
+	// user is the admin user the value names, empty when it names none. The steps of root log in
+	// as it and run through sudo, unless it is root.
+	user string
 	// from says where the value was read, as readDeployInput words it: the flag, the environment
 	// variable or the line of .env. Empty for a value built in code.
 	from string
@@ -33,6 +38,44 @@ type deployHost struct {
 
 // dotenvHostFrom is what from holds for a host read from the .env file at the root of the app.
 const dotenvHostFrom = ".env " + deployHostEnv
+
+// addr is the value as ssh gets it: without the user, which goes to ssh as -l.
+func (h deployHost) addr() string {
+	switch {
+	case h.user == "":
+		return h.raw
+	case !h.url:
+		return h.name
+	}
+	host := h.name
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if h.port != 0 {
+		host += ":" + strconv.Itoa(h.port)
+	}
+	return "ssh://" + host
+}
+
+// admin is the user the steps of root log in as: the user of the value, else root.
+func (h deployHost) admin() string {
+	if h.user == "" {
+		return "root"
+	}
+	return h.user
+}
+
+// sudo says the steps of root run through sudo: the value names a user other than root.
+func (h deployHost) sudo() bool { return h.user != "" && h.user != "root" }
+
+// withUser is host, another name of the same server, with the user of the value in front, so the
+// admin user stays when setup moves TIFA_DEPLOY_HOST or ~/.tifa to it.
+func (h deployHost) withUser(host string) string {
+	if h.user == "" {
+		return host
+	}
+	return h.user + "@" + host
+}
 
 // fromText says where the host came from, for a sentence.
 func (h deployHost) fromText() string {
@@ -53,22 +96,40 @@ func (h deployHost) fromHomeNote() string {
 	return ""
 }
 
-// parseDeployHost checks a value for the server. The user is Tifa's to choose (root for setup,
-// tifa after), so a value with one is refused. Text that ssh could read as an option or as a
-// second argument is refused too.
+// parseDeployHost checks a value for the server. A user in front is the admin user, who runs the
+// steps of root through sudo: a user name, and not tifa, which is the user of the apps. Text that
+// ssh could read as an option or as a second argument is refused.
 func parseDeployHost(s string) (deployHost, error) {
 	if strings.Contains(s, "://") {
 		return parseDeployURL(s)
 	}
-	switch {
-	case strings.Contains(s, "@"):
-		return deployHost{}, fmt.Errorf("%q: write the host without a user, tifa deploy logs in as root for setup and as tifa after", s)
-	case strings.HasPrefix(s, "-"):
-		return deployHost{}, fmt.Errorf("%q: a host does not start with -", s)
-	case !hostChars(s):
-		return deployHost{}, fmt.Errorf("%q: a host is letters, digits, dots, hyphens, underscores and colons, such as vps or 203.0.113.7, or an ssh:// URL such as ssh://203.0.113.7:2222", s)
+	user, host, hasUser := strings.Cut(s, "@")
+	if !hasUser {
+		user, host = "", s
+	} else if err := checkAdminUser(user); err != nil {
+		return deployHost{}, fmt.Errorf("%q: %w", s, err)
 	}
-	return deployHost{raw: s, name: s}, nil
+	switch {
+	case strings.HasPrefix(host, "-"):
+		return deployHost{}, fmt.Errorf("%q: a host does not start with -", s)
+	case !hostChars(host):
+		return deployHost{}, fmt.Errorf("%q: a host is letters, digits, dots, hyphens, underscores and colons, such as vps or 203.0.113.7, or an ssh:// URL such as ssh://203.0.113.7:2222, with an admin user in front or none, such as ubuntu@203.0.113.7", s)
+	}
+	return deployHost{raw: s, name: host, user: user}, nil
+}
+
+// checkAdminUser checks the user in front of a host: a user name as POSIX has them, letters,
+// digits, dots, underscores and hyphens, not first, and not the user of the apps.
+func checkAdminUser(user string) error {
+	switch {
+	case user == "" || strings.HasPrefix(user, "-") || strings.ContainsFunc(user, func(r rune) bool {
+		return !('a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9' || strings.ContainsRune("._-", r))
+	}):
+		return errors.New("the user in front of the host is letters, digits, dots, underscores and hyphens, and does not start with -, such as ubuntu@203.0.113.7")
+	case user == deployUser:
+		return fmt.Errorf("the user in front of the host is the admin user, who runs the steps of root with sudo, and %s is the user Tifa makes for the apps: name the user you log in to the server with, such as ubuntu, or none to log in as root", deployUser)
+	}
+	return nil
 }
 
 func hostChars(s string) bool {
@@ -85,7 +146,12 @@ func parseDeployURL(s string) (deployHost, error) {
 	case u.Scheme != "ssh":
 		return deployHost{}, fmt.Errorf("%q: the only URL is ssh://host[:port], such as ssh://203.0.113.7:2222", s)
 	case u.User != nil:
-		return deployHost{}, fmt.Errorf("%q: write the host without a user, tifa deploy logs in as root for setup and as tifa after", s)
+		if _, has := u.User.Password(); has {
+			return deployHost{}, fmt.Errorf("%q: an ssh:// URL here has no password: ssh logs in with your keys", s)
+		}
+		if err := checkAdminUser(u.User.Username()); err != nil {
+			return deployHost{}, fmt.Errorf("%q: %w", s, err)
+		}
 	case u.Path != "" && u.Path != "/", u.Opaque != "":
 		return deployHost{}, fmt.Errorf("%q: an ssh:// URL here is the host and the port only, with no path", s)
 	case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(s, "?#"):
@@ -101,6 +167,9 @@ func parseDeployURL(s string) (deployHost, error) {
 		return deployHost{}, fmt.Errorf("%q: a host is letters, digits, dots, hyphens, underscores and colons", s)
 	}
 	h := deployHost{raw: s, name: name, url: true}
+	if u.User != nil {
+		h.user = u.User.Username()
+	}
 	if p := u.Port(); p != "" {
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 1 || n > 65535 {
@@ -122,7 +191,7 @@ func deployHostURL(host string, port int) string {
 
 // readDeployHost finds the server of the app: the flag, else TIFA_DEPLOY_HOST in the environment,
 // else TIFA_DEPLOY_HOST in the .env file at the root of the app, else the servers tifa deploy
-// setup remembered in ~/.tifa (see deployservers.go). It says where the value came from in an
+// setup and deploy remembered in ~/.tifa (see deployservers.go). It says where the value came from in an
 // error. A server taken from ~/.tifa is announced with one line on notice.
 func readDeployHost(root, app, flagValue string, notice io.Writer) (deployHost, error) {
 	value, from, err := readDeployInput(root, "--host", flagValue, deployHostEnv)
@@ -150,8 +219,8 @@ func noServerError() error {
 		"  1. the flag --host\n"+
 		"  2. the environment variable %[1]s\n"+
 		"  3. a line in the file .env at the root of the app (git ignores it, so the address stays out of the repository): %[1]s=ssh://203.0.113.7:22\n"+
-		"The value is an ssh alias (a Host of ~/.ssh/config) or ssh://host[:port], without a user.\n"+
-		"go tool tifa deploy setup remembers the server in %[2]s, and the next app of this machine needs no line", deployHostEnv, shownServersPath())
+		"The value is an ssh alias (a Host of ~/.ssh/config) or ssh://host[:port]. When root cannot log in, put the user you log in with in front, such as ubuntu@203.0.113.7: it needs passwordless sudo.\n"+
+		"go tool tifa deploy setup and each deploy that works remember the server in %[2]s, and the next app of this machine needs no line", deployHostEnv, shownServersPath())
 }
 
 // homeDeployHost takes the server from the file of ~/.tifa when nothing else names one: the server
@@ -191,7 +260,7 @@ func homeDeployHost(root, app string, notice io.Writer) (deployHost, error) {
 
 // checkResolvedHost checks the address ssh -G printed before it goes into a secret and a file.
 func checkResolvedHost(s string) error {
-	if strings.Contains(s, "://") {
+	if strings.Contains(s, "://") || strings.Contains(s, "@") {
 		return fmt.Errorf("%q is not a host name or an address", s)
 	}
 	_, err := parseDeployHost(s)

@@ -34,14 +34,14 @@ deploy:
   1. the flag `--host`
   2. the environment variable `TIFA_DEPLOY_HOST`
   3. `TIFA_DEPLOY_HOST` in the file `.env` at the root of the app, which git ignores (see [.env](config.md#env). The program itself takes no notice of that name)
-  4. the servers `tifa deploy setup` remembered in `~/.tifa/config.yaml` (see [The servers Tifa remembers](#the-servers-tifa-remembers))
+  4. the servers `tifa deploy setup` and `tifa deploy` remembered in `~/.tifa/config.yaml` (see [The servers Tifa remembers](#the-servers-tifa-remembers))
 
   ```sh
   # .env
   TIFA_DEPLOY_HOST=ssh://203.0.113.7:2222
   ```
 
-  The value is what `ssh` takes as a destination, without a user: a Host of `~/.ssh/config` (an alias such as `vps`, so `~/.ssh/config` supplies the address, the port, the keys and a `ProxyJump`), a host name, or an `ssh://host[:port]` URL. Tifa picks the user itself, root for the first setup and `tifa` after, so a user, a path, a query or another scheme is refused. With none of the four set, every `tifa deploy` command stops and says so.
+  The value is what `ssh` takes as a destination: a Host of `~/.ssh/config` (an alias such as `vps`, so `~/.ssh/config` supplies the address, the port, the keys and a `ProxyJump`), a host name, or an `ssh://host[:port]` URL. Tifa picks the user itself, root for the steps that change the system and `tifa` for the rest, so leave the user out unless root cannot log in (see [When root cannot log in](#when-root-cannot-log-in)). A path, a query or another scheme is refused. With none of the four set, every `tifa deploy` command stops and says so.
 - `front` is what visitors come through before they reach the server. With `cloudflare`, that is a Cloudflare Tunnel at the host of `site.url`, with its DNS record and rules, and `deploy` and `rollback` clear the CDN cache of that host name. `site.url` must be set and have no port. With `none`, the app serves visitors itself on port 80, and with a domain in `site.url` also on 443 with its own HTTPS, and no cache is cleared (see [The app serves visitors itself](deploy-setup.md#the-app-serves-visitors-itself)). With `nginx`, an nginx that setup installs sends visitors to the app by the host of `site.url`, and gets the certificate for it with certbot, so several apps can share the server without Cloudflare (see [Behind nginx](deploy-proxy.md#behind-nginx)).
 - `connect` is the one path ssh takes to the server, from your machine and from the GitHub Actions runner. With `direct`, ssh uses the address you gave. With `cloudflare`, both go through the Cloudflare Tunnel, so the server needs no open ssh port (see [`connect: cloudflare`](deploy-cloudflare.md#connect-cloudflare)). It needs `front: cloudflare`, because the ssh host name is made from the domain, and works with or without `auto`. With `tailscale`, the runner joins your tailnet, and it needs the block `auto` (see [`connect: tailscale`](deploy-github-actions.md#connect-tailscale)). Your own machine reaches the server however it already does, with the address in `TIFA_DEPLOY_HOST`, and the tailnet and the server are yours to set up.
 - `auto` turns the deploys from GitHub Actions on, by being there. Without the block you deploy by hand only. `auto: {}` takes the defaults, and `auto:` with nothing after it is an error. It has two keys, and no others:
@@ -60,9 +60,25 @@ deploy:
 
 A `TIFA_DEPLOY_` name in `.env` that tifa deploy does not read stops the command too, and the error names the closest one.
 
-What you need: a Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<TIFA_DEPLOY_HOST>` once (tested on Ubuntu 24.04). On your machine, what `tifa build` needs (Go, and Node for an app with pages) and `ssh`. For `front: cloudflare` and `connect: cloudflare`, [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), installed (`pnpm add --global cf`) and logged in (`cf auth login`). Setup and remove tell the two apart: without cf on the PATH they say to install it, with cf installed they ask for the login. For `connect: cloudflare`, also [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on your machine: setup installs it with `brew install cloudflared` on macOS or `winget install --id Cloudflare.cloudflared -e` on Windows, and on Linux, or without brew or winget, it tells you where to get it. For `front: nginx`, a server with apt (Debian or Ubuntu), which setup installs nginx and certbot with as root. For `auto`, [gh](https://cli.github.com/) logged in (`gh auth login`), or without gh a fine-grained token in `TIFA_DEPLOY_GITHUB_TOKEN` (see [Deploy from GitHub Actions](deploy-github-actions.md#deploy-from-github-actions)). For `connect: tailscale`, a server that is on your tailnet (Tailscale installed and logged in there), and a Tailscale credential that you make in the Tailscale console (see [`connect: tailscale`](deploy-github-actions.md#connect-tailscale)). Your machine needs nothing of Tailscale. On a terminal, setup installs and logs in cf and gh for you (see [Set up with a plan](deploy-setup.md#set-up-with-a-plan)).
+What you need: a Linux server with systemd, on x86_64 or aarch64, that you can reach with `ssh root@<TIFA_DEPLOY_HOST>` once, or as a user with passwordless sudo (tested on Ubuntu 24.04). On your machine, what `tifa build` needs (Go, and Node for an app with pages) and `ssh`. For `front: cloudflare` and `connect: cloudflare`, [cf](https://developers.cloudflare.com/cf/get-started/), the Cloudflare CLI (in beta), installed (`pnpm add --global cf`) and logged in (`cf auth login`). Setup and remove tell the two apart: without cf on the PATH they say to install it, with cf installed they ask for the login. For `connect: cloudflare`, also [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) on your machine: setup installs it with `brew install cloudflared` on macOS or `winget install --id Cloudflare.cloudflared -e` on Windows, and on Linux, or without brew or winget, it tells you where to get it. For `front: nginx`, a server with apt (Debian or Ubuntu), which setup installs nginx and certbot with as root. For `auto`, [gh](https://cli.github.com/) logged in (`gh auth login`), or without gh a fine-grained token in `TIFA_DEPLOY_GITHUB_TOKEN` (see [Deploy from GitHub Actions](deploy-github-actions.md#deploy-from-github-actions)). For `connect: tailscale`, a server that is on your tailnet (Tailscale installed and logged in there), and a Tailscale credential that you make in the Tailscale console (see [`connect: tailscale`](deploy-github-actions.md#connect-tailscale)). Your machine needs nothing of Tailscale. On a terminal, setup installs and logs in cf and gh for you (see [Set up with a plan](deploy-setup.md#set-up-with-a-plan)).
 
 The first time, run `go tool tifa deploy setup`, see [Set up the server](deploy-setup.md). After that you only deploy and, when a release is bad, roll back.
+
+## When root cannot log in
+
+Many cloud images, such as those of AWS, Google Cloud and Azure, let no one log in as root. Put the user you log in with in front of the host: `ubuntu@203.0.113.7`, or `ssh://ubuntu@203.0.113.7:2222`. That user needs passwordless sudo. Tifa logs in as it for the steps that need root (the first setup, the ports, ufw, nginx, the tunnel) and runs them with `sudo -n`. Deploys, logs and the other steps still log in as `tifa`. Without passwordless sudo, setup stops at its first look at the server, before it changes anything there, and says what to add. With no user, or with `root@`, Tifa logs in as root.
+
+Setup gives `tifa` the keys in the `~/.ssh/authorized_keys` of that user, so the key you log in with works for deploys too. The user stays with the host: `~/.tifa/config.yaml` keeps it, and so does `TIFA_DEPLOY_HOST` when [`connect: cloudflare`](deploy-cloudflare.md#connect-cloudflare) moves it to the ssh host name.
+
+When the provider gave you a key file, such as the `.pem` of an AWS key pair, name it in `~/.ssh/config`, since Tifa runs the system `ssh`:
+
+```
+Host myserver
+    HostName 203.0.113.7
+    IdentityFile ~/.ssh/aws-key.pem
+```
+
+Then set `TIFA_DEPLOY_HOST=ubuntu@myserver` in `.env`, or pass `--host ubuntu@myserver`. On AWS the user is `ubuntu` on Ubuntu and `ec2-user` on Amazon Linux. ssh refuses a key file that others can read, so run `chmod 600 ~/.ssh/aws-key.pem` first.
 
 ## Deploy
 
@@ -90,10 +106,10 @@ It starts the newest earlier release that passed its check, checks it the same w
 
 ## The servers Tifa remembers
 
-After a setup that worked, Tifa writes the server in `~/.tifa/config.yaml` (`%USERPROFILE%\.tifa\config.yaml` on Windows), so the next app on this machine needs no `TIFA_DEPLOY_HOST`. The file holds no secret, only the servers this machine has set up:
+After a setup or a deploy that worked, Tifa writes the server in `~/.tifa/config.yaml` (`%USERPROFILE%\.tifa\config.yaml` on Windows), so the next app on this machine needs no `TIFA_DEPLOY_HOST`. A server set up from another machine, or before the file was there, gets its entry on the first deploy from this machine. A deploy in GitHub Actions writes nothing. The file holds no secret, only the servers this machine has set up or deployed to:
 
 ```yaml
-# Servers tifa deploy setup has set up from this machine. tifa deploy uses the only one when an app names none.
+# Servers this machine has set up or deployed to with tifa deploy. tifa deploy uses the only one when an app names none.
 # No secrets are kept here. To forget a server, delete its entry.
 servers:
   - id: vultr-1a2b3c4d
@@ -103,7 +119,7 @@ servers:
       - {name: blog, path: /Users/me/blog, host: 'ssh://203.0.113.7:22'}
 ```
 
-- `id` is the host name of the server and the start of its machine ID, which setup reads from it. A server keeps its entry when the way to reach it changes. `host` is the one a new app uses: the one that worked last.
+- `id` is the host name of the server and the start of its machine ID, which setup and deploy read from it. A server keeps its entry when the way to reach it changes. `host` is the one a new app uses: the one that worked last.
 - An app is the folder of its checkout on this machine (`path`), and `name` is only for messages. Another checkout of an app with the same name counts as a new app. Each app keeps the host that worked for it: with `connect: cloudflare` that is the ssh host name of the app's domain, once the check through the tunnel passed, else the address you gave. `remove` moves the `host` of the server to an app that stays when it was the host of the app that went.
 - When an app names no server (flag, environment and `.env` come first), Tifa uses the only server in the file and prints one line that says which one, and what to put in `.env` to name another. An app whose folder is listed under one server goes to that server, even when there are several. With several servers and an app that is on none, the command stops, lists them and says to set `TIFA_DEPLOY_HOST=<host>` in `.env` or pass `--host`. The plan of `setup` and `remove` shows the file as the source of the server.
 - A host taken from the file is checked in the first thing the command asks the server: if the machine there is not the one in the entry (an alias or an address that now points elsewhere), the command stops and names both IDs and the host. `tifa deploy logs` asks nothing first, so it does not check.
@@ -119,4 +135,4 @@ Every machine that deploys needs its own access to the server, and setup does no
 ssh-copy-id -i ~/.ssh/id_ed25519.pub tifa@vps
 ```
 
-With `connect: cloudflare`, the new person also runs `go tool tifa deploy setup` with their own cf login, with `TIFA_DEPLOY_HOST=<ssh host>` in their `.env`: setup adds their email to the Access policy, installs cloudflared and writes the block of their `~/.ssh/config`, and the first ssh opens the Access login in their browser. The ssh host name is the one in the `.env` of the first person, or the one the plan of their setup printed. The new machine also needs to know where the server is: put `TIFA_DEPLOY_HOST=` in the `.env` of its checkout (or pass `--host`, or run setup once, which remembers the server in `~/.tifa`), and `TIFA_DEPLOY_GITHUB_TOKEN=` there too when it runs setup without gh, and when the value is an alias, the same alias in its `~/.ssh/config`. Nothing else is stored on a machine: `tifa.yaml` is in the repository and the rest lives on the server, in Cloudflare and in GitHub.
+With `connect: cloudflare`, the new person also runs `go tool tifa deploy setup` with their own cf login, with `TIFA_DEPLOY_HOST=<ssh host>` in their `.env`: setup adds their email to the Access policy, installs cloudflared and writes the block of their `~/.ssh/config`, and the first ssh opens the Access login in their browser. The ssh host name is the one in the `.env` of the first person, or the one the plan of their setup printed. The new machine also needs to know where the server is: put `TIFA_DEPLOY_HOST=` in the `.env` of its checkout (or pass `--host` once, since a deploy that works remembers the server in `~/.tifa`), and `TIFA_DEPLOY_GITHUB_TOKEN=` there too when it runs setup without gh, and when the value is an alias, the same alias in its `~/.ssh/config`. Nothing else is stored on a machine: `tifa.yaml` is in the repository and the rest lives on the server, in Cloudflare and in GitHub.

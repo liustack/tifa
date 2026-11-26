@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -218,7 +219,10 @@ func TestDeployHost(t *testing.T) {
 	if d, err := loadTarget(root, "from-flag"); err != nil || d.host != "from-flag" {
 		t.Errorf("flag beats env: %+v, %v", d, err)
 	}
-	if _, err := loadTarget(root, "root@vps"); err == nil || !strings.Contains(err.Error(), "--host") {
+	if d, err := loadTarget(root, "ubuntu@vps"); err != nil || d.host != "vps" || d.dest.user != "ubuntu" || d.dest.raw != "ubuntu@vps" {
+		t.Errorf("admin user: %+v, %v", d, err)
+	}
+	if _, err := loadTarget(root, "-x@vps"); err == nil || !strings.Contains(err.Error(), "--host") {
 		t.Errorf("bad flag: %v", err)
 	}
 	t.Setenv(deployHostEnv, "-oProxyCommand=x")
@@ -325,6 +329,12 @@ rel=$(basename "$(readlink "$HOME/shop/current")")
 cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 	tool("loginctl", `cat `+shellQuote(filepath.Join(home, ".run", "linger"))+` 2>/dev/null || echo no`)
 	tool("flock", `echo "flock $*" >> `+shellQuote(log))
+	// sudo runs the command after its options, unless the test wrote .run/nosudo: then it wants a
+	// password, which sudo -n refuses.
+	tool("sudo", `echo "sudo $*" >> `+shellQuote(log)+`
+if [ -f "$HOME/.run/nosudo" ]; then echo "sudo: a password is required" >&2; exit 1; fi
+while [ $# -gt 0 ]; do case "$1" in -*) shift ;; *) break ;; esac; done
+exec "$@"`)
 	tool("sleep", "exit 0")
 	// With -f it says so and waits as the one process of the ssh, so killing the ssh ends it.
 	tool("journalctl", `echo "journalctl $*" >> `+shellQuote(log)+`
@@ -717,5 +727,66 @@ func TestDevWarnsOfDeploySettings(t *testing.T) {
 	before := out.Len()
 	if err := p.checkDeploy(); err != nil || !strings.Contains(out.String()[before:], "has no name: line") {
 		t.Errorf("again: %v\n%s", err, out.String()[before:])
+	}
+}
+
+// A deploy that went live remembers the server in ~/.tifa as setup does, with the host as named,
+// so a server set up elsewhere gets its entry. It says so once, writes nothing in GitHub Actions,
+// and a file it cannot write is a warning, not a failed deploy.
+func TestDeployRemembersTheServer(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	t.Setenv(deployHostEnv, "ubuntu@vps")
+	home := t.TempDir()
+	prepareFakeServer(t, home)
+	calls := fakeServer(t, home, nil)
+	clock := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	oldNow, oldBuild := deployNow, buildForServer
+	t.Cleanup(func() { deployNow, buildForServer = oldNow, oldBuild })
+	deployNow = func() time.Time { t := clock; clock = clock.Add(time.Hour); return t }
+	buildForServer = func(_ context.Context, _, _, _, out string, _, _ io.Writer) error {
+		return os.WriteFile(out, []byte("program"), 0o755)
+	}
+
+	homeOf(t)
+	out, stderr, err := run(t, "deploy", "--dir", root)
+	if err != nil {
+		t.Fatalf("%v\n%s%s", err, out, stderr)
+	}
+	servers, err := readServers()
+	if err != nil || len(servers) != 1 || servers[0].ID == "" || servers[0].Host != "ubuntu@vps" ||
+		len(servers[0].Apps) != 1 || servers[0].Apps[0] != (knownApp{Name: "shop", Path: root, Host: "ubuntu@vps"}) {
+		t.Fatalf("remembered %+v, %v", servers, err)
+	}
+	if want := "Remembered " + servers[0].name() + " (ubuntu@vps) in " + shownServersPath() + ", so the next app on this machine needs no " + deployHostEnv + "."; !strings.Contains(out, want) {
+		t.Errorf("output lacks %q:\n%s", want, out)
+	}
+	if strings.Contains(calls(), "ssh ubuntu") {
+		t.Errorf("the deploy logged in as the admin user:\n%s", calls())
+	}
+	out, _, err = run(t, "deploy", "--dir", root)
+	if err != nil || strings.Contains(out, "Remembered") {
+		t.Errorf("second deploy: %v\n%s", err, out)
+	}
+
+	// GitHub Actions never reads the file, so it writes none.
+	dir := homeOf(t)
+	t.Setenv(envGitHubActions, "true")
+	t.Setenv("GITHUB_STEP_SUMMARY", filepath.Join(t.TempDir(), "summary"))
+	if out, stderr, err := run(t, "deploy", "--dir", root); err != nil {
+		t.Fatalf("%v\n%s%s", err, out, stderr)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a deploy in Actions wrote %s: %v", dir, err)
+	}
+	t.Setenv(envGitHubActions, "")
+
+	// A file that cannot be written: the release is live all the same.
+	blocker := filepath.Join(t.TempDir(), "file")
+	writeFile(t, blocker, "")
+	t.Setenv(tifaHomeEnv, filepath.Join(blocker, ".tifa"))
+	out, stderr, err = run(t, "deploy", "--dir", root)
+	if err != nil || !strings.Contains(stderr, "Could not remember the server in") || strings.Contains(out, "Remembered") {
+		t.Errorf("unwritable file: %v\n%s%s", err, out, stderr)
 	}
 }

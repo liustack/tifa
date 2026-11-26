@@ -7,10 +7,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -103,5 +106,103 @@ func TestDeploySSHUploadsTheProgramUnchanged(t *testing.T) {
 	sum := sha256.Sum256(content)
 	if !strings.Contains(string(args), hex.EncodeToString(sum[:])) {
 		t.Errorf("the script lacks the sum of the program:\n%s", args)
+	}
+}
+
+// With an admin user in the host, the steps of root log in as that user and run through sudo -n,
+// and their input still reaches the script. The steps of tifa log in as tifa. ssh gets the host
+// without the user either way.
+func TestDeploySSHAdminUser(t *testing.T) {
+	home := t.TempDir()
+	calls := fakeServer(t, home, nil)
+	ctx := context.Background()
+	target := func(host string) deployTarget {
+		h, err := parseDeployHost(host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return deployTarget{host: h.addr(), dest: h}
+	}
+	tgt := target("ubuntu@vps")
+	var out bytes.Buffer
+	if err := tgt.ssh(ctx, "root", "echo ran; cat", strings.NewReader("token"), &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "ran\ntoken" {
+		t.Errorf("the script printed %q", out.String())
+	}
+	if c := calls(); !strings.Contains(c, "ssh ubuntu vps\n") || !strings.Contains(c, "sudo -n true\n") || !strings.Contains(c, "sudo -n -H sh -c ") {
+		t.Errorf("root step:\n%s", c)
+	}
+	before := strings.Count(calls(), "sudo ")
+	if err := tgt.ssh(ctx, deployUser, "echo hi", nil, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if c := calls(); !strings.Contains(c, "ssh tifa vps\n") || strings.Count(c, "sudo ") != before {
+		t.Errorf("tifa step:\n%s", c)
+	}
+
+	// Without passwordless sudo the script never runs, and the error says what is needed.
+	writeFile(t, filepath.Join(home, ".run", "nosudo"), "")
+	out.Reset()
+	err := tgt.ssh(ctx, "root", "echo ran", nil, &out, io.Discard)
+	var noSudo *noSudoError
+	if !errors.As(err, &noSudo) || out.Len() > 0 {
+		t.Fatalf("got %v, printed %q", err, out.String())
+	}
+	for _, want := range []string{"ubuntu", "passwordless sudo", "NOPASSWD", "without a user"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%q lacks %q", err, want)
+		}
+	}
+
+	// root@ is root as before: no sudo.
+	before = strings.Count(calls(), "sudo ")
+	if err := target("root@vps").ssh(ctx, "root", "echo ran", nil, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if c := calls(); !strings.Contains(c, "ssh root vps\n") || strings.Count(c, "sudo ") != before {
+		t.Errorf("root@:\n%s", c)
+	}
+}
+
+// Setup gives the deploy user the keys of the admin user, whose home getent knows, and adds each
+// key once.
+func TestDeployCopiesTheKeysOfTheAdmin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the server scripts run under sh")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	tool := func(name, body string) {
+		writeFile(t, filepath.Join(bin, name), "#!/bin/sh\n"+body+"\n")
+		if err := os.Chmod(filepath.Join(bin, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	admin, tifa := filepath.Join(dir, "ubuntu"), filepath.Join(dir, "tifa")
+	tool("getent", `[ "$1 $2" = "passwd ubuntu" ] && echo "ubuntu:x:1000:1000::`+admin+`:/bin/bash"`)
+	tool("install", `for a; do last=$a; done; mkdir -p "$last"`)
+	tool("chown", "true")
+	writeFile(t, filepath.Join(admin, ".ssh", "authorized_keys"), "# keys\nssh-ed25519 AAAAone me@laptop\n\nssh-ed25519 AAAAtwo other@desk")
+	writeFile(t, filepath.Join(tifa, ".ssh", "authorized_keys"), "ssh-ed25519 AAAAone me@laptop\n")
+	c := exec.Command("sh", "-c", script(copyKeysBody, "user", deployUser, "home", tifa, "admin", "ubuntu"))
+	c.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	data, _ := os.ReadFile(filepath.Join(tifa, ".ssh", "authorized_keys"))
+	if want := "ssh-ed25519 AAAAone me@laptop\nssh-ed25519 AAAAtwo other@desk\n"; string(data) != want {
+		t.Errorf("authorized_keys of tifa:\n%s\nwant\n%s", data, want)
+	}
+	// An admin user the server does not know stops the script.
+	c = exec.Command("sh", "-c", script(copyKeysBody, "user", deployUser, "home", tifa, "admin", "nobody-here"))
+	c.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+	if out, err := c.CombinedOutput(); err == nil || !strings.Contains(string(out), "nobody-here") {
+		t.Errorf("unknown admin: %v: %s", err, out)
+	}
+	// Without an admin user the keys are those of root, as before.
+	if !strings.Contains(copyKeysBody, "/root/.ssh/authorized_keys") {
+		t.Error("root's keys are not read")
 	}
 }

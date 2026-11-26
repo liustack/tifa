@@ -1,12 +1,13 @@
 package main
 
-// The servers this person has set up, kept in ~/.tifa/config.yaml (TIFA_HOME moves the folder, and
-// on Windows the folder is %USERPROFILE%\.tifa). tifa deploy setup records a server after it set
-// it up, tifa deploy remove takes the app off its entry, and a deploy of an app that names no
-// server uses the one in the file. The file holds no secret: for each server an ID, the host
-// that last worked and the apps setup put there from this machine.
+// The servers this person has set up or deployed to, kept in ~/.tifa/config.yaml (TIFA_HOME moves
+// the folder, and on Windows the folder is %USERPROFILE%\.tifa). tifa deploy setup records a server
+// after it set it up, and tifa deploy after a release went live, so a server set up from another
+// machine gets its entry too. tifa deploy remove takes the app off its entry, and a deploy of an
+// app that names no server uses the one in the file. The file holds no secret: for each server an
+// ID, the host that last worked and the apps set up or deployed there from this machine.
 //
-// A server is known by what setup reads from it, the host name and the start of the machine ID
+// A server is known by what the probes read from it, the host name and the start of the machine ID
 // (serverState.Machine), and not by the host it is reached by, since that changes: an address
 // first, the ssh host name of the tunnel later.
 //
@@ -18,6 +19,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -34,10 +36,10 @@ const tifaHomeEnv = "TIFA_HOME"
 
 const serversFileName = "config.yaml"
 
-const serversHeader = "# Servers tifa deploy setup has set up from this machine. tifa deploy uses the only one when an app names none.\n" +
+const serversHeader = "# Servers this machine has set up or deployed to with tifa deploy. tifa deploy uses the only one when an app names none.\n" +
 	"# No secrets are kept here. To forget a server, delete its entry."
 
-// knownApp is an app setup put on a server from this machine. It is known by the folder of its
+// knownApp is an app set up or deployed on a server from this machine. It is known by the folder of its
 // checkout, so two checkouts that share a name are two apps. The name is for messages.
 type knownApp struct {
 	Name string `yaml:"name"`
@@ -49,11 +51,11 @@ type knownApp struct {
 
 // knownServer is one entry of the file.
 type knownServer struct {
-	// ID is the host name of the server and the start of its machine ID, as setup reads them.
+	// ID is the host name of the server and the start of its machine ID, as the probes read them.
 	ID string `yaml:"id"`
 	// Host is the one a new app uses: the host that worked last.
 	Host string `yaml:"host"`
-	// Apps are the apps setup put on the server from this machine.
+	// Apps are the apps set up or deployed on the server from this machine.
 	Apps []knownApp `yaml:"apps"`
 }
 
@@ -204,6 +206,24 @@ func rememberServer(id, host string, app knownApp) (changed bool, err error) {
 		}
 		return out
 	})
+}
+
+// rememberAndSay is rememberServer for a command that reached the server: it says so in one line
+// when the file changed. A file it cannot write is a warning, since what the command did on the
+// server stands.
+func rememberAndSay(id, host string, app knownApp, stdout, stderr io.Writer) {
+	changed, err := rememberServer(id, host, app)
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "Could not remember the server in %s: %v\n", shownServersPath(), err)
+	case changed:
+		s := knownServer{ID: id}
+		line := fmt.Sprintf("Remembered %s (%s) in %s", s.name(), host, shownServersPath())
+		if all, err := readServers(); err == nil && len(all) == 1 {
+			line += fmt.Sprintf(", so the next app on this machine needs no %s", deployHostEnv)
+		}
+		fmt.Fprintln(stdout, line+".")
+	}
 }
 
 // forgetServerApp drops the app at path from the server id, and the server with its last app. When

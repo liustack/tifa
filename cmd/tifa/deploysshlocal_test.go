@@ -557,3 +557,32 @@ func TestSetupSSHSecondPersonWithoutCFLogin(t *testing.T) {
 		t.Errorf("emails %v", got)
 	}
 }
+
+// With an admin user in .env, TIFA_DEPLOY_HOST moves to the ssh host with that user in front, and
+// ~/.tifa remembers it so, so remove and the next setup still run the steps of root as it. The
+// check through the tunnel logs in as tifa.
+func TestSetupSSHLocalKeepsTheAdminUser(t *testing.T) {
+	l := newLocalSSH(t, "TIFA_DEPLOY_HOST=ubuntu@vps\n")
+	t.Setenv(tifaHomeEnv, t.TempDir())
+	out, err := runSetup(t, l.root, false, "", "--yes")
+	if err != nil && !strings.Contains(err.Error(), "needs you") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	host := l.cf.apps[0]["domain"].(string)
+	if !strings.Contains(out, "done    this machine: TIFA_DEPLOY_HOST in .env, ubuntu@vps -> ubuntu@"+host) {
+		t.Errorf("plan:\n%s", out)
+	}
+	if want := "TIFA_DEPLOY_HOST=ubuntu@" + host + "\n"; l.env(t) != want {
+		t.Errorf(".env:\n%s", l.env(t))
+	}
+	if !strings.Contains(l.srv.calls(), "check tifa") || !strings.Contains(l.srv.argv(), "-l tifa -o BatchMode=yes -- "+host+" true") {
+		t.Errorf("check:\n%s", l.srv.argv())
+	}
+	servers, err := readServers()
+	if err != nil || len(servers) != 1 || servers[0].Host != "ubuntu@"+host {
+		t.Errorf("remembered %+v, %v", servers, err)
+	}
+	if strings.Contains(l.cfgPath, "ubuntu") || strings.Contains(l.config(t), "ubuntu") {
+		t.Errorf("the ssh config names the user:\n%s", l.config(t))
+	}
+}

@@ -56,7 +56,7 @@ func (r *setupRun) nginxSteps(ctx context.Context, p *setupPlan) error {
 	t := r.t
 	ns, err := r.readNginx(ctx)
 	if err != nil {
-		return fmt.Errorf("deploy.front: nginx installs and changes nginx as root, and %s cannot be reached as root: %w", t.host, err)
+		return fmt.Errorf("deploy.front: nginx installs and changes nginx as root, and %s cannot be reached as %s: %w", t.host, t.rootLogin(), err)
 	}
 	if err := nginxGuard(t, ns, r.st.UserSockets); err != nil {
 		return err
@@ -149,7 +149,7 @@ func (r *setupRun) nginxRemovalSteps(ctx context.Context, p *setupPlan, why stri
 	ns, err := r.readNginx(ctx)
 	if err != nil {
 		p.cannot("nginx: the site and certificate of "+app+", and nginx once no app uses it",
-			fmt.Sprintf("only root can change nginx, but %s cannot be reached as root: %v", r.t.host, err))
+			fmt.Sprintf("only root can change nginx, but %s cannot be reached as %s: %v", r.t.host, r.t.rootLogin(), err))
 		return nil
 	}
 	if !ns.Tifa {

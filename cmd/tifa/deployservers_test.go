@@ -65,7 +65,7 @@ func TestServersRemember(t *testing.T) {
 	}
 	path := filepath.Join(dir, "config.yaml")
 	text := readFileText(t, path)
-	for _, want := range []string{"# Servers tifa deploy setup has set up from this machine", "servers:", "id: vps-1a2b3c4d", "host: ssh://203.0.113.7:22", "name: shop", "host: 'ssh://203.0.113.7:22'}"} {
+	for _, want := range []string{"# Servers this machine has set up or deployed to with tifa deploy", "servers:", "id: vps-1a2b3c4d", "host: ssh://203.0.113.7:22", "name: shop", "host: 'ssh://203.0.113.7:22'}"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("file lacks %q:\n%s", want, text)
 		}

@@ -222,7 +222,7 @@ func checkServer(ctx context.Context, ks knownServer) serverReport {
 			return deployTarget{}, err
 		}
 		h.knownID = ks.ID
-		return deployTarget{host: h.raw, dest: h}, nil
+		return deployTarget{host: h.addr(), dest: h}, nil
 	}
 	t, err := hostOf(ks.Host)
 	if err != nil {
@@ -431,7 +431,7 @@ func statusAllText(servers []serverReport, now time.Time) string {
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "Only the servers set up from this machine, the ones in %s, are shown.\n", shownServersPath())
+	fmt.Fprintf(&b, "Only the servers this machine has set up or deployed to, the ones in %s, are shown.\n", shownServersPath())
 	return b.String()
 }
 

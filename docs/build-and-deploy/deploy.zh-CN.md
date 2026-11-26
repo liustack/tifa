@@ -2,7 +2,7 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: be7cb98d60e1
+translatedFrom: 1369d71bad87
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -35,14 +35,14 @@ deploy:
   1. 参数 `--host`
   2. 环境变量 `TIFA_DEPLOY_HOST`
   3. 应用根目录里的 `.env` 文件中的 `TIFA_DEPLOY_HOST`，git 会忽略这个文件（见 [.env](config.zh-CN.md#env)。程序自己不理会这个名字）
-  4. `tifa deploy setup` 记在 `~/.tifa/config.yaml` 里的服务器（见[Tifa 记住的服务器](#the-servers-tifa-remembers)）
+  4. `tifa deploy setup` 和 `tifa deploy` 记在 `~/.tifa/config.yaml` 里的服务器（见[Tifa 记住的服务器](#the-servers-tifa-remembers)）
 
   ```sh
   # .env
   TIFA_DEPLOY_HOST=ssh://203.0.113.7:2222
   ```
 
-  这个值就是 `ssh` 接受的目标，不带用户：可以是 `~/.ssh/config` 里的一个 Host（比如别名 `vps`，这样地址、端口、密钥和 `ProxyJump` 都由 `~/.ssh/config` 提供）、一个主机名，或者一个 `ssh://host[:port]` 的 URL。用户由 Tifa 自己选，第一次设置用 root，之后用 `tifa`，所以带用户、路径、查询或别的协议的值会被拒绝。四种都没设置时，每个 `tifa deploy` 命令都会停下并说明。
+  这个值就是 `ssh` 接受的目标：可以是 `~/.ssh/config` 里的一个 Host（比如别名 `vps`，这样地址、端口、密钥和 `ProxyJump` 都由 `~/.ssh/config` 提供）、一个主机名，或者一个 `ssh://host[:port]` 的 URL。用户由 Tifa 自己选，改动系统的步骤用 root，其余用 `tifa`，所以除非 root 登录不了，否则不要写用户（见[root 登录不了时](#when-root-cannot-log-in)）。带路径、查询或别的协议的值会被拒绝。四种都没设置时，每个 `tifa deploy` 命令都会停下并说明。
 - `front` 是访客到达服务器之前经过的东西。选 `cloudflare` 时，就是 `site.url` 的主机上的一个 Cloudflare Tunnel，带它的 DNS 记录和规则，`deploy` 和 `rollback` 会清除那个主机名的 CDN 缓存。必须设置 `site.url`，并且不带端口。选 `none` 时，应用自己在 80 端口上接待访客，`site.url` 里有域名时还在 443 端口上用自己的 HTTPS，也不清缓存（见[应用自己接待访客](deploy-setup.zh-CN.md#the-app-serves-visitors-itself)）。选 `nginx` 时，setup 安装的一个 nginx 按 `site.url` 的主机把访客送到应用，并用 certbot 为它拿证书，这样几个应用不用 Cloudflare 也能共用一台服务器（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)）。
 - `connect` 是 ssh 连到服务器走的那一条路，从你的机器和从 GitHub Actions 的 runner 都一样。选 `direct` 时，ssh 用你给的地址。选 `cloudflare` 时，两边都经由 Cloudflare Tunnel，所以服务器不用开放 ssh 端口（见 [`connect: cloudflare`](deploy-cloudflare.zh-CN.md#connect-cloudflare)）。它需要 `front: cloudflare`，因为 ssh 的主机名是由域名生成的，有没有 `auto` 都行。选 `tailscale` 时，runner 加入你的 tailnet，它需要 `auto` 这个块（见 [`connect: tailscale`](deploy-github-actions.zh-CN.md#connect-tailscale)）。你自己的机器照常连到服务器，用 `TIFA_DEPLOY_HOST` 里的地址，tailnet 和服务器都由你自己设置。
 - `auto` 只要写上就会开启从 GitHub Actions 的部署。没有这个块，就只能手动部署。`auto: {}` 用默认值，写成后面什么都没有的 `auto:` 是错误。它只有两个键，没有别的：
@@ -61,9 +61,25 @@ deploy:
 
 `.env` 里有 tifa deploy 不读的 `TIFA_DEPLOY_` 名字时，命令同样会停下，错误里写出最接近的那个名字。
 
-你需要：一台带 systemd 的 Linux 服务器，x86_64 或 aarch64，你能用 `ssh root@<TIFA_DEPLOY_HOST>` 连上它一次（在 Ubuntu 24.04 上测试过）。在你的机器上，需要 `tifa build` 需要的东西（Go，带页面的应用还要 Node）和 `ssh`。对于 `front: cloudflare` 和 `connect: cloudflare`，需要 [cf](https://developers.cloudflare.com/cf/get-started/)，即 Cloudflare CLI（测试版），并且已安装（`pnpm add --global cf`）、已登录（`cf auth login`）。setup 和 remove 能分清这两种情况：PATH 里没有 cf 时，它们说要先安装，装了 cf 就请你登录。对于 `connect: cloudflare`，你的机器上还需要 [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)：setup 在 macOS 上用 `brew install cloudflared` 安装它，在 Windows 上用 `winget install --id Cloudflare.cloudflared -e`，在 Linux 上，或者没有 brew 和 winget 时，它会告诉你去哪里下载。对于 `front: nginx`，需要一台带 apt 的服务器（Debian 或 Ubuntu），setup 以 root 用 apt 在上面安装 nginx 和 certbot。对于 `auto`，需要已登录的 [gh](https://cli.github.com/)（`gh auth login`），没有 gh 的话，需要把细粒度令牌放在 `TIFA_DEPLOY_GITHUB_TOKEN` 里（见[从 GitHub Actions 部署](deploy-github-actions.zh-CN.md#deploy-from-github-actions)）。对于 `connect: tailscale`，需要一台已在你的 tailnet 里的服务器（装了 Tailscale 并登录），以及一个你在 Tailscale 控制台里创建的 Tailscale 凭证（见 [`connect: tailscale`](deploy-github-actions.zh-CN.md#connect-tailscale)）。你的机器上不需要任何 Tailscale 的东西。在终端里，setup 会替你安装并登录 cf 和 gh（见[按方案设置](deploy-setup.zh-CN.md#set-up-with-a-plan)）。
+你需要：一台带 systemd 的 Linux 服务器，x86_64 或 aarch64，你能用 `ssh root@<TIFA_DEPLOY_HOST>` 连上它一次，或者能以一个有免密码 sudo 的用户连上它（在 Ubuntu 24.04 上测试过）。在你的机器上，需要 `tifa build` 需要的东西（Go，带页面的应用还要 Node）和 `ssh`。对于 `front: cloudflare` 和 `connect: cloudflare`，需要 [cf](https://developers.cloudflare.com/cf/get-started/)，即 Cloudflare CLI（测试版），并且已安装（`pnpm add --global cf`）、已登录（`cf auth login`）。setup 和 remove 能分清这两种情况：PATH 里没有 cf 时，它们说要先安装，装了 cf 就请你登录。对于 `connect: cloudflare`，你的机器上还需要 [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)：setup 在 macOS 上用 `brew install cloudflared` 安装它，在 Windows 上用 `winget install --id Cloudflare.cloudflared -e`，在 Linux 上，或者没有 brew 和 winget 时，它会告诉你去哪里下载。对于 `front: nginx`，需要一台带 apt 的服务器（Debian 或 Ubuntu），setup 以 root 用 apt 在上面安装 nginx 和 certbot。对于 `auto`，需要已登录的 [gh](https://cli.github.com/)（`gh auth login`），没有 gh 的话，需要把细粒度令牌放在 `TIFA_DEPLOY_GITHUB_TOKEN` 里（见[从 GitHub Actions 部署](deploy-github-actions.zh-CN.md#deploy-from-github-actions)）。对于 `connect: tailscale`，需要一台已在你的 tailnet 里的服务器（装了 Tailscale 并登录），以及一个你在 Tailscale 控制台里创建的 Tailscale 凭证（见 [`connect: tailscale`](deploy-github-actions.zh-CN.md#connect-tailscale)）。你的机器上不需要任何 Tailscale 的东西。在终端里，setup 会替你安装并登录 cf 和 gh（见[按方案设置](deploy-setup.zh-CN.md#set-up-with-a-plan)）。
 
 第一次要先运行 `go tool tifa deploy setup`，见[配好服务器](deploy-setup.zh-CN.md)。之后只需要部署，某个版本有问题时再回滚。
+
+## root 登录不了时 {#when-root-cannot-log-in}
+
+很多云镜像，比如 AWS、Google Cloud 和 Azure 的，不让任何人以 root 登录。这时把你登录用的用户写在主机前面：`ubuntu@203.0.113.7`，或者 `ssh://ubuntu@203.0.113.7:2222`。这个用户需要免密码 sudo。需要 root 的步骤（第一次设置、端口、ufw、nginx、隧道），Tifa 以这个用户登录，再用 `sudo -n` 运行。部署、日志和其他步骤仍然以 `tifa` 登录。没有免密码 sudo 时，setup 在第一次查看服务器时就停下，那时服务器上还什么都没改，并告诉你要加什么。不写用户，或者写 `root@`，Tifa 就以 root 登录。
+
+setup 把这个用户 `~/.ssh/authorized_keys` 里的密钥交给 `tifa`，所以你登录用的密钥也能用来部署。用户跟着主机走：`~/.tifa/config.yaml` 会记住它，[`connect: cloudflare`](deploy-cloudflare.zh-CN.md#connect-cloudflare) 把 `TIFA_DEPLOY_HOST` 改成 ssh 主机名时也会保留它。
+
+如果服务商给了你一个密钥文件，比如 AWS 密钥对的 `.pem`，就把它写进 `~/.ssh/config`，因为 Tifa 运行的是系统的 `ssh`：
+
+```
+Host myserver
+    HostName 203.0.113.7
+    IdentityFile ~/.ssh/aws-key.pem
+```
+
+然后在 `.env` 里设置 `TIFA_DEPLOY_HOST=ubuntu@myserver`，或者传 `--host ubuntu@myserver`。在 AWS 上，Ubuntu 的用户是 `ubuntu`，Amazon Linux 的是 `ec2-user`。别人能读的密钥文件 ssh 会拒绝使用，所以先运行 `chmod 600 ~/.ssh/aws-key.pem`。
 
 ## 部署 {#deploy}
 
@@ -91,10 +107,10 @@ go tool tifa deploy rollback
 
 ## Tifa 记住的服务器 {#the-servers-tifa-remembers}
 
-setup 成功之后，Tifa 会把服务器写进 `~/.tifa/config.yaml`（Windows 上是 `%USERPROFILE%\.tifa\config.yaml`），所以这台机器上的下一个应用不再需要 `TIFA_DEPLOY_HOST`。这个文件里没有任何 secret，只有这台机器设置过的服务器：
+setup 或部署成功之后，Tifa 会把服务器写进 `~/.tifa/config.yaml`（Windows 上是 `%USERPROFILE%\.tifa\config.yaml`），所以这台机器上的下一个应用不再需要 `TIFA_DEPLOY_HOST`。在别的机器上设置的服务器，或者在有这个文件之前设置的服务器，会在这台机器第一次部署到它时得到自己的条目。在 GitHub Actions 里部署什么都不写。这个文件里没有任何 secret，只有这台机器设置过或部署过的服务器：
 
 ```yaml
-# Servers tifa deploy setup has set up from this machine. tifa deploy uses the only one when an app names none.
+# Servers this machine has set up or deployed to with tifa deploy. tifa deploy uses the only one when an app names none.
 # No secrets are kept here. To forget a server, delete its entry.
 servers:
   - id: vultr-1a2b3c4d
@@ -104,7 +120,7 @@ servers:
       - {name: blog, path: /Users/me/blog, host: 'ssh://203.0.113.7:22'}
 ```
 
-- `id` 是服务器的主机名加上它的机器 ID 的开头，setup 从服务器上读取机器 ID。服务器的连接方式变了，它的条目也还在。`host` 是新应用会用的那个：最近一次连通的。
+- `id` 是服务器的主机名加上它的机器 ID 的开头，setup 和部署从服务器上读取机器 ID。服务器的连接方式变了，它的条目也还在。`host` 是新应用会用的那个：最近一次连通的。
 - 一个应用就是它在这台机器上的检出文件夹（`path`），`name` 只用于提示信息。同名应用的另一个检出目录算新的应用。每个应用保留对它连通过的 host：用 `connect: cloudflare` 时，在经由 tunnel 的检查通过之后，它是应用域名的 ssh 主机名，否则是你给的地址。当服务器的 `host` 原本是被移除的那个应用的 host 时，`remove` 会把它换成留下来的某个应用的 host。
 - 当一个应用没有指定服务器时（参数、环境变量和 `.env` 优先），Tifa 使用文件里唯一的那台服务器，并打印一行说明用的是哪一台，以及要指定另一台该在 `.env` 里放什么。文件夹列在某台服务器名下的应用，会去那台服务器，即使有好几台。有好几台服务器、而应用不在任何一台上时，命令会停下，列出它们，并说请在 `.env` 里设置 `TIFA_DEPLOY_HOST=<host>` 或传 `--host`。`setup` 和 `remove` 的方案会把这个文件显示为服务器的来源。
 - 取自这个文件的 host，会在命令第一次向服务器询问时被检查：如果那里的机器不是条目里的那台（别名或地址现在指向了别处），命令会停下，并说出两个 ID 和这个 host。`tifa deploy logs` 不先询问任何东西，所以不做检查。
@@ -120,4 +136,4 @@ servers:
 ssh-copy-id -i ~/.ssh/id_ed25519.pub tifa@vps
 ```
 
-用 `connect: cloudflare` 时，新来的人还要用他自己的 cf 登录运行 `go tool tifa deploy setup`，并在他的 `.env` 里放 `TIFA_DEPLOY_HOST=<ssh host>`：setup 会把他的邮箱加进 Access 策略，安装 cloudflared，并写好他的 `~/.ssh/config` 里的块，第一次 ssh 会在他的浏览器里打开 Access 的登录页。ssh 主机名是第一个人的 `.env` 里的那个，或者他的 setup 方案里打印出来的那个。新机器还需要知道服务器在哪里：把 `TIFA_DEPLOY_HOST=` 放进它的检出目录的 `.env`（或者传 `--host`，或者运行一次 setup，它会把服务器记在 `~/.tifa` 里），在没有 gh 的情况下运行 setup 时，也要在那里放 `TIFA_DEPLOY_GITHUB_TOKEN=`，如果这个值是别名，还要在它的 `~/.ssh/config` 里有同样的别名。机器上不保存别的东西：`tifa.yaml` 在仓库里，其余的在服务器、Cloudflare 和 GitHub 上。
+用 `connect: cloudflare` 时，新来的人还要用他自己的 cf 登录运行 `go tool tifa deploy setup`，并在他的 `.env` 里放 `TIFA_DEPLOY_HOST=<ssh host>`：setup 会把他的邮箱加进 Access 策略，安装 cloudflared，并写好他的 `~/.ssh/config` 里的块，第一次 ssh 会在他的浏览器里打开 Access 的登录页。ssh 主机名是第一个人的 `.env` 里的那个，或者他的 setup 方案里打印出来的那个。新机器还需要知道服务器在哪里：把 `TIFA_DEPLOY_HOST=` 放进它的检出目录的 `.env`（或者传一次 `--host`，因为成功的部署会把服务器记在 `~/.tifa` 里），在没有 gh 的情况下运行 setup 时，也要在那里放 `TIFA_DEPLOY_GITHUB_TOKEN=`，如果这个值是别名，还要在它的 `~/.ssh/config` 里有同样的别名。机器上不保存别的东西：`tifa.yaml` 在仓库里，其余的在服务器、Cloudflare 和 GitHub 上。

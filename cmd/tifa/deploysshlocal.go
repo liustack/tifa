@@ -151,9 +151,11 @@ func (r *setupRun) localSSHSteps(p *setupPlan, host string, switching bool) {
 	r.hostSwitchSteps(p, host)
 }
 
-// hostSwitchSteps plans the check of the tunnel and the move of TIFA_DEPLOY_HOST to the ssh host.
+// hostSwitchSteps plans the check of the tunnel and the move of TIFA_DEPLOY_HOST to the ssh host,
+// with the admin user in front when the host had one.
 func (r *setupRun) hostSwitchSteps(p *setupPlan, host string) {
 	t := r.t
+	value := t.dest.withUser(host)
 	if t.dest.name == host {
 		p.ok("this machine: TIFA_DEPLOY_HOST is the ssh host, so deploys go through the tunnel")
 		return
@@ -171,7 +173,7 @@ func (r *setupRun) hostSwitchSteps(p *setupPlan, host string) {
 			if t.dest.from != dotenvHostFrom && !t.dest.fromHome {
 				// The environment and a flag are not setup's to change: tell the developer, now
 				// that there is a tunnel to point at.
-				r.hostAdvice = fmt.Sprintf("To deploy from this machine through the tunnel, set TIFA_DEPLOY_HOST=%s (yours comes from the %s, which setup does not change). Then the server needs no open ssh port.", host, t.dest.fromText())
+				r.hostAdvice = fmt.Sprintf("To deploy from this machine through the tunnel, set TIFA_DEPLOY_HOST=%s (yours comes from the %s, which setup does not change). Then the server needs no open ssh port.", value, t.dest.fromText())
 			}
 			return "", nil
 		}})
@@ -179,12 +181,12 @@ func (r *setupRun) hostSwitchSteps(p *setupPlan, host string) {
 		return
 	}
 	p.steps = append(p.steps, planStep{op: opChange, soft: true,
-		text: fmt.Sprintf("this machine: TIFA_DEPLOY_HOST in .env, %s -> %s", t.host, host),
+		text: fmt.Sprintf("this machine: TIFA_DEPLOY_HOST in .env, %s -> %s", t.dest.raw, value),
 		do: func(context.Context) (string, error) {
 			if !checked {
-				return "", skipped{"ssh did not reach the server through the tunnel, so deploys keep going to " + t.host}
+				return "", skipped{"ssh did not reach the server through the tunnel, so deploys keep going to " + t.dest.raw}
 			}
-			return "", setEnvHost(filepath.Join(t.root, ".env"), host)
+			return "", setEnvHost(filepath.Join(t.root, ".env"), value)
 		}})
 }
 
