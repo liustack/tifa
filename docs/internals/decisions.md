@@ -502,6 +502,20 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 ## Rendering, memo and Cache
 
+### React Server Components
+
+**Turned down (a hard constraint from the start, written down 2026-11-26).** Components that run only on the server, fetch their own data while they render and reach the browser as the RSC payload, as in the App Router of Next.js and the RSC mode of React Router.
+
+**Why not.**
+- Go loads all the data of a page before the render and hands it in, and the render does no application I/O. A component that waits on a database or an API while it renders would put that I/O into the JavaScript engine, where the pool of VMs and the render time limit assume there is none.
+- The render memo keys a page by the data its `Load` functions returned. With data fetched inside components, the key could not tell when the HTML changes.
+- RSC needs a second module graph for the server, the serializer of its payload with references to client components, and a streamed answer. Tifa renders complete HTML in one pass without streaming, so it would be a second way to render and a second protocol to keep safe. The security advisories of React in 2025 and 2026 are in RSC and Server Functions: decoding what a request sends to them is attack surface that a page render without them does not have.
+- Data has one place: `Load` and `Layout` in `route.go`, with their types written to `route.gen.ts`.
+
+**Instead.** `Load` and `Layout` in Go, and `Suspense` with a fetch in the browser for what only the browser can load. Code that must not reach the browser stays in Go. [Philosophy](../start/philosophy.md) gives the short version to app authors.
+
+**Reopen when** apps show a measured cost that only server components remove, such as large browser bundles from components that only format data, and Go cannot take that work.
+
 ### Keeping the site files for a short time
 
 **Turned down (2026-11-26).** Keeping `/sitemap.xml`, `/llms.txt`, `/llms-full.txt` and the `.md` versions for a short time, the first idea being 10 seconds, so that a crawler that loops on them does not cost a build each.

@@ -118,4 +118,6 @@ Read the one that matches the task.
 | [references/structure.md](references/structure.md) | Deciding where a type, a query or a shared resource goes, or the go command reports an import cycle |
 | [references/build-and-deploy.md](references/build-and-deploy.md) | `tifa dev` or `tifa build` problems, deploying with `tifa deploy`, settings in `tifa.yaml`, `options.go`, `.env` and environment variables, a sitemap, `robots.txt` or `llms.txt` with `tifa.SetSitemap`, building for Linux, HTTPS, running behind a CDN, container or systemd, sizing CPU and memory |
 
+[docs/reference/conventions.md](docs/reference/conventions.md) lists every file, folder and name Tifa reads on one page, with a link to the doc for each.
+
 The docs show code from an example shop, a workbench with a two-language storefront. Its files are not in your module: read the snippets in the docs, and run `go tool tifa docs --all` to list every doc.

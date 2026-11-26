@@ -185,6 +185,7 @@ go tool tifa agents
 | [部署](docs/build-and-deploy/deploy.zh-CN.md) | 把程序放到服务器或容器里，或者放在 CDN 或代理后面 |
 | [配置](docs/build-and-deploy/config.zh-CN.md) | 部署时改端口、HTTPS、请求体上限、VM 数、渲染超时、渲染记忆和带 `Cache` 的页面的 Cache-Control |
 | [内部结构](docs/internals/architecture.md) | 想知道请求、`tifa build`、`tifa dev`、VM 池和渲染记忆在内部是怎么工作的（英文） |
+| [约定](docs/reference/conventions.zh-CN.md) | 想在一页里查完 Tifa 读取的每个文件、文件夹和名字：`page.tsx`、`route.go`、`Load`、`Cache`、hooks 和生成的文件 |
 | [渲染记忆](docs/reference/memo.zh-CN.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地复用 |
 | [兼容性](docs/reference/compatibility.zh-CN.md) | 想知道升级 Tifa 会不会弄坏你的应用，哪些接口是稳定的 |
 | [性能](docs/reference/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |

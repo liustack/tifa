@@ -97,7 +97,7 @@ app/teams/new/page.tsx
 - A page in a `name++` folder takes every URL below it, so such a URL matches that page, and its `Load` decides what to answer.
 - `OnRequest` runs for a URL that matches no page with an empty `c.Pattern()`. `next(c)` runs the Layouts and returns `tifa.ErrNotFound`. When `OnRequest` returns `tifa.ErrNotFound` itself, without calling `next`, no Layout runs, and the page shows as when the outermost `Layout` of that URL returns `tifa.ErrNotFound`: the root one, or that of the `layout_.tsx` above it.
 - The `ErrorBoundary` of a Layout only ever shows in place of a route below it, in the Layout's `Outlet`, so it can read the Layout's data and the context its component provides. When a Layout fails, the `ErrorBoundary` of the Layout above shows, and when the root Layout or a Layout in `layout_.tsx` fails, the framework's default page.
-- A `NotFound` export in `page.tsx` or `layout.tsx` fails the build. Move what it shows into `ErrorBoundary`, under `error.status === 404`. An `Error` export fails the build too: rename it to `ErrorBoundary`.
+- Tifa reads `default`, `head` and `ErrorBoundary` from `page.tsx` and `layout.tsx` (and `documentHead` from the root `layout.tsx`), and leaves other exports alone. A `NotFound` or `Error` export shows nothing: put what a 404 shows into `ErrorBoundary`, under `error.status === 404`.
 
 ## Errors on a page
 

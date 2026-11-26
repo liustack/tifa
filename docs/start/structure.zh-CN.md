@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的文件放在哪里：app/ 里的领域、hooks、共享资源、包的导入'
 audience: app
 order: 4
-translatedFrom: df38149d55e1
+translatedFrom: cd19a9db3166
 read_when:
   - '新建 Tifa 应用'
   - '决定一个类型、一条查询或一个共享资源放在哪里'
@@ -12,7 +12,7 @@ read_when:
 
 # 组织一个应用 {#structuring-an-app}
 
-这一页说明应用里每个文件该放在哪里。为什么这样组织，见 [理念](philosophy.zh-CN.md)。Tifa 自己内部是怎么工作的，见 [架构](../internals/architecture.md)。
+这一页说明应用里每个文件该放在哪里。为什么这样组织，见 [理念](philosophy.zh-CN.md)。Tifa 读取的每个文件名和文件夹名，都列在一页里：[约定](../reference/conventions.zh-CN.md)。Tifa 自己内部是怎么工作的，见 [架构](../internals/architecture.md)。
 
 ## 1. 域是 app/ 下的一个文件夹 {#1-a-domain-is-a-folder-under-app}
 
