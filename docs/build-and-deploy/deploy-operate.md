@@ -40,6 +40,7 @@ Tifa opens the page and prints its URL, `http://127.0.0.1:<port>/<code>`, so the
 go tool tifa deploy logs        # the last 100 lines of the log, -n 500 for more
 go tool tifa deploy logs -f     # and then the new ones, until Ctrl-C
 go tool tifa deploy status
+go tool tifa deploy status --all   # every server of ~/.tifa/config.yaml, once
 go tool tifa deploy remove
 ```
 
@@ -60,6 +61,30 @@ shop on vps, port 9527
 ```
 
 It asks for `/healthz` only while the service runs, because a request to the socket would start it.
+
+`status --all` needs no app checkout. It looks once at every server in `~/.tifa/config.yaml` and prints, for each: the system, CPUs, memory, disk, uptime and load, and then every app of the user `tifa` on it, also the apps set up from another machine. For each app it shows the release and its commit, whether it passed its health check, the service and how many times systemd restarted it by itself, what `GET /healthz` answers now, and the memory of the program. An app with no release says it is not deployed yet.
+
+```
+vps, reached as vps
+  system    Ubuntu 24.04.1 LTS, x86_64, 2 CPUs
+  memory    2.1 GB total, 1.0 GB available
+  disk      12.3 GB used of 25.0 GB (49%)
+  uptime    up 12d 6h, load 0.10 0.20 0.30
+
+  shop
+    release   20261120T120000Z  commit ccc333  passed its health check
+    service   active since 2026-11-20 12:00:05 UTC, 2h3m ago, 0 restarts
+    health    GET /healthz answered 200
+    memory    38.7 MB
+
+Only the servers set up from this machine, the ones in ~/.tifa/config.yaml, are shown.
+```
+
+- Servers are asked in parallel and printed in the order of the file, the apps of a server by name. A server that does not answer prints its error, and the others still print. A host that now answers as another machine is reported as that, and its apps are not shown.
+- The exit status is 0 when every server answers and every deployed app is active with a passing health check. Otherwise everything is printed and the command exits with 1, and its message says how many servers could not be checked and how many apps are not well. A script or an agent can rely on that.
+- `--json` prints the same as one JSON document on stdout: a list of servers. A server has `name`, `id`, `host`, `reached`, `error` (when it was not reached) and `apps`, and `facts` when it was reached: `os`, `arch`, `cpus`, `memoryTotalKiB`, `memoryAvailableKiB`, `diskTotalKiB`, `diskUsedKiB` (the disk of the home of `tifa`), `uptimeSeconds`, `load1`, `load5` and `load15`. A number the server did not say is 0. An app has `name`, `host`, `deployed`, `release`, `commit`, `checkPassed`, `service`, `activeSince`, `restarts`, `health` (the status of `GET /healthz`, empty while the service does not run, `000` for no answer), `memoryKiB`, `ok` and `error`.
+- It is a look at one moment, not monitoring: it does not refresh, alert or keep a history. It covers only the servers in that file, which are the ones set up from this machine. For alerts, use a probe outside the server, such as UptimeRobot or the health checks of Cloudflare, since a probe on the server dies with the server.
+- `--all` takes no `--host` and no `--dir`.
 
 `remove` takes the app off the server and takes back what Tifa made for it, and nothing else:
 

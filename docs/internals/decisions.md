@@ -964,6 +964,18 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Instead.** Tifa says what it will do and why, opens the exact page in the browser, the person approves there, and Tifa fetches the result itself. A token that must be typed goes into a local page that works once. Every command also runs without a terminal.
 
+### Watching the servers
+
+**Settled (2026-11-27).** `tifa deploy status --all` is a one-shot look at the servers of `~/.tifa/config.yaml`, with `--json` for scripts and agents: the system, memory, disk and load of each server, and each app's release, service, restarts, health and memory. It exits with an error when a server cannot be reached or a deployed app is not well.
+
+**Turned down (2026-11-27).** A live dashboard, continuous uptime checks and alerts.
+
+**Why not.** They need a service that runs all the time, on a machine that is up all the time, and a single program per app has neither. A probe on the server also dies with the server, so it cannot say the server is down.
+
+**Instead.** An outside probe, such as UptimeRobot or the health checks of Cloudflare, for alerts. `status --all` for a look when you want one.
+
+**Reopen when** apps on several servers need alerts that no outside probe gives, such as the restart count of a service.
+
 ## Coding agents
 
 ### Changing behavior when an agent is detected
