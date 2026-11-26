@@ -592,7 +592,7 @@ func (a *analyzer) dirPath(d *dirInfo) ([]segment, bool) {
 // its page, the switches, and the method handlers.
 var routeNames = append([]string{"Layout", "Load", "SSR", "Memo", "Cache"}, methods...)
 
-// checkPackageNames reports Path, which the directory replaces, and each name of route.go that
+// checkPackageNames reports each name of route.go that
 // is declared in another file of the package. The files are read by name, so a Load in
 // layout.go or a Cache in a helper file would otherwise be silently left out.
 func (a *analyzer) checkPackageNames(d *dirInfo) {
@@ -601,9 +601,6 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 		return
 	}
 	scope := pkg.Types.Scope()
-	if obj := scope.Lookup("Path"); obj != nil {
-		a.errorAt(obj.Pos(), "Path is not declared: the directory under app/ is the URL, write {name} as the directory name+ and {name...} as name++")
-	}
 	a.checkSwitchNames(scope)
 	for _, name := range routeNames {
 		obj := scope.Lookup(name)

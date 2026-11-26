@@ -444,7 +444,7 @@ func TestViolations(t *testing.T) {
 			{"app/d/b/z+/route.go:1:", `"/d/b/{z}"`, `"/{a}/b/c"`, "conflicts"},
 			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}"`, `"/d/{q}"`, `"/{a}/b"`, "conflicts"},
 			{"app/d/q+/rest++/route.go:1:", `"/d/{q}/{rest...}" conflicts`, `"/{a}/b/c"`},
-			{"app/declared/route.go:5:", "Path is not declared"},
+			// app/declared has const Path = "/declared": the app's own constant, no error.
 		}},
 		{"paramname", [][]string{
 			{"app/items/key+/route.go:11:", `"id"`, `"/items/{key}"`},
@@ -653,7 +653,7 @@ func TestViolations(t *testing.T) {
 			// helper.go has const cache = "redis", a string in another file: no error.
 		}},
 		{"structure", [][]string{
-			{"app/empty/route.go:5:", "Path is not declared"},
+			// app/empty has const Path = "/empty", the app's own constant too.
 			{"app/empty/route.go:7:", "Load is not allowed without page.tsx"},
 			{"app/empty/route.go:1:", "no pages"},
 			{"app/api/route.go:7:", "SSR is not allowed without page.tsx"},

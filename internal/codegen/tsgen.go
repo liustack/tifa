@@ -768,18 +768,6 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 		}
 	}
 
-	if app != nil && app.exported("Document") {
-		return nil, nil, errors.New("app/layout.tsx: the root Layout exports Document, which tifa no longer renders: export documentHead with htmlAttributes for the attributes of <html>, and return the head tags from head")
-	}
-	for _, n := range nodes {
-		if n.exported("NotFound") {
-			return nil, nil, fmt.Errorf("%s/%s: exports NotFound, which tifa no longer shows: a page that is not found shows the first Error from its route up, so export ErrorBoundary and check error instanceof TifaError && error.status === 404", n.dir, n.tsxFile())
-		}
-		if n.exported("Error") {
-			return nil, nil, fmt.Errorf("%s/%s: exports Error, which tifa no longer reads: rename it to ErrorBoundary, so that the name does not hide the global Error in the file", n.dir, n.tsxFile())
-		}
-	}
-
 	byID := map[string]*tsNode{}
 	for _, n := range nodes {
 		byID[n.id] = n

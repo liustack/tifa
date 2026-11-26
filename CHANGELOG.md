@@ -40,6 +40,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Removed
 
 - A constant in `route.go` that is near the name of a switch, such as `SSL`, `Demo` or `Cahce`, no longer fails the build with `did you mean`. `route.go` is your package, so such a constant is your own. A bool constant that spells a switch in lower case (`cache`, `memo`, `ssr`) still fails.
+- The build no longer fails for the names of older versions. A module that exports `Document`, `NotFound` or `Error`, and a `const Path` in a `route.go`, are now your own code: they are not read, and nothing reports them. A 404 is shown by the `ErrorBoundary` export.
 
 ### Fixed
 

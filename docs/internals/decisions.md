@@ -710,7 +710,7 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Why not.** `tifa.yaml` holds the settings of the framework and nothing else, so a key Tifa does not know there is a spelling mistake. The app has its own place, `options.go`, and its own ways.
 
-**Instead.** A key in `tifa.yaml` that is no setting of Tifa fails `tifa check` and `tifa build`, and a flag nobody defined stops the program. A setting Tifa retired is a warning. Other environment variables, and other keys in the file of `-c`, are left alone: [Configuration](../build-and-deploy/config.md).
+**Instead.** A key in `tifa.yaml` that is no setting of Tifa fails `tifa check` and `tifa build`, and a flag nobody defined stops the program. A setting Tifa retires is deleted at once, with no warning for it (2026-11-26): what is left of it in a file is an unknown key like any other, and it fails. Other environment variables, and other keys in the file of `-c`, are left alone: [Configuration](../build-and-deploy/config.md).
 
 ### Copying every dot file of public/
 

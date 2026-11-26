@@ -2,7 +2,7 @@
 summary: '页面的标题、meta 标签、documentHead 和 htmlAttributes'
 audience: app
 order: 6
-translatedFrom: 16c5a62c68cd
+translatedFrom: 8addf854f57f
 read_when:
   - '设置页面的标题、meta 标签或 `<html>` 属性，或者 404 页面和错误页面的 head'
 ---
@@ -25,7 +25,7 @@ export const head = () => ({ meta: [{ title: 'Pour-over kettle' }] })
 
 ## 文档外壳和 documentHead {#the-document-shell-and-documenthead}
 
-- 文档外壳（`<html>`、`<head>`、资源和注入数据的脚本）由框架当作字符串写出。React 只渲染 `<body>` 里的应用根节点，所以不管哪一层失败或返回 404，页面仍然是完整的文档。根布局（`app/layout.tsx`）可以导出 `documentHead` 来定制外壳，格式与 `head` 的返回值相同。每个页面都带它的标签（没有路由匹配或根 `Layout` 失败时也带），它的 `htmlAttributes` 是每个页面起步用的 `<html>` 属性（没有时是 `{ lang: 'en' }`，路由的 `head` 可以为它的页面改动它们，见下）。把网站默认的 `title` 放在这里，这样没匹配到的 URL 的 404 页面也有标题。页面自己的 `head` 返回了 `title` 时，会覆盖它。导出 `Document` 组件会让构建失败。
+- 文档外壳（`<html>`、`<head>`、资源和注入数据的脚本）由框架当作字符串写出。React 只渲染 `<body>` 里的应用根节点，所以不管哪一层失败或返回 404，页面仍然是完整的文档。根布局（`app/layout.tsx`）可以导出 `documentHead` 来定制外壳，格式与 `head` 的返回值相同。每个页面都带它的标签（没有路由匹配或根 `Layout` 失败时也带），它的 `htmlAttributes` 是每个页面起步用的 `<html>` 属性（没有时是 `{ lang: 'en' }`，路由的 `head` 可以为它的页面改动它们，见下）。把网站默认的 `title` 放在这里，这样没匹配到的 URL 的 404 页面也有标题。页面自己的 `head` 返回了 `title` 时，会覆盖它。
 
 ```tsx
 export const documentHead = {
