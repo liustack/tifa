@@ -2,7 +2,7 @@
 summary: '怎样边生成边发送答复：server-sent events、流式答复、Memo、Cache'
 audience: app
 order: 9
-translatedFrom: ec0bdff6d9e2
+translatedFrom: 31b94cb2c564
 read_when:
   - '向打开的页面推送实时更新，比如时钟、计数器或新订单'
   - '把语言模型的回复一个词一个词地显示出来'
@@ -13,7 +13,7 @@ read_when:
 
 一个页面显示服务器的时间，每秒更新一次，还像语言模型写字那样一个词一个词地回答问题。第一个是一直开着的 server-sent events 流。第二个是边生成边发送、然后结束的响应。
 
-这些代码是照写出来的样子，在用 `tifa new` 建的应用里运行过的。这里用到的调用的参考文档：[方法处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result)、[长请求](../build-and-deploy/config.zh-CN.md#long-requests)。
+这些代码是照写出来的样子，在用 `tifa new` 建的应用里运行过的。这里用到的调用的参考文档：[方法处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result)、[长请求](../build-and-deploy/tuning.zh-CN.md#long-requests)。
 
 ## Tifa 为流做了什么 {#what-tifa-does-for-a-stream}
 
@@ -83,7 +83,7 @@ func send(w http.ResponseWriter, s string) error {
 
 - 一个事件是若干行 `field: value` 加一个空行。`data:` 是页面拿到的文字，`event:` 给它一个自己的名字，`id:` 让浏览器在重新连接时说明自己停在哪里（`Last-Event-ID` 头），`retry:` 设置浏览器重新连接之前等待多少毫秒。以 `:` 开头的行是注释，浏览器会忽略它。
 - `send` 给每次写入 10 秒：网络断了却没有关闭连接的访客不再读取，写入在 10 秒之后失败，处理函数就返回。没有 `send` 的话，`server.write_timeout` 会在流开始 10 秒之后结束它。
-- 两次写入之间，`send` 不留任何截止时间。流在等待时还留着一个截止时间，在 HTTP/2 上一旦它过了，流就结束了，之后再移动它也救不回这个流。在 HTTP/1.1 上之后再移动它仍然有效，所以这只有在开了 [HTTPS](../build-and-deploy/config.zh-CN.md#https) 之后才会显现。
+- 两次写入之间，`send` 不留任何截止时间。流在等待时还留着一个截止时间，在 HTTP/2 上一旦它过了，流就结束了，之后再移动它也救不回这个流。在 HTTP/1.1 上之后再移动它仍然有效，所以这只有在开了 [HTTPS](../build-and-deploy/https.zh-CN.md#https) 之后才会显现。
 - 很长时间没有动静的流，可能被路上的代理关闭。每隔 15 到 30 秒发一行注释，比如 `: ping\n\n`。浏览器会忽略它。
 
 页面 `app/live/page.tsx` 在浏览器里运行之后才打开这个流：
@@ -229,7 +229,7 @@ function Ask() {
 ```
 
 - 自己写响应的处理函数，它生成的 `POST` 函数不发送输入，所以问题要通过 `fetch` 发出。
-- 对自己站点的 `fetch` 是同源的写请求，所以 [跨站检查](../build-and-deploy/config.zh-CN.md#cross-site-writes) 会放行它。
+- 对自己站点的 `fetch` 是同源的写请求，所以 [跨站检查](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes) 会放行它。
 - 中途断掉的流会在 `reader.read()` 里抛出错误。页面保留已有的内容，并说明它被截断了。
 
 ## 缓存 {#caches}
@@ -237,15 +237,15 @@ function Ask() {
 - 流是处理函数，不是页面，所以渲染记忆 memo 不会保存它，保存带 [`Cache`](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns) 的页面的 CDN 也不会。带 `Cache` 的页面可以打开一个流：HTML 对所有人都一样，每个浏览器在页面运行之后打开自己的流。
 - 没有你自己的 `Cache-Control` 时，响应是 `private, no-cache`，所以 CDN 不会保存它。保持这样。
 - nginx 会把它转发的响应先扣住，等攒够了再发。`X-Accel-Buffering: no` 对一个响应关掉这一点。其他代理和 CDN 有它们自己的设置。如果事件是一阵一阵到的，先去那里找原因。
-- 在 HTTP/1.1 上，浏览器对一个站点最多开 6 个连接，每个开着的 `EventSource` 占一个。开了 [HTTPS](../build-and-deploy/config.zh-CN.md#https) 之后，程序说 HTTP/2，一个浏览器的所有流共用一个连接。
+- 在 HTTP/1.1 上，浏览器对一个站点最多开 6 个连接，每个开着的 `EventSource` 占一个。开了 [HTTPS](../build-and-deploy/https.zh-CN.md#https) 之后，程序说 HTTP/2，一个浏览器的所有流共用一个连接。
 
 ## 程序停止时 {#when-the-program-stops}
 
-收到 SIGTERM 或 SIGINT 时，程序会关闭 `tifa.ShuttingDown` 的 channel，不再接受连接，并给正在处理的请求 [`server.shutdown_timeout`](../build-and-deploy/config.zh-CN.md#settings) 的时间来完成（见 [后台任务](jobs.zh-CN.md#what-tifa-does-when-it-stops)）。
+收到 SIGTERM 或 SIGINT 时，程序会关闭 `tifa.ShuttingDown` 的 channel，不再接受连接，并给正在处理的请求 [`server.shutdown_timeout`](../reference/settings.zh-CN.md#settings) 的时间来完成（见 [后台任务](jobs.zh-CN.md#what-tifa-does-when-it-stops)）。
 
 - **没有终点的流**，比如时钟，在 channel 关闭时返回。浏览器在它的 `retry` 时间之后重新连接，连到下一个程序。没有那个 `case`，流会把停止一直占到整个 `shutdown_timeout`，到时被取消，程序以状态 1 退出。有了它，示例应用在开着时钟的情况下 19 ms 就停了。
 - **自己会结束的回答**，比如模型的回复，可以忽略它。它有 `shutdown_timeout` 的时间来完成，花得更久的回复会被取消并截断。页面这时显示已经收到的内容，并说明被截断了。如果你的回复要花更久，就调高 `server.shutdown_timeout`。
-- 在 systemd 下用 [socket activation](../build-and-deploy/deploy.zh-CN.md#restart-without-dropping-requests) 时，浏览器的新连接会在下一个程序启动期间等着，由它来响应。
+- 在 systemd 下用 [socket activation](../build-and-deploy/deploy-by-hand.zh-CN.md#restart-without-dropping-requests) 时，浏览器的新连接会在下一个程序启动期间等着，由它来响应。
 
 ## 测试它 {#test-it}
 

@@ -19,7 +19,7 @@ Tifa turns on the checks it can make without knowing your business, and leaves t
 
 A POST, PUT, PATCH or DELETE that a browser sends from another site gets a 403 before `OnRequest` and before any handler runs. A page on another site cannot make a browser post a form to your app with your visitor's cookies. It is always on. A request that has no `Sec-Fetch-Site` and no `Origin` header, such as curl or a webhook, is not a browser and passes. GET, HEAD and OPTIONS are never checked, so a GET must not change anything: sign out with a POST.
 
-To let a site you control write, list it in `server.trusted_origins`. For a provider's callback, `server.cross_site_paths` skips the check for a path, and then your handler must prove the request is real. See [Cross-site writes](../build-and-deploy/config.md#cross-site-writes).
+To let a site you control write, list it in `server.trusted_origins`. For a provider's callback, `server.cross_site_paths` skips the check for a path, and then your handler must prove the request is real. See [Cross-site writes](../build-and-deploy/headers-and-origins.md#cross-site-writes).
 
 ### The session cookie is hard to steal and to forge
 
@@ -39,7 +39,7 @@ A request body may be 1 MiB (`server.body_limit`), and a bigger one gets 413. A 
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Content-Security-Policy` | `frame-ancestors 'self'`, so other sites cannot show a page in a frame |
 
-Pages, JSON, errors and static files all carry them. They are set before `OnRequest`, so `OnRequest` can change them for a path, such as pages a partner shows in a frame. See [Security headers](../build-and-deploy/config.md#security-headers).
+Pages, JSON, errors and static files all carry them. They are set before `OnRequest`, so `OnRequest` can change them for a path, such as pages a partner shows in a frame. See [Security headers](../build-and-deploy/headers-and-origins.md#security-headers).
 
 ### Data in a page cannot close its script
 
@@ -71,11 +71,11 @@ Keep passwords as a slow hash, such as argon2id, and say the same thing for an u
 
 ### Turn on HTTPS and HSTS
 
-The program serves HTTPS itself with a certificate from Let's Encrypt: set `server.tls_domains`. `tifa deploy` with `front: none` does this for you, `front: cloudflare` puts a Cloudflare Tunnel in front, and `front: nginx` an nginx that Tifa installs, with a certificate from certbot. Once HTTPS works, set `server.hsts: true`, which is off by default, so browsers keep to HTTPS for a year. See [HTTPS](../build-and-deploy/config.md#https), [Port 80 and HSTS](../build-and-deploy/config.md#port-80-and-hsts) and [The app serves visitors itself](../build-and-deploy/deploy.md#the-app-serves-visitors-itself).
+The program serves HTTPS itself with a certificate from Let's Encrypt: set `server.tls_domains`. `tifa deploy` with `front: none` does this for you, `front: cloudflare` puts a Cloudflare Tunnel in front, and `front: nginx` an nginx that Tifa installs, with a certificate from certbot. Once HTTPS works, set `server.hsts: true`, which is off by default, so browsers keep to HTTPS for a year. See [HTTPS](../build-and-deploy/https.md#https), [Port 80 and HSTS](../build-and-deploy/https.md#port-80-and-hsts) and [The app serves visitors itself](../build-and-deploy/deploy-setup.md#the-app-serves-visitors-itself).
 
 ### Turn on a Content-Security-Policy
 
-With `server.csp: on`, scripts load only from your site, and a script that gets into a page through data does not run. It is off by default. Try it first with `server.csp: report-only`. Tifa adds the hashes of its own inline scripts to the policy of each page. Leave `'strict-dynamic'` out of it, or pages stop hydrating. See [Content-Security-Policy](../build-and-deploy/config.md#content-security-policy).
+With `server.csp: on`, scripts load only from your site, and a script that gets into a page through data does not run. It is off by default. Try it first with `server.csp: report-only`. Tifa adds the hashes of its own inline scripts to the policy of each page. Leave `'strict-dynamic'` out of it, or pages stop hydrating. See [Content-Security-Policy](../build-and-deploy/headers-and-origins.md#content-security-policy).
 
 ### Keep secrets out of what `Load` returns
 
@@ -105,11 +105,11 @@ Tifa has no database layer. Your app uses `database/sql`, so pass values as argu
 
 - `tifa.SetHTTPHandler` wraps everything, the cross-site check too. A path your wrapper answers itself, such as `/debug/pprof/`, has no `OnRequest` and no check. Put it behind your own check or on another listener. See [Setting up in OnStart](../pages-and-data/hooks.md#setting-up-in-onstart).
 - Cookies you set with `c.SetCookie` go out as you write them. Set `HttpOnly`, `Secure` and `SameSite` yourself.
-- Compression can leak a secret over HTTPS when an answer repeats something from the request and also holds a secret. See [Compression](../build-and-deploy/build.md#compression).
-- `tifa dev` shows internal errors and listens on `127.0.0.1`. Do not open it to a network you do not trust. See [When a page fails to render](../build-and-deploy/dev.md#when-a-page-fails-to-render).
+- Compression can leak a secret over HTTPS when an answer repeats something from the request and also holds a secret. See [Compression](../reference/server-program.md#compression).
+- `tifa dev` shows internal errors and listens on `127.0.0.1`. Do not open it to a network you do not trust. See [When a page fails to render](../build-and-deploy/dev-errors.md#when-a-page-fails-to-render).
 
 ### Keep the program and its packages current
 
-Fixes for Tifa land in the latest release, and `go tool tifa upgrade` moves your app to it (see [Upgrading Tifa](../build-and-deploy/build.md#upgrading-tifa)). Tifa does not check your Go modules or npm packages for known holes, so update them on your own schedule.
+Fixes for Tifa land in the latest release, and `go tool tifa upgrade` moves your app to it (see [Upgrading Tifa](../build-and-deploy/upgrade.md#upgrading-tifa)). Tifa does not check your Go modules or npm packages for known holes, so update them on your own schedule.
 
 To report a hole in Tifa itself, open a [private security advisory](https://github.com/liustack/tifa/security/advisories/new) and not a public issue.

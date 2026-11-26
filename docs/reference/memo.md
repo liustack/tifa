@@ -84,7 +84,7 @@ You may read your own cookie or the `Authorization` header in `OnRequest` or a `
 
 There is one way to leak. If you set a shareable `Cache-Control`, such as `public` or `max-age=60`, on an answer that depends on your own cookie or `Authorization`, a CDN or shared proxy may store it and give it to the next visitor. Tifa cannot tell that your cookie is private, so it does not stop you. Do not do that. Use Tifa sessions, where such a header is an error, or leave `Cache-Control` alone.
 
-Behind a CDN, keep the defaults and let it follow the headers of the origin. See [Behind a CDN or proxy](../build-and-deploy/deploy.md#behind-a-cdn-or-proxy).
+Behind a CDN, keep the defaults and let it follow the headers of the origin. See [Behind a CDN or proxy](../build-and-deploy/deploy-proxy.md#behind-a-cdn-or-proxy).
 
 ## Requests that miss together
 
@@ -105,7 +105,7 @@ When that shared render fails, every request that waited for it gets the same er
 
 - **A component that reads the time or a random number** (`Date.now()`, `Math.random()`) puts a value into the HTML that is not in the input, and so not in the key, and the memo would give it to later visitors. Hydration needs the same. Under `tifa dev` every page is rendered a second time with the clock 36 hours on. When the two differ, the terminal and the dev overlay say so, show the first place where they part and list the places in your code that read the time or a random number. The page is not memoized until it is fixed. The check does not run in a built app. For a page that must show such a value on purpose, such as the time of the server, write `const Memo = false` in its `route.go`: it renders for every request and gets no `ETag`.
 - **A request with a render clock** (`tifa.WithRenderClock`) neither reads nor stores a page, because its HTML depends on a time the key does not hold. It gets no `ETag`.
-- **`ssr.memo_size`** is the memory of the render memo, 64 MiB by default. When it is full, the pages that were hit only once go first, least recently used first, so a run of addresses that come once cannot push out the pages that are asked for again and again. `0` turns it off, and requests that miss the same page at the same time still share one render. See [Configuration](../build-and-deploy/config.md).
+- **`ssr.memo_size`** is the memory of the render memo, 64 MiB by default. When it is full, the pages that were hit only once go first, least recently used first, so a run of addresses that come once cannot push out the pages that are asked for again and again. `0` turns it off, and requests that miss the same page at the same time still share one render. See [Settings](settings.md).
 
 ## One key per page
 
@@ -115,12 +115,12 @@ Every page response carries the `ETag`. A second request with `If-None-Match` ge
 
 What it costs: a write that changes the data of a Layout, such as a count in the header of a project, makes every page under that Layout render again on its next request. A write that leaves the Layout data alone makes only the pages whose `Load` data it changes render again.
 
-The memo keeps one gzip form of each page and sends it in the encoding each visitor takes. Compressing a page costs 1% to 2% of its render. See [Compression](../build-and-deploy/build.md#compression) and [Performance](performance.md#compression).
+The memo keeps one gzip form of each page and sends it in the encoding each visitor takes. Compressing a page costs 1% to 2% of its render. See [Compression](server-program.md#compression) and [Performance](performance.md#compression).
 
 ## Seeing it work
 
 - `X-Tifa-Render` on a page: `vm` is a render for this request, `memo` a hit, `shared` a render another request started at the same time, `none` a 304 or an answer that did not go through the VM.
 - A request with `If-None-Match` gets 304 when the key did not change, before the memo is asked.
-- `tifa.Stats().Memo` has `Entries`, `Hits`, `Misses`, `Shared` and `Evictions` (the pages dropped to make room for another, those hit only once first), and `MemoBytes` against `MemoSize` shows how full the memo is. See [Deployment](../build-and-deploy/deploy.md) for a route that writes them for Prometheus.
+- `tifa.Stats().Memo` has `Entries`, `Hits`, `Misses`, `Shared` and `Evictions` (the pages dropped to make room for another, those hit only once first), and `MemoBytes` against `MemoSize` shows how full the memo is. See [Health checks and metrics](../build-and-deploy/deploy-by-hand.md#health-checks-and-metrics) for a route that writes them for Prometheus.
 
 For numbers, see [Performance](performance.md).

@@ -2,7 +2,7 @@
 summary: '怎样用 SQLite 保存数据：迁移、`database is locked`、把 `db.backup` 备份到 R2 或 S3、Postgres'
 audience: app
 order: 2
-translatedFrom: ca0b5bb67938
+translatedFrom: 322bd50588d8
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'
@@ -14,7 +14,7 @@ read_when:
 
 # 在 SQLite 里保存数据 {#keeping-data-in-sqlite}
 
-Tifa 没有数据库层。你的应用在 `OnStart` 里打开一个数据库，像任何 Go 程序一样用 `database/sql` 使用它。这篇指南从 [`tifa new`](../build-and-deploy/build.zh-CN.md#tifa-new) 写出的 SQLite 配置出发，加上真实应用接下来需要的东西：文件路径的设置、迁移、事务、备份和测试。
+Tifa 没有数据库层。你的应用在 `OnStart` 里打开一个数据库，像任何 Go 程序一样用 `database/sql` 使用它。这篇指南从 [`tifa new`](../build-and-deploy/create-app.zh-CN.md#tifa-new) 写出的 SQLite 配置出发，加上真实应用接下来需要的东西：文件路径的设置、迁移、事务、备份和测试。
 
 代码来自一个用 `tifa new` 建的临时应用，模块是 `example.com/notes`。文件放在哪里，见 [组织一个应用](../start/structure.zh-CN.md#2-shared-resources-and-other-dependencies)。
 
@@ -97,7 +97,7 @@ var DBPath = tifa.String("db.path", "app.db", "SQLite database file")
 ```
 
 - 相对路径相对于程序运行所在的文件夹解析。在 `tifa dev` 下那是应用根目录，在服务器上是你启动程序的文件夹。
-- 在服务器上，把文件放进专门放数据的文件夹，并用环境变量来指定：`DB_PATH=/var/lib/notes/app.db`。[部署](../build-and-deploy/deploy.zh-CN.md#run-it) 说明要备份这个文件夹，或者在容器里把它挂载出来。
+- 在服务器上，把文件放进专门放数据的文件夹，并用环境变量来指定：`DB_PATH=/var/lib/notes/app.db`。[部署](../build-and-deploy/deploy-by-hand.zh-CN.md#run-it) 说明要备份这个文件夹，或者在容器里把它挂载出来。
 - WAL 模式下的 SQLite 会在它旁边再保存两个文件，`app.db-wal` 和 `app.db-shm`。应用运行时不要手动复制这三个文件，见下面的备份。让这三个文件都不进 git（`tifa new` 的 `.gitignore` 就是这样）。
 - 一个程序拥有这个文件。部署时短暂重叠的两份应用共用同一个文件是可以的，但第二台服务器需要 [Postgres](#when-to-use-postgres)。
 
@@ -320,7 +320,7 @@ if errors.As(err, &e) && e.ExtendedCode() == sqlite.CONSTRAINT_UNIQUE {
 
 1. 在 Cloudflare 控制台打开 **R2 object storage**，选择 **Create bucket**。给它起个名字，比如 `notes-backup`。
 2. 在 R2 的 **Overview** 页面，选择 **API Tokens** 旁边的 **Manage**，然后选 **Create Account API token**。给它 **Object Read & Write** 权限，并限定在这个 bucket 上。复制 **Access Key ID** 和 **Secret Access Key**：secret 只显示一次。这个页面也会显示你账号的 S3 端点 `https://<account>.r2.cloudflarestorage.com`（[R2 API tokens](https://developers.cloudflare.com/r2/api/tokens/)）。
-3. 在服务器上，先设置两个密钥，再设置 bucket 的 URL。每条命令都会询问值，然后重启应用（见[服务器上的设置和 secret](../build-and-deploy/deploy.zh-CN.md#settings-and-secrets-on-the-server)）。设置了 `DB_BACKUP` 却没有密钥时，应用拒绝启动，所以顺序很重要：
+3. 在服务器上，先设置两个密钥，再设置 bucket 的 URL。每条命令都会询问值，然后重启应用（见[服务器上的设置和 secret](../build-and-deploy/deploy-operate.zh-CN.md#settings-and-secrets-on-the-server)）。设置了 `DB_BACKUP` 却没有密钥时，应用拒绝启动，所以顺序很重要：
 
    ```sh
    go tool tifa deploy env set AWS_ACCESS_KEY_ID

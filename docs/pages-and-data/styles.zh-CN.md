@@ -2,7 +2,7 @@
 summary: '给应用加 CSS、Tailwind、shadcn/ui 或别的 UI 库'
 audience: app
 order: 8
-translatedFrom: bb4a454419d3
+translatedFrom: 56619b8a75f9
 read_when:
   - '给应用加 CSS、Tailwind CSS 或 shadcn/ui'
   - '选 UI 库，或者 daisyUI、Base UI、React Aria、Mantine、Chakra UI、MUI 这样的库在页面加载完之前没有样式'
@@ -69,7 +69,7 @@ pnpm dlx shadcn@latest add button card
 
 `add` 按这些别名放置文件并改写其中的 import：`add sidebar` 会写入 `components/hooks/use-mobile.ts`。如果 `lib/utils.ts` 只是从 `cn` 包重新导出 `cn`（shadcn 4 就是这样），就删掉它，页面代码里也像组件那样直接从 `cn` import `cn`。否则把它移到 `components/lib/utils.ts`。
 
-`@/` 是应用根目录，由应用 tsconfig 里的 `paths` 设置（见 [build.md](../build-and-deploy/build.zh-CN.md#the-apps-tsconfig-and-vite-config)）。组件和其他 React 代码一样在服务器上渲染。
+`@/` 是应用根目录，由应用 tsconfig 里的 `paths` 设置（见 [生成的文件和应用的配置](../reference/generated-files.zh-CN.md#the-apps-tsconfig-and-vite-config)）。组件和其他 React 代码一样在服务器上渲染。
 
 ## 其他 UI 库 {#other-ui-libraries}
 

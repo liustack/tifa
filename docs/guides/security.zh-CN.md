@@ -2,7 +2,7 @@
 summary: 'Tifa 默认替你防住了什么（跨站写入、会话 cookie、上限、响应头），以及你必须自己做的事'
 audience: app
 order: 12
-translatedFrom: 9899144d4514
+translatedFrom: b3f79cce19c3
 read_when:
   - '准备上线，想知道 Tifa 已经防了什么、还有什么留给你'
   - '检查一个应用，或者 coding agent 写的代码，看有没有安全漏洞'
@@ -20,7 +20,7 @@ Tifa 默认打开的，是它不用懂你的业务就能做的检查，其余的
 
 浏览器从另一个站点发来的 POST、PUT、PATCH 或 DELETE，会在 `OnRequest` 和任何处理函数运行之前就得到 403。别的站点上的页面无法让浏览器带着访客的 cookie 向你的应用提交表单。这个检查始终开着。既没有 `Sec-Fetch-Site` 也没有 `Origin` 头的请求，比如 curl 或 webhook，不是浏览器，会放行。GET、HEAD 和 OPTIONS 从不检查，所以 GET 绝不能改变任何东西：退出登录要用 POST。
 
-要让你自己控制的站点也能写入，把它列进 `server.trusted_origins`。对于第三方服务的回调，`server.cross_site_paths` 可以让某个路径跳过检查，此时你的处理函数必须自己证明请求是真的。详见[跨站写入](../build-and-deploy/config.zh-CN.md#cross-site-writes)。
+要让你自己控制的站点也能写入，把它列进 `server.trusted_origins`。对于第三方服务的回调，`server.cross_site_paths` 可以让某个路径跳过检查，此时你的处理函数必须自己证明请求是真的。详见[跨站写入](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes)。
 
 ### 会话 cookie 难偷也难伪造 {#the-session-cookie-is-hard-to-steal-and-to-forge}
 
@@ -40,7 +40,7 @@ Tifa 默认打开的，是它不用懂你的业务就能做的检查，其余的
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Content-Security-Policy` | `frame-ancestors 'self'`，所以别的站点不能把页面放进框架里显示 |
 
-页面、JSON、错误和静态文件都带着它们。它们在 `OnRequest` 之前设置，所以 `OnRequest` 可以为某个路径改掉，比如合作方要在框架里显示的页面。详见[安全响应头](../build-and-deploy/config.zh-CN.md#security-headers)。
+页面、JSON、错误和静态文件都带着它们。它们在 `OnRequest` 之前设置，所以 `OnRequest` 可以为某个路径改掉，比如合作方要在框架里显示的页面。详见[安全响应头](../build-and-deploy/headers-and-origins.zh-CN.md#security-headers)。
 
 ### 页面里的数据关不掉它的 script {#data-in-a-page-cannot-close-its-script}
 
@@ -72,11 +72,11 @@ Tifa 存会话。它不认识你的用户、角色和所有者。访问检查写
 
 ### 打开 HTTPS 和 HSTS {#turn-on-https-and-hsts}
 
-程序自己就能提供 HTTPS，证书来自 Let's Encrypt：设置 `server.tls_domains`。`tifa deploy` 在 `front: none` 时替你做好这件事，`front: cloudflare` 则在前面放一条 Cloudflare Tunnel，`front: nginx` 则放一个由 Tifa 安装的 nginx，证书来自 certbot。HTTPS 能用之后，设置 `server.hsts: true`（默认关闭），让浏览器一年内都只走 HTTPS。详见 [HTTPS](../build-and-deploy/config.zh-CN.md#https)、[80 端口和 HSTS](../build-and-deploy/config.zh-CN.md#port-80-and-hsts)和[应用自己接待访客](../build-and-deploy/deploy.zh-CN.md#the-app-serves-visitors-itself)。
+程序自己就能提供 HTTPS，证书来自 Let's Encrypt：设置 `server.tls_domains`。`tifa deploy` 在 `front: none` 时替你做好这件事，`front: cloudflare` 则在前面放一条 Cloudflare Tunnel，`front: nginx` 则放一个由 Tifa 安装的 nginx，证书来自 certbot。HTTPS 能用之后，设置 `server.hsts: true`（默认关闭），让浏览器一年内都只走 HTTPS。详见 [HTTPS](../build-and-deploy/https.zh-CN.md#https)、[80 端口和 HSTS](../build-and-deploy/https.zh-CN.md#port-80-and-hsts)和[应用自己接待访客](../build-and-deploy/deploy-setup.zh-CN.md#the-app-serves-visitors-itself)。
 
 ### 打开 Content-Security-Policy {#turn-on-a-content-security-policy}
 
-设置 `server.csp: on` 后，脚本只从你自己的站点加载，经由数据混进页面的脚本不会运行。它默认关闭。可以先用 `server.csp: report-only` 试一试。Tifa 会把自己内联脚本的哈希加进每个页面的策略里。策略里不要写 `'strict-dynamic'`，否则页面不会激活。详见 [Content-Security-Policy](../build-and-deploy/config.zh-CN.md#content-security-policy)。
+设置 `server.csp: on` 后，脚本只从你自己的站点加载，经由数据混进页面的脚本不会运行。它默认关闭。可以先用 `server.csp: report-only` 试一试。Tifa 会把自己内联脚本的哈希加进每个页面的策略里。策略里不要写 `'strict-dynamic'`，否则页面不会激活。详见 [Content-Security-Policy](../build-and-deploy/headers-and-origins.zh-CN.md#content-security-policy)。
 
 ### 别让密钥出现在 `Load` 的返回值里 {#keep-secrets-out-of-what-load-returns}
 
@@ -106,11 +106,11 @@ Tifa 没有数据库层。你的应用用 `database/sql`，所以把值作为参
 
 - `tifa.SetHTTPHandler` 包在所有东西外面，跨站检查也在里面。你的包装器自己回答的路径，比如 `/debug/pprof/`，没有 `OnRequest`，也没有检查。把它放在你自己的检查后面，或者放到另一个监听器上。详见[在 OnStart 里做设置](../pages-and-data/hooks.zh-CN.md#setting-up-in-onstart)。
 - 用 `c.SetCookie` 设置的 cookie 按你写的原样发出。`HttpOnly`、`Secure` 和 `SameSite` 要自己设。
-- 通过 HTTPS 时，如果一个响应既重复了请求里的内容，又包含机密，压缩可能泄漏那个机密。详见[压缩](../build-and-deploy/build.zh-CN.md#compression)。
-- `tifa dev` 会显示内部错误，并监听 `127.0.0.1`。不要把它开放给你不信任的网络。详见[页面渲染失败时](../build-and-deploy/dev.zh-CN.md#when-a-page-fails-to-render)。
+- 通过 HTTPS 时，如果一个响应既重复了请求里的内容，又包含机密，压缩可能泄漏那个机密。详见[压缩](../reference/server-program.zh-CN.md#compression)。
+- `tifa dev` 会显示内部错误，并监听 `127.0.0.1`。不要把它开放给你不信任的网络。详见[页面渲染失败时](../build-and-deploy/dev-errors.zh-CN.md#when-a-page-fails-to-render)。
 
 ### 让程序和它的依赖保持最新 {#keep-the-program-and-its-packages-current}
 
-Tifa 的修复会进入最新版本，`go tool tifa upgrade` 会把你的应用升到那个版本（见[升级 Tifa](../build-and-deploy/build.zh-CN.md#upgrading-tifa)）。Tifa 不会检查你的 Go 模块和 npm 包有没有已知漏洞，所以请按自己的节奏更新它们。
+Tifa 的修复会进入最新版本，`go tool tifa upgrade` 会把你的应用升到那个版本（见[升级 Tifa](../build-and-deploy/upgrade.zh-CN.md#upgrading-tifa)）。Tifa 不会检查你的 Go 模块和 npm 包有没有已知漏洞，所以请按自己的节奏更新它们。
 
 要报告 Tifa 本身的漏洞，请开一个[私密的安全公告](https://github.com/liustack/tifa/security/advisories/new)，不要开公开的 issue。

@@ -101,7 +101,7 @@ If the function needs code of a domain under `app/`, the root cannot import that
 
 ## What Tifa does when it stops
 
-On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeout`](../build-and-deploy/config.md#settings) is 10 seconds by default):
+On SIGINT or SIGTERM (a deploy, Ctrl-C), in this order ([`server.shutdown_timeout`](../reference/settings.md#settings) is 10 seconds by default):
 
 1. It closes the channel of `tifa.ShuttingDown`, which streams watch to end at once ([Streaming](streaming.md#when-the-program-stops)), stops accepting connections and waits up to `shutdown_timeout` for the requests in flight.
 2. If some are still running, it cancels their contexts and waits up to `shutdown_timeout` again.

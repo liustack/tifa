@@ -2,7 +2,7 @@
 summary: '渲染记忆是什么，以及它和 Cache 有什么不同：`ssr.memo_size`、ETag、查询参数、登录后的页面'
 audience: app
 order: 1
-translatedFrom: af8b3b2ebf7b
+translatedFrom: 9c32b3a56486
 read_when:
   - '想知道为什么叫记忆而不叫缓存，或者它会不会显示旧页面'
   - '想知道 `/sitemap.xml`、`/llms.txt` 或 `.md` 文件是不是每个请求都重新生成'
@@ -85,7 +85,7 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 
 只有一种泄漏的办法。如果你在一个取决于自己的 cookie 或 `Authorization` 的响应上，设置了可共享的 `Cache-Control`，比如 `public` 或 `max-age=60`，CDN 或共享代理就可能把它存下来，并给到下一个访客。Tifa 没办法知道你的 cookie 是私有的，所以它不会拦你。不要这样做。用 Tifa 会话（在那里这样的头是错误），或者不要动 `Cache-Control`。
 
-在 CDN 后面，保持默认值，让它跟着源站的头走。见 [在 CDN 或代理后面](../build-and-deploy/deploy.zh-CN.md#behind-a-cdn-or-proxy)。
+在 CDN 后面，保持默认值，让它跟着源站的头走。见 [在 CDN 或代理后面](../build-and-deploy/deploy-proxy.zh-CN.md#behind-a-cdn-or-proxy)。
 
 ## 同时没命中的请求 {#requests-that-miss-together}
 
@@ -106,7 +106,7 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 
 - **读取时间或随机数的组件**（`Date.now()`、`Math.random()`）会把一个不在输入里、因此也不在键里的值放进 HTML，memo 会把它给之后的访客。水合也要求这样。在 `tifa dev` 下，每个页面都会再渲染一次，时钟拨快 36 小时，两次结果不同时，终端和开发浮层会告诉你，指出第一处不同的位置，并列出你代码里读取时间或随机数的地方。在修好之前，这个页面不会被 memo 记住。构建好的应用不做这项检查。如果页面确实要显示这样的值，比如服务器的时间，就在它的 `route.go` 里写 `const Memo = false`：它对每个请求都渲染，并且没有 `ETag`。
 - **带渲染时钟**（`tifa.WithRenderClock`）的请求既不读也不存页面，因为它的 HTML 取决于键里没有的时间，也没有 `ETag`。
-- **`ssr.memo_size`** 是渲染 memo 的内存，默认 64 MiB。满了之后，只被命中过一次的页面先丢，最久没用的先走，所以只来一次的一批地址挤不掉被反复访问的页面。`0` 会把它关掉，同时没命中同一个页面的请求仍然共用一次渲染。见 [配置](../build-and-deploy/config.zh-CN.md)。
+- **`ssr.memo_size`** 是渲染 memo 的内存，默认 64 MiB。满了之后，只被命中过一次的页面先丢，最久没用的先走，所以只来一次的一批地址挤不掉被反复访问的页面。`0` 会把它关掉，同时没命中同一个页面的请求仍然共用一次渲染。见[设置](settings.zh-CN.md)。
 
 ## 每个页面一个键 {#one-key-per-page}
 
@@ -116,12 +116,12 @@ memo 为一个输入保存输出。下一个请求来了，它比较输入。输
 
 代价是：改变某个布局数据的写入，比如项目页头里的一个计数，会让这个布局下的每个页面在下一个请求时重新渲染。不动布局数据的写入，只会让 `Load` 数据被它改动的那些页面重新渲染。
 
-memo 对每个页面只保存一种 gzip 形式，并以每个访客接受的编码发出。压缩一个页面的开销是它渲染时间的 1% 到 2%。见 [压缩](../build-and-deploy/build.zh-CN.md#compression) 和 [性能](performance.zh-CN.md#compression)。
+memo 对每个页面只保存一种 gzip 形式，并以每个访客接受的编码发出。压缩一个页面的开销是它渲染时间的 1% 到 2%。见 [压缩](server-program.zh-CN.md#compression) 和 [性能](performance.zh-CN.md#compression)。
 
 ## 看它怎么工作 {#seeing-it-work}
 
 - 页面上的 `X-Tifa-Render`：`vm` 是为这个请求做的一次渲染，`memo` 是一次命中，`shared` 是另一个请求同时发起的一次渲染，`none` 是 304 或没有经过 VM 的响应。
 - 带 `If-None-Match` 的请求，在键没变时得到 304，这发生在询问 memo 之前。
-- `tifa.Stats().Memo` 有 `Entries`、`Hits`、`Misses`、`Shared` 和 `Evictions`（为给别的页面腾地方而丢掉的页面，只命中过一次的先丢），`MemoBytes` 对照 `MemoSize` 能看出 memo 有多满。要看把它们写给 Prometheus 的路由，见 [部署](../build-and-deploy/deploy.zh-CN.md)。
+- `tifa.Stats().Memo` 有 `Entries`、`Hits`、`Misses`、`Shared` 和 `Evictions`（为给别的页面腾地方而丢掉的页面，只命中过一次的先丢），`MemoBytes` 对照 `MemoSize` 能看出 memo 有多满。要看把它们写给 Prometheus 的路由，见[健康检查和指标](../build-and-deploy/deploy-by-hand.zh-CN.md#health-checks-and-metrics)。
 
 数字请见 [性能](performance.zh-CN.md)。

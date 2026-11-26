@@ -2,7 +2,7 @@
 summary: 'Tifa v0.1 对应用保持稳定的东西，以及哪些可能变：包、文件约定、命令'
 audience: app
 order: 3
-translatedFrom: 5a3aa7909ecc
+translatedFrom: 867825e94eb0
 read_when:
   - '判断升级 Tifa 会不会弄坏你的应用'
   - '在 Tifa 程序前面放 CDN、代理或监控'
@@ -24,7 +24,7 @@ read_when:
 
 **命令和参数。** `go tool tifa` 的各个命令（`new`、`build`、`dev`、`gen`、`check`、`routes`、`errors`、`docs`、`agents`、`upgrade`）及其参数。构建出的程序的 `serve`、`config` 和 `version`，`-c/--config`，以及每个设置对应的一个参数。
 
-**`tifa.yaml` 的键。** [config.md](../build-and-deploy/config.zh-CN.md) 里的每个键，连同它的参数、环境变量、类型和默认值。Tifa 去掉一个键，会在 minor 版本里进行，更新日志会说明该改写成什么。
+**`tifa.yaml` 的键。** [设置](settings.zh-CN.md)里的每个键，连同它的参数、环境变量、类型和默认值。Tifa 去掉一个键，会在 minor 版本里进行，更新日志会说明该改写成什么。
 
 **应用和 CDN 会碰到的 HTTP 名称。**
 

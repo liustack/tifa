@@ -6,4 +6,4 @@ audience: app
 
 # Reference
 
-How the render memo works, how fast Tifa is and what it works with.
+How the render memo works, how fast Tifa is, what it works with, every setting, and what the build writes and the built program does.

@@ -2,7 +2,7 @@
 summary: '服务端渲染有什么、缺什么：beastjs 的 API、Node 模块、Intl、Temporal、水合'
 audience: app
 order: 12
-translatedFrom: a97371a1298a
+translatedFrom: 6e98a622a653
 read_when:
   - '页面在服务端渲染失败或没有水合，想知道服务端有哪些浏览器 API 和库的功能'
   - '某个组件在浏览器画出来之前什么都不显示（比如图表或地图），想知道要不要在服务端渲染它'
@@ -153,7 +153,7 @@ export default function ReceiptPage() {
 
 `log`、`info` 和 `debug` 是 `INFO` 行，`warn` 是 `WARN` 行，`console.table(rows)` 和 `console.dir(value)` 会像 `log` 一样打印它们的第一个参数。第一个参数里的 `%s`、`%d`、`%i`、`%f`、`%j`、`%o`、`%O` 和 `%%` 和 Node 里一样起作用。对象按 JSON 打印，JSON 装不下的值按 `String` 给出的结果打印。一次渲染只保留前 100 次调用，每条最多 4,000 个字符，多出来的会在一行里说明有多少次。位置取调用栈里你的代码的第一行，所以包内部的调用会写成引出它的那行你的代码，包没有 source map 时则不写位置。
 
-渲染记忆会保留的页面在 `tifa dev` 下会渲染两次（见 [`tifa dev`](../build-and-deploy/dev.zh-CN.md#log)），只有第一次渲染会打印。失败的渲染会打印它失败之前写下的内容。`error` 和失败的 `assert` 和构建出的程序里一样会抛出，所以在 `tifa dev` 下能渲染的页面，在构建出的程序里也能渲染。构建出的程序什么也不打印，VM 自己也从不写任何东西：它把文字交给 Go，由 Go 记录。
+渲染记忆会保留的页面在 `tifa dev` 下会渲染两次（见 [`tifa dev`](../build-and-deploy/dev-errors.zh-CN.md#log)），只有第一次渲染会打印。失败的渲染会打印它失败之前写下的内容。`error` 和失败的 `assert` 和构建出的程序里一样会抛出，所以在 `tifa dev` 下能渲染的页面，在构建出的程序里也能渲染。构建出的程序什么也不打印，VM 自己也从不写任何东西：它把文字交给 Go，由 Go 记录。
 
 ### `tifa dev` 里的警告 {#warnings-in-tifa-dev}
 

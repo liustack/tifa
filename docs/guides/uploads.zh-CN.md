@@ -2,7 +2,7 @@
 summary: '怎样让访客在 Tifa 应用里上传文件：文件输入、请求体上限、类型检查、存放位置、测试'
 audience: app
 order: 4
-translatedFrom: cc8ed5741c91
+translatedFrom: b2c57a3402c6
 read_when:
   - '添加文件上传，比如图片、头像或附件'
   - '上传失败，返回 400、408、413、415 或 422，或者处理函数看不到文件'
@@ -390,7 +390,7 @@ export default function Photos() {
 - 留空的文件输入框仍然会给 `FormData` 一个名字为空的 `File`。这时页面发送 `null`，`Validate` 会要求一张图片。
 - 被拒绝时会抛出 `TifaError`。`e.fields` 放着 `tifa.Fields` 的消息，按输入的 `json` 名字。413 没有字段，所以页面给出它自己的消息。
 - 浏览器自己的 `accept` 过滤只是给文件选择器的提示，不是检查。决定权在 Go 一侧。
-- 对自己站点的调用是同源的写请求，所以 [跨站检查](../build-and-deploy/config.zh-CN.md#cross-site-writes) 会放行它。来自另一个站点的表单会以 403 响应。
+- 对自己站点的调用是同源的写请求，所以 [跨站检查](../build-and-deploy/headers-and-origins.zh-CN.md#cross-site-writes) 会放行它。来自另一个站点的表单会以 403 响应。
 - 调用不会重新加载页面数据，所以页面在得到成功的响应之后调用 `router.invalidate({ sync: true })`。
 
 ## 测试处理函数 {#testing-the-handler}

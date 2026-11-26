@@ -152,7 +152,7 @@ Under [`tifa dev`](../build-and-deploy/dev.md), what a page prints while it rend
 
 `log`, `info` and `debug` are `INFO` lines, `warn` is a `WARN` line, and `console.table(rows)` and `console.dir(value)` print their first argument as `log` does. `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O` and `%%` in the first argument work as in Node. An object prints as JSON, and a value JSON cannot hold prints as `String` gives it. A render keeps its first 100 calls and each is cut at 4,000 characters, and a line says how many more there were. The place is the first line of your code in the stack, so a call inside a package is named by your code that led to it, and it is left out when the bundle has no source map.
 
-A page the render memo keeps is rendered twice under `tifa dev` (see [`tifa dev`](../build-and-deploy/dev.md#log)), and only the first render prints. A render that fails prints what it wrote before it failed. `error` and a failed `assert` throw as they do in a built program, so a page that renders under `tifa dev` renders in the built program too. A built program prints nothing, and the VM never writes anything itself: it hands the text to Go, which logs it.
+A page the render memo keeps is rendered twice under `tifa dev` (see [`tifa dev`](../build-and-deploy/dev-errors.md#log)), and only the first render prints. A render that fails prints what it wrote before it failed. `error` and a failed `assert` throw as they do in a built program, so a page that renders under `tifa dev` renders in the built program too. A built program prints nothing, and the VM never writes anything itself: it hands the text to Go, which logs it.
 
 ### Warnings in `tifa dev`
 

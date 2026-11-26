@@ -37,7 +37,7 @@ site:
 | `/llms-full.txt` | The Markdown of every page that shows a content entry, one after the other |
 | `<path>.md` | The Markdown version of a page that shows a content entry, such as `/blog/hello.md` |
 
-`tifa routes` lists these addresses and says what each one needs, so you can see which of them your app has (see [Tifa routes](../build-and-deploy/build.md#tifa-routes)).
+`tifa routes` lists these addresses and says what each one needs, so you can see which of them your app has (see [Tifa routes](../build-and-deploy/check.md#tifa-routes)).
 
 Every page also gets `<link rel="canonical">` with its full URL: the path and the query parameters its `Load` and Layouts read, the URL the server renders it with (see [Query parameters](../reference/memo.md#query-parameters)). Other parameters are left out. So `/store/products?page=2&utm_source=news` has the canonical URL `/store/products?page=2` when its `Load` reads `page`: page 2 of a list is a page of its own, and a link with a tracking parameter is no copy. A canonical you write in your own `head` wins. There is none on a 404 or an error page.
 

@@ -389,7 +389,7 @@ export default function Photos() {
 - A file input left empty still gives `FormData` a `File`, with an empty name. The page sends `null` then, and `Validate` asks for a picture.
 - A refusal throws a `TifaError`. `e.fields` holds the messages of `tifa.Fields`, by the `json` names of the input. A 413 has no fields, so the page gives its own message.
 - The browser's own `accept` filter is a hint for the file picker and not a check. The Go side decides.
-- A call to your own site is a same-origin write, so the [cross-site check](../build-and-deploy/config.md#cross-site-writes) lets it through. A form on another site is answered with 403.
+- A call to your own site is a same-origin write, so the [cross-site check](../build-and-deploy/headers-and-origins.md#cross-site-writes) lets it through. A form on another site is answered with 403.
 - A call does not reload the page data, so the page calls `router.invalidate({ sync: true })` after a good answer.
 
 ## Testing the handler

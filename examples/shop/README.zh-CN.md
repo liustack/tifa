@@ -60,7 +60,7 @@ app/
   account.tsx                  顶栏里显示谁登录了，以及退出按钮
   login/                       /login：不带工作台的 layout_.tsx、登录表单，和负责登录的 POST
   logout/                      /logout：负责退出的 POST
-  metrics/                     /metrics：按 Tifa 的 docs/build-and-deploy/deploy.md 写的 Prometheus 指标（来自 tifa.Stats），登录后才能看
+  metrics/                     /metrics：按 Tifa 的 docs/build-and-deploy/deploy-by-hand.md 写的 Prometheus 指标（来自 tifa.Stats），登录后才能看
   styles.css                   Tailwind CSS 和店铺的主题
   format.ts                    英文的金额和时间，按店铺时区
   animated-number.tsx          数据变化时补间的数字
@@ -154,4 +154,4 @@ curl -si http://127.0.0.1:9527/store/journal | grep -i '^x-tifa-render'
 - 打开一个商品页，再打开商品列表。「最近看过」里有刚才那个商品，它是页面加载后浏览器从 `/store/mine` 取来的，而页面本身来自渲染记忆。
 - 打开一篇手记，代码块的高亮已经在服务器发来的 HTML 里。
 
-更多约定见 [构建与生成代码](../../docs/build-and-deploy/build.md) 和 [应用怎么写](../../docs/start/app.md)。
+更多约定见 [生成的文件和应用的配置](../../docs/reference/generated-files.zh-CN.md) 和 [应用怎么写](../../docs/start/app.md)。

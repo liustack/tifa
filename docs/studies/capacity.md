@@ -102,7 +102,7 @@ The server ran on the CPUs the row names, with one VM per CPU (`--ssr-vms` and `
 
 ### CPU and `ssr.vms`
 
-- [`ssr.vms`](../build-and-deploy/config.md#settings) defaults to the CPU count Go sees (`GOMAXPROCS`), which follows a container's CPU limit, at most 4: 1, 2, 4 and 4 VMs on 1, 2, 4 and 8 CPUs. Up to 4 CPUs leave it. On more CPUs, set it to the CPU count, such as `--ssr-vms 8` or `SSR_VMS=8`, when the memory allows (see [Memory](#memory)).
+- [`ssr.vms`](../reference/settings.md#settings) defaults to the CPU count Go sees (`GOMAXPROCS`), which follows a container's CPU limit, at most 4: 1, 2, 4 and 4 VMs on 1, 2, 4 and 8 CPUs. Up to 4 CPUs leave it. On more CPUs, set it to the CPU count, such as `--ssr-vms 8` or `SSR_VMS=8`, when the memory allows (see [Memory](#memory)).
 - Plan on about 42 page requests a second per physical core for pages like the shop's workbench, about 24 ms of a core each with HTTP, measured with the render memo off ([how it scales](#how-it-scales-with-cores)). The storefront took about 29 ms a request, so about 34 a second, on 2026-10-24 before the redesign. Pages with a different render time scale with it.
 - A cloud vCPU is usually one hyperthread, so 2 vCPUs are often one physical core. When all hyperthreads are busy, plan on about 0.6 of a physical core per vCPU: 6 busy hyperthreads answered 153 requests a second, 26 per vCPU, against 42 on a physical core. Renders are then about 1.65 times slower: a P50 of 32.5 ms against 19.4 ms.
 - More VMs than CPUs adds no throughput and slows every render. On 7 CPUs, with the shop's pages of 2026-10-24, 8 VMs answered 338 requests a second at a P50 of 16.6 ms and 7 VMs 334 at 14.7 ms.
@@ -128,7 +128,7 @@ Requests for a page that miss the cache at the same time share one render (see [
 
 Keep the usual arrival rate below measured render capacity. At capacity, small changes in render time can grow a queue. More VMs than the CPUs can run do not fix sustained overload.
 
-The defaults allow 32 renders to wait for a VM, each for at most 3 seconds. A full queue or an expired wait answers 503 with `Retry-After: 1` and `Cache-Control: no-store`. The answer comes from Go and uses no VM. These are expected rejections and do not call `OnError`. See [Render queue](../build-and-deploy/config.md#render-queue).
+The defaults allow 32 renders to wait for a VM, each for at most 3 seconds. A full queue or an expired wait answers 503 with `Retry-After: 1` and `Cache-Control: no-store`. The answer comes from Go and uses no VM. These are expected rejections and do not call `OnError`. See [Render queue](../build-and-deploy/tuning.md#render-queue).
 
 Both bounds matter. A time limit alone still lets the number waiting grow with the arrival rate. A count limit alone can leave requests waiting while every VM is slow or being replaced. With the shop's capacity, 32 waiting renders are about a third of a second of work. The 3 second wait equals the default render time limit (`ssr.timeout`), so a request waits at most 3 seconds and then renders at most 3 seconds, 6 seconds in all for the SSR part, inside the 10 second HTTP write timeout. `OnRequest`, `Load`, encoding, compression and writing the answer share that timeout, so leave room for them when you raise either value. When 32 waiting renders would need more than 3 seconds of VM time (renders over about 100 ms on one VM), the time limit comes first. Otherwise the count limit comes first and the wait limit only matters when VMs are slow or being replaced. On one core with the six workbench pages (about 11 ms a render), a wait limit of 1 second and of 3 seconds showed no measurable difference in throughput, 503 count or latency under twice the capacity for 40 seconds. For pages with a different cost, set `ssr.queue_limit` and `ssr.wait_timeout` from their measured capacity and acceptable wait. `ssr.queue_limit: 0` rejects whenever no VM is idle.
 
@@ -188,11 +188,11 @@ The pool replaces a VM in the background when its live size after a full collect
 - A failed load keeps the old VM serving and retries after 1 second, doubling up to 30 seconds, with one warning until recovery. Each successful swap logs the baseline, old live size, bound and new live size, and increments the pool's replacement counter. Shutdown waits for loading and closes any unused spare. Module state in a replaced VM is lost, as after a failed render. Persistent application state belongs in Go.
 - A VM left in an unknown state by an exception, timeout, memory failure or panic still leaves service at once, and the pool runs one VM short until its replacement has loaded. Replacement in the background only handles VMs whose renders have succeeded.
 
-`ssr.vm_memory` (128 MiB per VM by default) is far above this. One case needs room on top, described in [Stack depth](../build-and-deploy/config.md#stack-depth), which says how to lower it on a small machine: code that recurses without end can add up to about 26 MB per VM for a moment.
+`ssr.vm_memory` (128 MiB per VM by default) is far above this. One case needs room on top, described in [Stack depth](../build-and-deploy/tuning.md#stack-depth), which says how to lower it on a small machine: code that recurses without end can add up to about 26 MB per VM for a moment.
 
 ## Compression
 
-With [`server.compress`](../build-and-deploy/config.md#settings) on, the default (see [Compression](../build-and-deploy/build.md#compression)), compressing a page costs 1% to 2% of its render time, and the browser bundle goes out as the gzip files the build wrote, at no CPU.
+With [`server.compress`](../reference/settings.md#settings) on, the default (see [Compression](../reference/server-program.md#compression)), compressing a page costs 1% to 2% of its render time, and the browser bundle goes out as the gzip files the build wrote, at no CPU.
 
 What compressing one page takes, on one core, with the encoders reused as the server reuses them, the mean of 200 runs, next to the render P50 from [How fast a page renders](#how-fast-a-page-renders):
 
@@ -232,7 +232,7 @@ Whole requests, the server on one physical core (both hyperthreads, 2 VMs) and o
 
 ## Content-Security-Policy
 
-With `server.csp` on, Go takes the marks out of each page the VM renders and hashes the scripts and styles they mark (see [Content-Security-Policy](../build-and-deploy/config.md#content-security-policy)). `BenchmarkTakeMarks` in `internal/ssr`, a page of 140 KB with five marked elements, one of them holding 6 KB of data, takes about 31 µs on the Apple M4, most of it one more copy of the page and the search for the nonce. A render of a workbench page of the shop takes tens of milliseconds on one core, so this is about 0.1% of a render. A hit of the render memo keeps the header with the page and costs nothing more. With `server.csp` off a render does none of it.
+With `server.csp` on, Go takes the marks out of each page the VM renders and hashes the scripts and styles they mark (see [Content-Security-Policy](../build-and-deploy/headers-and-origins.md#content-security-policy)). `BenchmarkTakeMarks` in `internal/ssr`, a page of 140 KB with five marked elements, one of them holding 6 KB of data, takes about 31 µs on the Apple M4, most of it one more copy of the page and the search for the nonce. A render of a workbench page of the shop takes tens of milliseconds on one core, so this is about 0.1% of a render. A hit of the render memo keeps the header with the page and costs nothing more. With `server.csp` off a render does none of it.
 
 ## Measuring again
 

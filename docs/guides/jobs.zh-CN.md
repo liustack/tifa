@@ -2,7 +2,7 @@
 summary: '怎样在 Tifa 应用里做请求之外的工作：OnStart 里的循环、OnShutdown、定时器、SQLite jobs 表'
 audience: app
 order: 6
-translatedFrom: a7d4d0c41363
+translatedFrom: 5f999ff8928d
 read_when:
   - '发邮件、调用慢的服务，或者做任何不该让访客等待的工作'
   - '在 Tifa 应用里每分钟、每小时或每天运行某件事'
@@ -102,7 +102,7 @@ func every(ctx context.Context, d time.Duration, fn func(context.Context) error)
 
 ## Tifa 停止时做什么 {#what-tifa-does-when-it-stops}
 
-收到 SIGINT 或 SIGTERM（部署、Ctrl-C）时，按这个顺序（[`server.shutdown_timeout`](../build-and-deploy/config.zh-CN.md#settings) 默认是 10 秒）：
+收到 SIGINT 或 SIGTERM（部署、Ctrl-C）时，按这个顺序（[`server.shutdown_timeout`](../reference/settings.zh-CN.md#settings) 默认是 10 秒）：
 
 1. 它关闭 `tifa.ShuttingDown` 的 channel，让监听它的流立即结束（[流式传输](streaming.zh-CN.md#when-the-program-stops)），停止接受连接，并最多等 `shutdown_timeout` 让正在处理的请求完成。
 2. 如果还有请求在运行，它会取消它们的 context，再最多等一个 `shutdown_timeout`。

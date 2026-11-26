@@ -2,7 +2,7 @@
 summary: '你返回的错误会变成什么，谁能看到它的文字，404 和 ErrorBoundary'
 audience: app
 order: 7
-translatedFrom: d4754856516b
+translatedFrom: ee57172d30c1
 read_when:
   - '想知道访客能不能看到你返回的错误，以及怎么给他们一句话'
   - '从 `Load` 或处理函数返回错误，比如 `tifa.Fields`、`tifa.Redirect` 或 `tifa.ErrNotFound`'
@@ -116,8 +116,8 @@ export function ErrorBoundary({ error }: { error: unknown }) {
 - 失败的 `Load` 或 `Layout` 以 `TifaError` 的形式到达 `ErrorBoundary`，带 `status`、公开消息和空的 `fields`（`tifa.Error` 的消息，或 `OnError` 返回的内容）。在服务器上和 hydration 之后都一样。
 - 没有自己 `ErrorBoundary` 的路由，用最近的、导出了 `ErrorBoundary` 的祖先的那个，再往上是框架的默认值。祖先到 `layout_.tsx` 为止。
 - 页面的状态码是最外层失败路由的状态码。
-- 页面在服务器上渲染时抛错的组件，是意外错误：`OnError` 看到它一次，并选定状态（没有 `OnError` 时是 500）和公开消息。然后页面带着这个错误重新渲染，错误作为 `TifaError` 放在页面的位置上，所以从页面往上数的第一个 `ErrorBoundary` 把它显示在各布局里面。如果这次渲染也失败了，因为 `ErrorBoundary` 或它外面的某个布局抛了错，错误就上移一个路由，放在页面所在布局的位置上，依此类推，直到最外层的布局，也就是根布局或某个 `layout_.tsx`。只有放在那个布局位置上的错误也失败时，浏览器才会得到 Go 返回的、带状态和公开消息的纯错误页面。浏览器按服务器放置错误的位置来 hydrate 页面，不会再运行抛错的那个路由。浏览器或 CDN 都不保存这样的响应（`Cache-Control: no-store`）。构建出来的应用会改为把它记住 5 秒：这段时间内，对同一页面、同样的数据和会话的请求，得到同样的响应，不再渲染，`X-Tifa-Render` 是 `memo`。同时在等这个页面的请求共用放置错误的那些渲染。`OnError` 仍然会看到每个请求，第一个看到完整的错误，其他的看到它的第一行，以及一条说明没有再次渲染的注释。`tifa dev` 什么也不记，所以修复在下一次重新加载时就能看到。堆栈只在 `tifa dev` 下显示，盖在带 `ErrorBoundary` 的页面上，你保存修复后页面会重新加载（见 [`tifa dev`](../build-and-deploy/dev.zh-CN.md#when-a-page-fails-to-render)）。
-- 用光 `ssr.vm_memory` 或超过 `ssr.timeout` 的服务端渲染（见 [config.md](../build-and-deploy/config.zh-CN.md)）会当场停止。你代码里或库里的 `catch`、`finally` 或 promise 处理函数都不会为它运行，所以页面没法捕获它去显示别的东西。VM 会被换成一个全新的。用光 `ssr.vm_memory` 的渲染，会在全新的 VM 上带着这个错误重新渲染一次，放在最外层布局的位置上，因为同样的数据在任何一层都会用光内存。它的响应像上面那样被记住。超过 `ssr.timeout` 或发现每个 VM 都忙的渲染则不会：Go 立刻返回它的纯错误页面。一个请求的所有渲染共用一个 `ssr.timeout`，从第一次算起，带着错误的渲染如果超出它，尝试就到此为止。无限递归的代码会得到 `RangeError: Maximum call stack size exceeded`，和在 Node 里一样，`catch` 可以接住它（见[栈深度](../build-and-deploy/config.zh-CN.md#stack-depth)）。没有人接住时，它和其他任何错误一样让渲染失败。
+- 页面在服务器上渲染时抛错的组件，是意外错误：`OnError` 看到它一次，并选定状态（没有 `OnError` 时是 500）和公开消息。然后页面带着这个错误重新渲染，错误作为 `TifaError` 放在页面的位置上，所以从页面往上数的第一个 `ErrorBoundary` 把它显示在各布局里面。如果这次渲染也失败了，因为 `ErrorBoundary` 或它外面的某个布局抛了错，错误就上移一个路由，放在页面所在布局的位置上，依此类推，直到最外层的布局，也就是根布局或某个 `layout_.tsx`。只有放在那个布局位置上的错误也失败时，浏览器才会得到 Go 返回的、带状态和公开消息的纯错误页面。浏览器按服务器放置错误的位置来 hydrate 页面，不会再运行抛错的那个路由。浏览器或 CDN 都不保存这样的响应（`Cache-Control: no-store`）。构建出来的应用会改为把它记住 5 秒：这段时间内，对同一页面、同样的数据和会话的请求，得到同样的响应，不再渲染，`X-Tifa-Render` 是 `memo`。同时在等这个页面的请求共用放置错误的那些渲染。`OnError` 仍然会看到每个请求，第一个看到完整的错误，其他的看到它的第一行，以及一条说明没有再次渲染的注释。`tifa dev` 什么也不记，所以修复在下一次重新加载时就能看到。堆栈只在 `tifa dev` 下显示，盖在带 `ErrorBoundary` 的页面上，你保存修复后页面会重新加载（见 [`tifa dev`](../build-and-deploy/dev-errors.zh-CN.md#when-a-page-fails-to-render)）。
+- 用光 `ssr.vm_memory` 或超过 `ssr.timeout` 的服务端渲染（见[设置](../reference/settings.zh-CN.md)）会当场停止。你代码里或库里的 `catch`、`finally` 或 promise 处理函数都不会为它运行，所以页面没法捕获它去显示别的东西。VM 会被换成一个全新的。用光 `ssr.vm_memory` 的渲染，会在全新的 VM 上带着这个错误重新渲染一次，放在最外层布局的位置上，因为同样的数据在任何一层都会用光内存。它的响应像上面那样被记住。超过 `ssr.timeout` 或发现每个 VM 都忙的渲染则不会：Go 立刻返回它的纯错误页面。一个请求的所有渲染共用一个 `ssr.timeout`，从第一次算起，带着错误的渲染如果超出它，尝试就到此为止。无限递归的代码会得到 `RangeError: Maximum call stack size exceeded`，和在 Node 里一样，`catch` 可以接住它（见[栈深度](../build-and-deploy/tuning.zh-CN.md#stack-depth)）。没有人接住时，它和其他任何错误一样让渲染失败。
 - 浏览器接管之后，抛错的组件会显示最近的 `ErrorBoundary`，和失败的 `Load` 一样。
 - 不管什么失败，文档外壳都保持完整，所以页面仍然会加载它的脚本和样式。
 - 显示错误的页面拿到的是 `Load` 失败的页面的 head，见[404 页面和错误页面的 head](head.zh-CN.md#the-head-of-a-404-or-an-error-page)。

@@ -92,7 +92,7 @@ flowchart TD
   S -- "no" --> RP["Render the page (renderPage)"]
 ```
 
-`renderPage` makes the input of the VM from the results of the `Load`s, computes the ETag from it, and answers 304 when `If-None-Match` matches. Otherwise it asks the render memo, which renders in the VM pool on a miss. Data goes to the VM as text, and the pool fills it into the page after the VM is free again, so the VM does not copy large JSON. With `server.csp` the render marks the scripts and styles it writes with the nonce of the render, and the pool takes the marks out again and hashes those elements, so the page goes out with a policy that lets only them run (see [Content-Security-Policy](../build-and-deploy/config.md#content-security-policy)).
+`renderPage` makes the input of the VM from the results of the `Load`s, computes the ETag from it, and answers 304 when `If-None-Match` matches. Otherwise it asks the render memo, which renders in the VM pool on a miss. Data goes to the VM as text, and the pool fills it into the page after the VM is free again, so the VM does not copy large JSON. With `server.csp` the render marks the scripts and styles it writes with the nonce of the render, and the pool takes the marks out again and hashes those elements, so the page goes out with a policy that lets only them run (see [Content-Security-Policy](../build-and-deploy/headers-and-origins.md#content-security-policy)).
 
 When a render fails, the server renders again with the error in place of the page (`rescue` in `server/page.go`). If that fails too, Go writes a plain error page. Requests for the same input with the same error share these renders. Outside `tifa dev`, the memo remembers a render that a component or the memory limit failed, and the answer that shows its error, for 5 seconds (`failMemory` in `server/memo.go`, at most 256 of them and 8 MiB of pages), so a page that fails for every request does not render and replace a VM on every request.
 
@@ -114,7 +114,7 @@ sequenceDiagram
   R->>R: Render the new page with the data
 ```
 
-The digits have one place per `Load` or `Layout` on the chain of the URL, and a `1` asks for that one. Data the router still holds is not asked for again. If the build in `_tifa` is not the build of the server, the server answers 409 and the browser reloads the page once. See [Data protocol](../build-and-deploy/build.md#data-protocol).
+The digits have one place per `Load` or `Layout` on the chain of the URL, and a `1` asks for that one. Data the router still holds is not asked for again. If the build in `_tifa` is not the build of the server, the server answers 409 and the browser reloads the page once. See [Data protocol](../reference/data-protocol.md#data-protocol).
 
 ## What `tifa build` does
 
@@ -163,7 +163,7 @@ flowchart TD
 - A failed step keeps the running app, and the error shows in the terminal and on the page. `tifa errors` prints the same errors.
 - The app under `tifa dev` stops when `tifa dev` ends, because it reads a pipe that `tifa dev` holds (`--lifeline-fd`).
 
-The full table of changes and steps is in [What each change triggers](../build-and-deploy/dev.md#what-each-change-triggers).
+The full table of changes and steps is in [What each change triggers](../build-and-deploy/dev-reloads.md#what-each-change-triggers).
 
 ## The VM pool
 
@@ -187,7 +187,7 @@ stateDiagram-v2
 - A VM that holds more than half of `ssr.vm_memory` after a collection is replaced, with the spare loaded before the old one leaves, so renders never lose capacity. If the fresh VM grows past that within 2,048 renders too, the pool logs that `ssr.vm_memory` is too low and waits before it replaces a grown VM again.
 - Page code cannot catch a timeout or a memory error. No `catch` or `finally` runs for it.
 
-See [Performance](../reference/performance.md) for sizing and [config.md](../build-and-deploy/config.md#render-queue) for the queue.
+See [Performance](../reference/performance.md) for sizing and [Tune rendering and long requests](../build-and-deploy/tuning.md#render-queue) for the queue.
 
 ## The render memo
 
@@ -211,4 +211,4 @@ flowchart TD
 - **Pages with `Cache`.** The memo is all Tifa keeps for them. The request is made anonymous (`anonymize`), the Loads run on every request, and once they are done the Cache-Control for shared caches is set (`setShared`), unless OnRequest, a Load or a Layout made the answer private. A CDN in front holds the page, not Tifa.
 - `tifa.Stats` reads the counts of the pool and of the memo. Renders and memo lookups count with atomics, under no new lock.
 
-Rules for apps are in [SSR and cache](../pages-and-data/ssr-and-cache.md#ssr-and-cache) and [Cache for CDNs](../pages-and-data/ssr-and-cache.md#cache-for-cdns). The answers Tifa sends for each case are in [Page requests](../build-and-deploy/build.md#page-requests).
+Rules for apps are in [SSR and cache](../pages-and-data/ssr-and-cache.md#ssr-and-cache) and [Cache for CDNs](../pages-and-data/ssr-and-cache.md#cache-for-cdns). The answers Tifa sends for each case are in [Page requests](../reference/page-requests.md#page-requests).

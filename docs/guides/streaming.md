@@ -12,7 +12,7 @@ read_when:
 
 A page that shows the time of the server, updated every second, and answers a question word by word, the way a language model writes. The first is a stream of server-sent events that stays open. The second is an answer that is sent while it is being made, and ends.
 
-The code was run as written, in an app made with `tifa new`. The reference docs for the calls used here: [method handlers](../pages-and-data/handlers.md#method-handlers-with-input-and-result), [Long requests](../build-and-deploy/config.md#long-requests).
+The code was run as written, in an app made with `tifa new`. The reference docs for the calls used here: [method handlers](../pages-and-data/handlers.md#method-handlers-with-input-and-result), [Long requests](../build-and-deploy/tuning.md#long-requests).
 
 ## What Tifa does for a stream
 
@@ -82,7 +82,7 @@ func send(w http.ResponseWriter, s string) error {
 
 - An event is lines of `field: value` and a blank line. `data:` is the text the page gets, `event:` gives it a name of its own, `id:` lets the browser say where it was when it connects again (the `Last-Event-ID` header), and `retry:` sets how many milliseconds the browser waits before it connects again. A line that starts with `:` is a comment, which the browser ignores.
 - `send` gives each write 10 seconds: a visitor whose network went away without closing the connection stops reading, the write fails after 10 seconds, and the handler returns. Without `send`, `server.write_timeout` would end the stream 10 seconds after it began.
-- Between writes `send` leaves no deadline. A deadline left running while the stream waits ends it over HTTP/2 once it passes, and moving it afterwards does not bring the stream back. Over HTTP/1.1 moving it later still works, so this only shows once [HTTPS](../build-and-deploy/config.md#https) is on.
+- Between writes `send` leaves no deadline. A deadline left running while the stream waits ends it over HTTP/2 once it passes, and moving it afterwards does not bring the stream back. Over HTTP/1.1 moving it later still works, so this only shows once [HTTPS](../build-and-deploy/https.md#https) is on.
 - A stream that is quiet for a long time can be closed by a proxy on the way. Send a comment line, such as `: ping\n\n`, every 15 to 30 seconds. The browser ignores it.
 
 The page, `app/live/page.tsx`, opens the stream once it runs in the browser:
@@ -228,7 +228,7 @@ function Ask() {
 ```
 
 - The generated `POST` function of a handler that writes its own answer sends no input, so a question goes through `fetch`.
-- A `fetch` to your own site is a same-origin write, so the [cross-site check](../build-and-deploy/config.md#cross-site-writes) lets it through.
+- A `fetch` to your own site is a same-origin write, so the [cross-site check](../build-and-deploy/headers-and-origins.md#cross-site-writes) lets it through.
 - A stream that breaks halfway throws in `reader.read()`. The page keeps what it has and says it was cut off.
 
 ## Caches
@@ -236,15 +236,15 @@ function Ask() {
 - A stream is a handler, never a page, so neither the render memo nor a CDN that keeps a page with [`Cache`](../pages-and-data/ssr-and-cache.md#cache-for-cdns) holds it. A page with `Cache` may open a stream: the HTML is the same for everyone, and each browser opens its own stream once the page runs.
 - Without a `Cache-Control` of yours the answer is `private, no-cache`, so a CDN does not keep it. Leave it so.
 - nginx holds back the answers it passes on until it has enough of them. `X-Accel-Buffering: no` turns that off for one answer. Other proxies and CDNs have settings of their own. If events arrive in bursts, look there first.
-- Over HTTP/1.1 a browser opens at most 6 connections to a site, and each open `EventSource` keeps one. With [HTTPS](../build-and-deploy/config.md#https) on, the program speaks HTTP/2, and all the streams of a browser share one connection.
+- Over HTTP/1.1 a browser opens at most 6 connections to a site, and each open `EventSource` keeps one. With [HTTPS](../build-and-deploy/https.md#https) on, the program speaks HTTP/2, and all the streams of a browser share one connection.
 
 ## When the program stops
 
-On SIGTERM or SIGINT the program closes the channel of `tifa.ShuttingDown`, stops taking connections and gives the requests in flight [`server.shutdown_timeout`](../build-and-deploy/config.md#settings) to finish (see [Background work](jobs.md#what-tifa-does-when-it-stops)).
+On SIGTERM or SIGINT the program closes the channel of `tifa.ShuttingDown`, stops taking connections and gives the requests in flight [`server.shutdown_timeout`](../reference/settings.md#settings) to finish (see [Background work](jobs.md#what-tifa-does-when-it-stops)).
 
 - **A stream with no end**, like the clock, returns when the channel closes. The browser connects again after its `retry` time, to the next program. Without that `case`, the stream holds the stop for the whole `shutdown_timeout`, is canceled then, and the program exits with status 1. With it the example app stopped in 19 ms with a clock open.
 - **An answer that ends by itself**, like the model's reply, can ignore it. It gets `shutdown_timeout` to finish, and a reply that takes longer is canceled and cut off. The page then shows what came and says it was cut off. Raise `server.shutdown_timeout` if your replies take longer.
-- Under systemd with [socket activation](../build-and-deploy/deploy.md#restart-without-dropping-requests), the browser's new connection waits while the next program starts, and is answered by it.
+- Under systemd with [socket activation](../build-and-deploy/deploy-by-hand.md#restart-without-dropping-requests), the browser's new connection waits while the next program starts, and is answered by it.
 
 ## Test it
 

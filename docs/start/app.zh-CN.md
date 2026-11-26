@@ -2,7 +2,7 @@
 summary: '怎样开始写一个 Tifa 应用：route.go、page.tsx、layout.tsx、URL、`public/`、Next.js 或 Remix 代码'
 audience: app
 order: 2
-translatedFrom: 6580b5183d5d
+translatedFrom: 9187fafd07d1
 read_when:
   - '新建 Tifa 应用，或给应用加页面、布局或 API 路由'
   - '往应用里放图片、字体或图标，或者在导入和 `public/` 里的文件之间做选择'
@@ -15,7 +15,7 @@ read_when:
 
 这一篇讲 Tifa 应用怎么组织：`app/` 下的文件夹怎样变成 URL，Tifa 读哪些文件，静态文件怎么提供，以及其他框架的习惯在 Tifa 里该怎么写。
 
-完整的例子见 [examples/shop](../../examples/shop)。构建、生成的文件和怎么设置 go.mod，见 [build.md](../build-and-deploy/build.zh-CN.md)。
+完整的例子见 [examples/shop](../../examples/shop)。构建、生成的文件和怎么设置 go.mod，见[构建程序](../build-and-deploy/build.zh-CN.md)和[生成的文件和应用的配置](../reference/generated-files.zh-CN.md)。
 
 ## 文件夹 {#folders}
 
@@ -62,7 +62,7 @@ myapp/
 文件分两类，用一个问题来决定属于哪一类：内容变了，URL 会变吗？
 
 - **导入它。文件进入 `/assets/` 下的包。** Vite 给它一个带内容哈希的名字，Tifa 用 `Cache-Control: public, max-age=31536000, immutable` 提供它。浏览器永久保存，新版本有新的 URL，所以它永远不会过期。页面用到的图片、字体和图标都属于这一类。
-- **放进 `public/`。** 文件保持它的名字，Tifa 用 `Cache-Control: no-cache` 和 ETag 提供它，所以每次使用都会问服务器，没变化时得到 304。名字固定时，任何缓存时间 N 都意味着最多有 N 那么久的旧内容，所以每次都要检查。名字以点开头的文件和文件夹，如 `.DS_Store` 和 `.env`，不会被复制进程序，`.well-known` 除外。想复制某一个，比如 `.nojekyll`，就把它写进 `build.public_dotfiles`（[配置](../build-and-deploy/config.zh-CN.md)）。`tifa build` 会说它没有复制哪些，`.DS_Store` 除外。
+- **放进 `public/`。** 文件保持它的名字，Tifa 用 `Cache-Control: no-cache` 和 ETag 提供它，所以每次使用都会问服务器，没变化时得到 304。名字固定时，任何缓存时间 N 都意味着最多有 N 那么久的旧内容，所以每次都要检查。名字以点开头的文件和文件夹，如 `.DS_Store` 和 `.env`，不会被复制进程序，`.well-known` 除外。想复制某一个，比如 `.nojekyll`，就把它写进 `build.public_dotfiles`（[设置](../reference/settings.zh-CN.md)）。`tifa build` 会说它没有复制哪些，`.DS_Store` 除外。
 
 页面用到的东西，要导入：
 
@@ -165,4 +165,4 @@ site:
 - [Hooks](../pages-and-data/hooks.zh-CN.md)：`hooks.go` 和 `setup.ts`。
 - [测试](../pages-and-data/testing-apps.zh-CN.md)：用 `go test` 和 `tifatest` 写测试。
 - [测试页面](../pages-and-data/testing-pages.zh-CN.md)：用 Vitest 测页面组件，用 Playwright 在浏览器里测页面。
-- [部署](../build-and-deploy/deploy.zh-CN.md)：你部署新版本时，在浏览器里打开的页面会怎么做。
+- [手动部署](../build-and-deploy/deploy-by-hand.zh-CN.md#pages-open-while-you-deploy)：你部署新版本时，在浏览器里打开的页面会怎么做。
