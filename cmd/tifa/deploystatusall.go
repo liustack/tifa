@@ -431,7 +431,7 @@ func statusAllText(servers []serverReport, now time.Time) string {
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "Only the servers set up from this machine, the ones in %s, are shown.\n", shownServersPath())
+	fmt.Fprintf(&b, "Only the servers this machine has set up or deployed to, the ones in %s, are shown.\n", shownServersPath())
 	return b.String()
 }
 

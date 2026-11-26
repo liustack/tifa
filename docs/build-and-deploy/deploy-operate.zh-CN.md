@@ -2,7 +2,7 @@
 summary: '管理已部署的应用：`tifa deploy env`、没有终端时设置密钥、`logs`、`status`、`remove`，以及应用在服务器上把文件放在哪里'
 audience: app
 order: 15
-translatedFrom: 7016bda38b0a
+translatedFrom: 9458d988ee39
 read_when:
   - '用 tifa deploy env 设置已部署应用 .env 里的密钥或设置'
   - 'agent 运行 tifa deploy env set，或带 --cache-purge-token 的 tifa deploy setup，浏览器里打开了一个页面用来输入密钥'
@@ -78,13 +78,13 @@ vps
     health    GET /healthz answered 200
     memory    38.7 MB
 
-Only the servers set up from this machine, the ones in ~/.tifa/config.yaml, are shown.
+Only the servers this machine has set up or deployed to, the ones in ~/.tifa/config.yaml, are shown.
 ```
 
 - 服务器并行询问，按文件里的顺序打印，一台服务器上的应用按名字排序。不回答的服务器会打印它的错误，其他服务器照常打印。现在回答自己是另一台机器的主机，会被报告成这样，它的应用不显示。
 - 每台服务器都回答，而且每个已部署的应用都在运行并通过健康检查时，退出状态是 0。否则会先打印全部内容，再以 1 退出，错误信息会说有几台服务器没能检查、有几个应用状态不好。脚本或 agent 可以依赖这一点。
 - `--json` 把同样的内容作为一个 JSON 文档打印到 stdout：一个服务器列表。每台服务器有 `name`、`id`、`host`、`reached`、`error`（没连上时）和 `apps`，连上时还有 `facts`：`os`、`arch`、`cpus`、`memoryTotalKiB`、`memoryAvailableKiB`、`diskTotalKiB`、`diskUsedKiB`（`tifa` 的家目录所在的磁盘）、`uptimeSeconds`、`load1`、`load5` 和 `load15`。服务器没说的数字是 0。每个应用有 `name`、`host`、`deployed`、`release`、`commit`、`checkPassed`、`service`、`activeSince`、`restarts`、`health`（`GET /healthz` 的状态码，服务没运行时为空，没有回答时为 `000`）、`memoryKiB`、`ok` 和 `error`。
-- 它只看某一个时刻，不是监控：不刷新、不报警、不留历史。它只覆盖那个文件里的服务器，也就是从这台机器设置的服务器。要报警，请用服务器之外的探测，比如 UptimeRobot 或 Cloudflare 的健康检查，因为服务器上的探测会和服务器一起挂掉。
+- 它只看某一个时刻，不是监控：不刷新、不报警、不留历史。它只覆盖那个文件里的服务器，也就是这台机器设置过或部署过的服务器。要报警，请用服务器之外的探测，比如 UptimeRobot 或 Cloudflare 的健康检查，因为服务器上的探测会和服务器一起挂掉。
 - `--all` 不接受 `--host` 和 `--dir`。
 
 `remove` 把应用从服务器上拿掉，收回 Tifa 为它做的东西，别的不动：

@@ -157,7 +157,8 @@ prints, for each, its system, CPUs, memory, disk, uptime and load, and each app 
 and its commit, whether it passed its health check, the service and how often systemd restarted
 it, what GET /healthz answers now and its memory. --json prints the same as one JSON document.
 It exits with an error when a server cannot be reached or an app is not active with a passing
-health check. Only the servers set up from this machine, the ones in that file, are covered.`,
+health check. Only the servers this machine has set up or deployed to, the ones in that file,
+are covered.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if all {

@@ -95,7 +95,7 @@ func TestDeployStatusAll(t *testing.T) {
 		"  uptime    up 12d 6h, load 0.10 0.20 0.30\n",
 		"\n  blog\n    release   20261120T120000Z  commit ccc333  passed its health check\n    service   failed, 5 restarts\n    health    not asked, the service does not run\n\n  shop\n    release   20261120T120000Z  commit ccc333  passed its health check\n    service   active since 2026-11-20 12:00:05 UTC, 2h3m ago, 2 restarts\n    health    GET /healthz answered 200\n    memory    ",
 		"gone (down)\n  problem   ssh tifa@down failed (exit status 255): ssh: connect to host down port 22: Connection refused\n",
-		"Only the servers set up from this machine, the ones in " + filepath.Join(tifaDir, "config.yaml") + ", are shown.\n",
+		"Only the servers this machine has set up or deployed to, the ones in " + filepath.Join(tifaDir, "config.yaml") + ", are shown.\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
