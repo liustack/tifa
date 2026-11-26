@@ -709,7 +709,7 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 		}
 	}
 	r.SSR = a.boolConst(pkg, "SSR", true)
-	r.Memo = a.memoConst(pkg)
+	r.Memo = a.boolConst(pkg, "Memo", true)
 	r.Cache, r.CacheDefault = a.cacheConst(pkg)
 	return r
 }
@@ -734,21 +734,6 @@ func (a *analyzer) layout(d *dirInfo, pkg *packages.Package) *layout {
 		return nil
 	}
 	return l
-}
-
-// memoConst reads Memo, which can only be false: the render memo is on for every
-// page, and the switch turns it off for one.
-func (a *analyzer) memoConst(pkg *packages.Package) bool {
-	obj := pkg.Types.Scope().Lookup("Memo")
-	if obj == nil {
-		return true
-	}
-	c, ok := obj.(*types.Const)
-	if !ok || c.Val().Kind() != constant.Bool || constant.BoolVal(c.Val()) {
-		a.errorAt(obj.Pos(), "Memo can only be false, which turns the render memo off for this page. It is on by default, so delete the line to keep it on")
-		return true
-	}
-	return false
 }
 
 func (a *analyzer) boolConst(pkg *packages.Package, name string, def bool) bool {

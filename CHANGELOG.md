@@ -44,6 +44,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - A `form` tag no longer fails the build when it names the field as its `json` tag (or its Go name) does, such as `json:"email" form:"email"`, so a type shared with another framework works as it is. A `form` tag with another name still fails, in the input of a handler and in a struct passed to `c.Bind` or `c.BindQuery`, since Tifa reads the field by its `json` name.
 - The imports and files of other frameworks that fail the build are only those that are surely wrong in a Tifa app. The packages of the Remix organization that stand alone (`@remix-run/headers`, `@remix-run/form-data-parser`, `@remix-run/file-storage` and the like) and a name below `$app/` that SvelteKit does not have are left alone, and so is an `_index.tsx` next to a `page.tsx`. `@remix-run/react`, `@remix-run/node` and the other packages of the Remix framework, `react-router`, the modules of Next.js, TanStack Start, SvelteKit and Astro still fail the build.
 - A key in the front matter of an entry that is not a field of its type is now a warning with the nearest field name, and the entry is read without it. Before, it failed the build, so Markdown moved from Hugo or Jekyll, with `weight` or `categories` in its front matter, did not build.
+- `const Memo = true` in a `route.go` is accepted and changes nothing, since the render memo is on by default. Before, only `Memo = false` was.
 
 ### Fixed
 

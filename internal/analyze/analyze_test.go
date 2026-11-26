@@ -643,8 +643,8 @@ func TestViolations(t *testing.T) {
 			{"app/flag/route.go:12:", "tifa.Session is always empty here", "app/flag has Cache"},
 		}},
 		{"memovalue", [][]string{
-			{"app/page/route.go:3:", "Memo", "can only be false"},
-			{"app/other/route.go:3:", "Memo", "can only be false"},
+			// app/page has const Memo = true, which is the default and is taken as it is.
+			{"app/other/route.go:3:", "Memo must be a bool constant"},
 		}},
 		{"casednames", [][]string{
 			{"app/page/route.go:3:", "cache", "capital letter", "Memo = false"},
