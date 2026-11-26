@@ -21,6 +21,14 @@ func analyzeApp(t *testing.T, name string) (*Manifest, error) {
 	return Analyze(filepath.Join("testdata", name))
 }
 
+// route.go is the app's own package, so a constant that is near the name of a switch, such as
+// SSL, Demo or Cahce, is the app's and is not taken for a typo.
+func TestConstantsNearSwitchNamesAreTheAppsOwn(t *testing.T) {
+	if _, err := analyzeApp(t, "ownconstants"); err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+}
+
 func TestValidApp(t *testing.T) {
 	m, err := analyzeApp(t, "valid")
 	if err != nil {
@@ -643,11 +651,6 @@ func TestViolations(t *testing.T) {
 			{"app/page/route.go:5:", "memo", "capital letter", "Memo = false"},
 			{"app/other/route.go:3:", "ssr", "capital letter", "SSR"},
 			// helper.go has const cache = "redis", a string in another file: no error.
-		}},
-		{"switchtypos", [][]string{
-			{"app/page/route.go:5:", "Cahce is not a switch: did you mean Cache?"},
-			{"app/page/route.go:7:", "Memoo is not a switch: did you mean Memo?"},
-			// app/other has Version, Loads, ID, Max, Mode and Memory: no error.
 		}},
 		{"structure", [][]string{
 			{"app/empty/route.go:5:", "Path is not declared"},

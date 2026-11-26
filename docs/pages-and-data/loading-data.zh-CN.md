@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx'
 audience: app
 order: 3
-translatedFrom: 2c5180b2848a
+translatedFrom: fce8d2fe94b8
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -41,7 +41,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 - 有 `page.tsx` 的文件夹是一个页面。框架负责渲染它的 GET，所以你不能再写 `GET`。一个不需要数据、也不需要其他方法的页面，可以只有 `page.tsx`，不要 `route.go`。
 - 有 `route.go` 但没有 `page.tsx` 的文件夹，只要声明了方法处理函数，就是一个 API 路由：每个方法处理函数都按你写的方式响应，并且不允许有 `Load`，因为 `Load` 是用来加载页面数据的。只有 `Layout` 的 `route.go` 不是 API 路由，它只是给下面的页面提供布局数据。
 - 一切都是包级函数和常量。依赖请用应用已经设置好的全局变量。框架不做依赖注入。
-- 开关的名字（`SSR`、`Cache`、`Memo`）按字面读取，所以拼错的会被忽略。`route.go` 里一个小写的 bool 常量，名叫 `cache`、`memo` 或 `ssr`，构建会失败。一个导出的常量，与某个开关只差一两个字母（`Cahce`、`Memoo`），并且类型是那个开关接受的，构建也会失败：`SSR` 和 `Memo` 是 bool，`Cache` 是 bool 或 `time.Duration`。错误消息会指出它大概想写哪个开关。其他类型的常量，比如 `const Demo = "demo"`，像 `ID` 或 `Max` 这样的短名字，以及像 `Mode` 这样与四个字母的开关差两处编辑的名字，都不管。
+- 开关的名字（`SSR`、`Cache`、`Memo`）按字面读取。`route.go` 里一个小写的 bool 常量，名叫 `cache`、`memo` 或 `ssr`，构建会失败，因为它会被忽略。其他常量都是应用自己的：`route.go` 是你的包，所以 `const SSL = true` 或 `const Demo = true` 不会被当成开关拼错了，而拼错的开关（`Cahce`）会被悄悄忽略。
 
 在 `Load` 里只能设置响应头和 cookie。调用 `c.JSON`、`c.Text` 或 `c.NoContent` 会返回错误。
 

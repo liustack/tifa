@@ -1,6 +1,6 @@
 package other
 
-// The names of the app itself: none is a switch, and none is near enough to be a typo of one.
+// More names of the app itself.
 const Version = "v2"
 
 const Loads = 3

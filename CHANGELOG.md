@@ -37,6 +37,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - New in the docs: [Security](docs/guides/security.md) lists what Tifa guards by default (writes from other sites, the session cookie, request limits, security headers, escaped page data, anonymous pages with `Cache`, error messages) and what is left to the app (who may do what, HTTPS and HSTS, Content-Security-Policy, secrets in `Load`, user HTML, uploads, redirects, rate limits, SQL, dependencies), with where to read more for each.
 
+### Removed
+
+- A constant in `route.go` that is near the name of a switch, such as `SSL`, `Demo` or `Cahce`, no longer fails the build with `did you mean`. `route.go` is your package, so such a constant is your own. A bool constant that spells a switch in lower case (`cache`, `memo`, `ssr`) still fails.
+
 ### Fixed
 
 - Files and folders of `public/` whose names start with a dot, such as `.DS_Store` or a `.env` left there by mistake, are no longer copied into the program and served. `.well-known` is still copied. A dot file that an earlier build copied is removed by the next one.

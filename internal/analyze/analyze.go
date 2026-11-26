@@ -5,7 +5,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	"github.com/liustack/tifa/internal/config"
 	"go/ast"
 	"go/constant"
 	"go/token"
@@ -628,71 +627,21 @@ var switchSpellings = map[string]string{
 	"ssr":   "write SSR",
 }
 
-// checkSwitchNames reports the constants of route.go that look like a switch spelled wrong, since
-// such a constant would otherwise be skipped without a word. A bool constant that spells a switch
-// in the wrong case is reported with the advice for it. An exported constant of any type that is
-// one or two letters off a switch, such as Cahce, is reported with the name it probably meant.
-// A constant of another type spelled in lower case, such as const cache = "redis", and one in
-// another file are the app's own and are left alone.
+// checkSwitchNames reports a bool constant of route.go that spells a switch in the wrong case,
+// since names are read as written and it would otherwise be skipped without a word. Any other
+// constant is the app's own, whatever its name: route.go is the app's package, and a name that is
+// near a switch, such as SSL or Demo, is not a typo of it. A constant of another type spelled in
+// lower case, such as const cache = "redis", and one in another file are left alone too.
 func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 	for _, name := range scope.Names() {
 		c, ok := scope.Lookup(name).(*types.Const)
 		if !ok || filepath.Base(a.fset.Position(c.Pos()).Filename) != "route.go" {
 			continue
 		}
-		if advice, ok := switchSpellings[name]; ok {
-			if c.Val().Kind() == constant.Bool {
-				a.errorAt(c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
-			}
-			continue
-		}
-		if near := nearSwitch(c); near != "" {
-			a.errorAt(c.Pos(), "%s is not a switch: did you mean %s?", name, near)
+		if advice, ok := switchSpellings[name]; ok && c.Val().Kind() == constant.Bool {
+			a.errorAt(c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
 		}
 	}
-}
-
-// switches are the constants of route.go that tifa reads, the ones a typo can be of.
-var switches = []string{"SSR", "Cache", "Memo"}
-
-// switchFits reports whether the constant c has a type the switch takes: a bool for SSR and Memo,
-// a bool or a time.Duration for Cache. A constant of another type is the app's own, whatever its
-// name.
-func switchFits(sw string, c *types.Const) bool {
-	switch sw {
-	case "SSR", "Memo":
-		return c.Val().Kind() == constant.Bool
-	case "Cache":
-		return c.Val().Kind() == constant.Bool || isNamed(c.Type(), "time", "Duration")
-	}
-	return false
-}
-
-// nearSwitch returns the switch that the constant c is a typo of, or "" when it is none. Only an
-// exported name of at least three letters can be: tifa reads the names as written, and a short
-// name such as ID or Max is the app's own. So is a constant whose type the switch does not take
-// (const Demo = "demo"). It is one edit off a switch when the shorter of the two has up to four
-// letters (Memoo for Memo, but not Mode), and up to two edits off with more (Cahce for Cache).
-func nearSwitch(c *types.Const) string {
-	name := c.Name()
-	if len(name) < 3 || name[0] < 'A' || name[0] > 'Z' {
-		return ""
-	}
-	best, bestDist := "", 0
-	for _, s := range switches {
-		limit := 2
-		if min(len(name), len(s)) <= 4 {
-			limit = 1
-		}
-		d := config.EditDistance(name, s)
-		if d == 0 {
-			return ""
-		}
-		if d <= limit && switchFits(s, c) && (best == "" || d < bestDist) {
-			best, bestDist = s, d
-		}
-	}
-	return best
 }
 
 // routePackage returns the package of the route.go in d, nil without route.go and when the
