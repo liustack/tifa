@@ -1,14 +1,15 @@
 ---
-summary: 'layout.tsx 和 Layout、嵌套、tifa.Use、layout_.tsx、代替路由分组的写法'
+summary: 'layout.tsx 和 Layout、嵌套、tifa.Use、面包屑和当前位置、layout_.tsx、代替路由分组的写法'
 audience: app
 order: 2
-translatedFrom: cdbb2582e5ac
+translatedFrom: 4450ccaf83f0
 read_when:
   - '编写 layout.tsx 或 route.go 里的 `Layout` 函数，或者用 `tifa.Use` 共享它的数据'
   - '用 `layout_.tsx` 给站点的一部分单独的外框'
   - '在找路由分组、`(group)` 文件夹，或者不往 URL 里加东西的 Layout'
   - '想让站点的一部分页面有别的页面没有的外框，比如首页旁边有一个控制台'
   - '想知道为什么 `/` 的页面总是显示在根 Layout 里'
+  - '在布局里显示面包屑或菜单里当前的那一项，或者 `Layout` 里的 `c.Path()` 让构建失败'
 ---
 
 # 布局 {#layouts}
@@ -32,6 +33,44 @@ func Layout(c *tifa.Ctx) (projects.Project, error) {
 - 页面和布局可以调用 `tifa.Use(c, project.Layout)`，为当前请求拿到包住它们的某个布局的结果：同一文件夹或上层文件夹的布局，除非中间的 `layout_.tsx` 把它去掉了。同一个 `Layout` 在每个请求里只运行一次。任何其他布局都会让构建失败，参数不是包级的 `Layout` 函数（比如闭包）也一样。`Layout` 函数不能使用它自己的布局，不管是直接还是通过辅助函数。带查询参数的布局暂时不能传给 `tifa.Use`，构建会这样告诉你：别的 `Load` 需要某个布局的结果时，让这个布局不带查询参数，并在页面的 `Load` 里读取它们。
 - 在浏览器里导航时，导航数据请求只运行所列路由的 `Load` 和 `Layout` 函数。如果某个上层布局的数据还在缓存里，那个布局就不在列表里，它的 `Layout` 这次不会运行。所以不要只在布局里做权限检查。把它们放进 `OnRequest`，或者让页面的 `Load` 通过 `tifa.Use` 依赖做检查的布局，这样检查在每个请求上都会运行。
 - 根布局还放着站点的 `documentHead`（见[文档外壳和 documentHead](head.zh-CN.md#the-document-shell-and-documenthead)）。
+
+## 面包屑和当前位置 {#breadcrumbs-and-the-current-page}
+
+布局常常要显示跟着下面页面变的东西：面包屑、菜单里当前的那一项、页眉里所在栏目的名字。这些要用的地址在 `layout.tsx` 里读，不在 `Layout` 函数里读。访客在布局下面的页面之间切换时，布局的数据不会重新加载，所以 `Layout` 读到的路径会一直是第一个页面的。也因为这个，在 `Layout` 或它调用的函数里用 `c.Path()` 会让构建失败。
+
+路由器知道地址，地址变了组件会重新渲染：
+
+```tsx
+// app/projects/project+/layout.tsx
+import { Link, Outlet, useRouterState } from '@tanstack/react-router'
+import { layout } from './route.gen'
+
+const sections: Record<string, string> = { orders: 'Orders', settings: 'Settings' }
+
+export default function Layout() {
+  const project = layout.useLoaderData()
+  // /projects/studio/orders/42 is in the section "orders"
+  const section = useRouterState({ select: (s) => sections[s.location.pathname.split('/')[3] ?? ''] })
+
+  return (
+    <>
+      <nav aria-label="Breadcrumb">
+        <Link to="/projects">Projects</Link>
+        {' / '}
+        <Link to="/projects/$project" params={{ project: project.id }}>
+          {project.name}
+        </Link>
+        {section && ` / ${section}`}
+      </nav>
+      <Outlet />
+    </>
+  )
+}
+```
+
+- `select` 只返回组件要用的东西，所以只有它变了组件才重新渲染。
+- 名字和标题，比如这里项目的名字，仍然来自数据：布局的数据，或者页面的数据，页面可以在外框里属于它的那部分自己显示。
+- `Link` 知道自己什么时候指向当前页面：用它的 `activeProps` 给菜单里当前那一项加样式，不用自己读地址。
 
 ## 不带上层布局的布局 {#a-layout-without-the-layouts-above}
 

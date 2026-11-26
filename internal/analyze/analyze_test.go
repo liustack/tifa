@@ -353,8 +353,8 @@ func TestViolations(t *testing.T) {
 		}},
 		{"layoutparam", [][]string{{"app/projects/route.go:8:", `"projectId"`, `"/projects"`}}},
 		{"layoutpath", [][]string{
-			{"app/shop/route.go:7:", "c.Path", "Layout", "page"},
-			{"app/shop/route.go:10:", "c.Path", "Layout", "page"},
+			{"app/shop/route.go:7:", "c.Path", "Layout", "stale", "useRouterState({ select: (s) => s.location.pathname })", "layouts.md#breadcrumbs-and-the-current-page"},
+			{"app/shop/route.go:10:", "c.Path", "Layout", "stale", "useRouterState"},
 		}},
 		{"usenonancestor", [][]string{
 			{"app/shop/route.go:11:", "admin.Layout", "does not wrap"},

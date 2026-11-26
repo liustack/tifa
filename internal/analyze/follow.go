@@ -343,7 +343,7 @@ func refusedInLayout(fn *types.Func) string {
 		return ""
 	}
 	if fn.Name() == "Path" {
-		return "c.Path is the path of the page, which a Layout does not have: its data is shared by every page below it and is not loaded again when the visitor goes from one of them to another. Call c.Path in the Load of a page, or in a method handler"
+		return "c.Path is the path of the page, which goes stale in a Layout: its data is not loaded again when the visitor moves between the pages below it. For what follows the page, such as breadcrumbs or the current entry of a menu, read the address in layout.tsx with useRouterState({ select: (s) => s.location.pathname }) from @tanstack/react-router. See docs/pages-and-data/layouts.md#breadcrumbs-and-the-current-page"
 	}
 	return ""
 }

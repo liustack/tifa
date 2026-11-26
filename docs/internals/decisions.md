@@ -339,6 +339,17 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Instead.** The build reports what it sees, and the rest is the app's to get right, as in an `http.Handler`: the docs on loading data say not to keep the Ctx after the function returns, and to wait for a goroutine of its own before returning. The one check at run time is a `Load` that passes itself to `tifa.Use`, which would wait for ever.
 
+### The path of the page in a Layout
+
+**Settled (2026-11-26).** `c.Path()` in a `Layout` function, or in a function it calls, fails the build, and the message says to read the address in `layout.tsx` with `useRouterState({ select: (s) => s.location.pathname })`. Nothing checks it at run time.
+
+**Why.**
+- The data of a Layout is not loaded again when the visitor moves between the pages below it, so a path it read would stay the one of the first page. Next.js gives a layout no pathname for the same reason, and its breadcrumbs use a hook in the browser. TanStack Router and React Router read the address in components, with `useRouterState` and `useMatches`.
+- Not as SvelteKit does it: there a `load` that reads `url.pathname` runs again on every move, a switch nobody sees in the code, and a Layout that keeps its data across its pages is lost.
+- No `layoutPath`, the URL of the folder of the Layout: the folder and `c.Param` give it already, and it does not help breadcrumbs.
+
+**Instead.** [Breadcrumbs and the current page](../pages-and-data/layouts.md#breadcrumbs-and-the-current-page).
+
 ### An empty number or bool in a query string
 
 **Turned down (2026-11-26).** Answering `?page=` with a redirect to the address without it, or keeping the empty text as a value in the browser.
