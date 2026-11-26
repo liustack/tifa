@@ -15,7 +15,7 @@ const handlerSignatures = "func(c *tifa.Ctx) error, func(c *tifa.Ctx, in In) err
 
 // readHandler reads the method handler obj of route.go. It reports false, after reporting the
 // violations, when the handler cannot be registered.
-func (a *analyzer) readHandler(pkg *packages.Package, obj types.Object, method string) (Handler, bool) {
+func (a *analyzer) readHandler(pkg *packages.Package, obj types.Object, method string) (Handler, bool, []paramUse) {
 	fn, ok := obj.(*types.Func)
 	var sig *types.Signature
 	if ok {
@@ -27,10 +27,11 @@ func (a *analyzer) readHandler(pkg *packages.Package, obj types.Object, method s
 	}
 	if !ok {
 		a.errorAt(obj.Pos(), "%s must have one of the signatures %s", method, handlerSignatures)
-		return Handler{}, false
+		return Handler{}, false, nil
 	}
 	decl := a.funcDecl(pkg, fn)
 	h := Handler{Method: method}
+	uses := a.walkHandler(pkg, decl)
 	if sig.Params().Len() == 2 {
 		in := sig.Params().At(1).Type()
 		valid, form := a.checkInput(method, in, fieldTypePos(decl.Type.Params, 1))
@@ -49,7 +50,7 @@ func (a *analyzer) readHandler(pkg *packages.Package, obj types.Object, method s
 		}
 		h.Output, h.OutputType = typeString(out), out
 	}
-	return h, ok
+	return h, ok, uses
 }
 
 // fieldTypePos is the position of the type of the i-th parameter or result in list, where
