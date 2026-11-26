@@ -1,7 +1,7 @@
 // The runtime of the handler functions that tifa build writes into each route.gen module, one per
 // method handler of route.go: GET, POST, PUT, PATCH and DELETE.
 
-import { buildHeader, callHeader, isRedirected, redirectHeader, sessionHeader, TifaError } from './data'
+import { buildHeader, callHeader, isRedirected, redirectHeader, sessionHeader, TifaError, webTarget } from './data'
 import { acceptSession, beginSession } from './session'
 import { languageAt, reaches } from './prefix'
 import { reloadForBuild } from './skew'
@@ -130,9 +130,7 @@ export async function call(
 // What the target shows follows the router's defaults, as after any navigation. A redirect to the
 // page that is showing stays where it is and loads nothing.
 async function follow(location: string, method: string) {
-  const target = new URL(location, window.location.href)
-  if (target.protocol !== 'http:' && target.protocol !== 'https:')
-    throw new Error(`${method} was redirected to ${location}, which is not an http or https URL`)
+  const target = webTarget(location, method)
   const href = target.pathname + target.search + target.hash
   // One document holds one language: a redirect into another one loads that page.
   if (!router || target.origin !== window.location.origin || !reaches(router, href)) {

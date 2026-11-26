@@ -19,6 +19,7 @@ export default function Store() {
         <Link to="/store/cart" id="to-cart">cart</Link>
         <Link to="/projects" id="to-projects">projects</Link>
         <Link to="/store/leave" id="to-leave">leave</Link>
+        <Link to="/store/trap" id="to-trap">trap</Link>
         <Link to="/store/stay" id="to-stay">stay</Link>
         <Link to="/store/journal/$slug" params={{ slug: 'hello' }} id="to-entry">entry</Link>
         <button id="nav-default" onClick={() => void router.navigate({ href: '/store/cart' })}>

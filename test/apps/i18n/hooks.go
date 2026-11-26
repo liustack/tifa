@@ -14,7 +14,7 @@ func OnStart(context.Context) error {
 	tifa.SetSitemap(func(c *tifa.Ctx) (tifa.Sitemap, error) {
 		hello := []tifa.Alternate{{Language: "zh-CN", Path: "/store/journal/ni-hao"}, {Language: "en-US", Path: "/store/journal/hello"}}
 		// The page leave only sends its visitors elsewhere.
-		sm := tifa.Sitemap{Name: "I18n Store", Summary: "A store in two languages.", Exclude: []string{"/store/leave"}}
+		sm := tifa.Sitemap{Name: "I18n Store", Summary: "A store in two languages.", Exclude: []string{"/store/leave", "/store/trap"}}
 		for _, version := range hello {
 			e, err := Journal.Get(version.Language, "hello")
 			if err != nil {
