@@ -543,6 +543,24 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Reopen when** there is a design that keeps the rendered Layout and renders only the page into it, with nothing for the app to write. Nothing smaller than a Layout.
 
+### How the memo chooses what to drop
+
+**Settled (2026-11-26).** The memo is a segmented LRU. A new page enters a probation list, and a second hit moves it to a protected list that holds up to 80% of `ssr.memo_size`. When protected is full, its least recently used page goes back to the head of probation, and pages are dropped only from the tail of probation. A page larger than the protected share stays in probation.
+
+**Why.** With a plain LRU, a run of addresses that come once (a search term, a page number nobody asked before) pushes the home page and the popular products out, and every normal visitor then misses. A page seen once is the first to go now, and one that is asked for again and again stays.
+
+**Not chosen: W-TinyLFU** (Caffeine, Ristretto). It needs one more structure for counting how often each key is seen. For a memo of pages, a segmented LRU is enough.
+
+### A priority for the memo in route.go
+
+**Turned down (2026-11-26).** A priority, or any value besides `false`, for `Memo` in `route.go`, to say which pages the memo should keep when it is full.
+
+**Why not.** The pattern of requests already shows which pages are hot. A priority written by hand is guessed, and everyone writes high for their own pages. It is also one more switch to learn. Redis, Varnish, CDNs and Next.js `cacheLife` have no priority for each entry either.
+
+**Instead.** `Memo` stays `false` or nothing, and the memo keeps what is asked for again and again (see the entry above).
+
+**Reopen when** there is data that pages which cost a lot to render but are asked for rarely are pushed out again and again. Look first at weighing by render time and size, done by Tifa itself, and not at a setting the app has to fill in.
+
 ### Fewer page switches
 
 **Kept as they are (2026-11-23).** Dropping one of `const SSR`, `const Cache` and `const Memo`, or moving them out of `route.go`.

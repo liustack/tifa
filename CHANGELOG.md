@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- The render memo drops pages differently when it is full. A page seen once goes first, and a page that was hit more than once is kept, so a run of addresses that come once, such as search terms or page numbers nobody asked before, no longer pushes the home page and popular pages out of `ssr.memo_size`. Nothing to change in an app.
+
 ## [0.6.0] - 2026-11-26
 
 ### Added
