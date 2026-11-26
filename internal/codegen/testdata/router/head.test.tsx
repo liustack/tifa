@@ -748,9 +748,10 @@ test('background revalidations still out when the user moves on and back settle 
   }
 })
 
-test('a redirect to the page that shows, spelled another way, stays where it is and loads nothing', async () => {
+test('a redirect to the page that shows, spelled another way, stays where it is and loads its data again', async () => {
   const saved = { fetch: g.fetch, location: g.location }
   const fetched: string[] = []
+  let answered = 0
   g.fetch = async (url: string, init: RequestInit) => {
     const headers = new Headers(init.headers)
     // The server writes the query of the page in another order and encoding than the router.
@@ -758,7 +759,8 @@ test('a redirect to the page that shows, spelled another way, stays where it is 
     const { url: page, routes } = asked(url)
     routes.sort()
     fetched.push(page + ' ' + routes.join(','))
-    return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${fetched.length}`)])) })
+    answered++
+    return Response.json({ routes: Object.fromEntries(routes.map((id) => [id, ok(`${id} ${answered}`)])) })
   }
   g.location = { ...saved.location, assign: (url: string) => fetched.push('assign ' + url) }
   try {
@@ -773,8 +775,10 @@ test('a redirect to the page that shows, spelled another way, stays where it is 
     const before = shown()
     await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
     await new Promise((resolve) => setTimeout(resolve, 20))
-    assert(fetched.length === 0, `requests ${fetched.join(' | ')}`)
-    assert(shown() === before, `shown ${shown()}`)
+    // One data request for the page and its Layouts, as router.invalidate() sends, and no new
+    // history entry.
+    assert(fetched.join(' | ') === '/a/two?a=1&b=x+y app/a/layout,app/a/two/route,app/layout', `requests ${fetched.join(' | ')}`)
+    assert(before === 'app/layout 1, app/a/layout 1, app/a/two/route 1' && shown() === 'app/layout 2, app/a/layout 2, app/a/two/route 2', `shown ${before} then ${shown()}`)
     assert(router.state.location.href === href && history.length === entries, `at ${router.state.location.href}, ${history.length} entries`)
   } finally {
     Object.assign(g, saved)

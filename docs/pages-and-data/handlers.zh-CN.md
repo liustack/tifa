@@ -2,7 +2,7 @@
 summary: 'POST 等方法处理函数：带类型的输入、文件、请求体上限、从页面调用'
 audience: app
 order: 4
-translatedFrom: f2db25c31607
+translatedFrom: 1de5b904f89c
 read_when:
   - '在 route.go 里编写 API 路由或方法处理函数'
   - '在方法处理函数里接收文件，或者用 `c.SetBodyLimit` 和 `c.SetReadTimeout` 给某条路由单独设置请求体上限或读取时间'
@@ -153,7 +153,7 @@ async function ship() {
 - 一次调用只发送它的请求，如果响应带着会话，就应用它（见下）。无论成功还是失败、无论哪种方法，它都从不重新加载页面的数据。页面需要显示这次写入的改动时，在它之后调用 `router.invalidate()`（见下面的例子）。
 - Tifa 从不替你重新加载页面数据。在一次写入（处理函数或你自己的 `fetch`）之后，页面显示的还是原来的内容，直到你提出要求：调用 TanStack 的 `router.invalidate()`，重新加载当前页面及其所有布局的数据，合并成一个请求。`await router.invalidate({ sync: true })` 在页面显示新数据之后才完成。普通的 `await router.invalidate()` 会立刻完成，页面在后台更新。
 - 错误响应会抛出 `TifaError`，带 `status`、`message` 和 `fields`（`tifa.Fields` 的消息，否则为空）。网络故障的抛法和 `fetch` 一样。来自比服务器更旧的构建的页面发起的调用，会以状态 409 失败，见[部署期间打开的页面](../build-and-deploy/deploy-by-hand.zh-CN.md#pages-open-while-you-deploy)。
-- 当处理函数或 `OnRequest` 返回 `tifa.Redirect(url, status)` 时，浏览器会前往那个 URL：本站的 URL 通过路由器，不重新加载页面，其他站点则整页加载。新页面显示路由器已有的内容，并加载缺少的部分，和任何导航之后一样。重定向到正在显示的页面时，停留在原处，什么也不加载。路径、hash 和查询值都一致时，就算同一个页面，不管查询的顺序和编码。promise 在导航结束后以 `undefined` resolve，有结果的处理函数也一样。一次调用有没有被重定向，只有看了响应才知道，因为 `OnRequest` 可以重定向任何请求，所以每个带结果的处理函数的函数，其结果类型都包含 `undefined`。自己写响应的处理函数，它的函数拿到的是重定向的 `Response`（`ok`，状态在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，而不是按页面的 URL。处理函数自己通过 `c.Writer()` 写的 3xx，或者代理写的 3xx，在浏览器里读不到，会让 promise 以一个 `Error` reject。
+- 当处理函数或 `OnRequest` 返回 `tifa.Redirect(url, status)` 时，浏览器会前往那个 URL：本站的 URL 通过路由器，不重新加载页面，其他站点则整页加载。新页面显示路由器已有的内容，并加载缺少的部分，和任何导航之后一样。重定向到正在显示的页面时，页面保持不动，像 `router.invalidate()` 那样重新加载它和它的布局的数据，不新增历史记录，和没有脚本的表单被重定向回当前地址时浏览器的做法一样。路径、hash 和查询值都一致时，就算同一个页面，不管查询的顺序和编码。promise 在导航结束后以 `undefined` resolve，有结果的处理函数也一样。一次调用有没有被重定向，只有看了响应才知道，因为 `OnRequest` 可以重定向任何请求，所以每个带结果的处理函数的函数，其结果类型都包含 `undefined`。自己写响应的处理函数，它的函数拿到的是重定向的 `Response`（`ok`，状态在 `X-Tifa-Redirect` 里）。相对 URL 按处理函数的 URL 解析，而不是按页面的 URL。处理函数自己通过 `c.Writer()` 写的 3xx，或者代理写的 3xx，在浏览器里读不到，会让 promise 以一个 `Error` reject。
 - 让某人登录或退出的调用，会在响应里带回新的会话，浏览器里的会话副本随之更新（见[浏览器里的会话](sessions.zh-CN.md#in-the-browser)）。
 - 请在事件处理函数或 effect 里调用这些函数。在页面于服务器上渲染时调用会抛错。
 - `route.gen` 还为每个有这些类型的处理函数导出 `POSTInput`、`POSTOutput` 等类型。
