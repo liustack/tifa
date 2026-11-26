@@ -42,6 +42,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 - `tifa build` and `tifa dev` no longer run without end on an app that imports a package whose functions name each other in many ways, such as Ant Design: the build step that writes out the calls of small functions looked at a function once for every way to reach it, and now looks at it once.
 - The `schema.sql` of a new app says that editing a `CREATE TABLE` there changes no table that exists, and where the migrations are described.
 - `tifa build` no longer warns of a query parameter read in the list of dependencies of `useEffect` or `useLayoutEffect`, such as `useEffect(() => ..., [search.tab])`: that list only tells React when to run the effect again, and renders nothing.
+- A link built from the query of the page, such as `search={(prev) => ({ ...prev, page: 2 })}` or `search`, no longer hydrates with another href than the server wrote when the address has its parameters in another order, as a shared link, a `navigate` or a plain form writes them. The router now writes the parameters of every address in the order of their names, as the server renders the page, and the browser puts the address bar in that order before it takes the page over, with no request for data and every parameter kept. A parameter no `Load` reads, such as `utm_source`, still makes such a link differ: see [Query parameters](docs/reference/memo.md#query-parameters).
 
 ## [0.5.2] - 2026-11-25
 

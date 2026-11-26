@@ -507,9 +507,11 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Turned down (2026-11-09).** A setting that lists the query parameters that count for the render memo, and making the first render in the browser use the reduced URL too.
 
-**Why not.** The list exists already: the parameters that the `Load` and the Layouts of the page take. A second list would drift from the code. The second idea was built and dropped: nothing tells when an app's own Suspense boundaries are done, and it raced with early navigation and with history entries.
+**Why not.** The list exists already: the parameters that the `Load` and the Layouts of the page take. A second list would drift from the code. The second idea was built and dropped: nothing tells when an app's own Suspense boundaries are done, and it raced with early navigation and with history entries. It was built again on 2026-11-26, so that links built from the query of the page hydrate as the server wrote them: the router hydrated at the render URL and then moved to the address bar. It was dropped for the same reason, since it relied on React hydrating the dehydrated Suspense boundaries before the move, and for two more: an effect that ran on mount could not read a parameter of the address that no `Load` reads, and a write built on `prev` then wiped it, and a landing page with `utm_source` got a second router event, which counted the visit twice in analytics.
 
-**Instead.** The memo key and the URL given to the render hold the path and those parameters, sorted by name, so `?x=random` makes no new entry. A 404 and a page whose `Load` failed are not kept: [Query parameters](../reference/memo.md#query-parameters).
+**Instead.** The memo key and the URL given to the render hold the path and those parameters, sorted by name, so `?x=random` makes no new entry. A 404 and a page whose `Load` failed are not kept: [Query parameters](../reference/memo.md#query-parameters). The router writes every query parameter in the order of its name, those no `Load` reads too, and the browser puts the address bar in that order before it takes the page over, so a link built from the query of the page has the same href on the server and in the browser whatever the order of the address. A parameter no `Load` reads still makes such a link differ, which the docs on that rule say how to avoid.
+
+**Reopen when** that difference, on landing pages with a parameter no `Load` reads, causes problems in real apps.
 
 ### A cache switch on a Layout
 

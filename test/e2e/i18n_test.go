@@ -700,24 +700,29 @@ func TestI18nInBrowser(t *testing.T) {
 		}
 	}
 
-	// A query spelled another way than the router writes it (%20 for +, %2F for /), an empty value
-	// and a key given twice around another stay in the address bar as they were typed, with a
-	// prefix and without, and the page asks for no data after it hydrates.
+	// A query spelled another way than the router writes it (%20 for +, %2F for /) and an empty value
+	// stay in the address bar as they were typed, with a prefix and without, and the page asks for no
+	// data after it hydrates. A query whose names are out of order, such as a key given twice around
+	// another, is written in the order of the names, in the router's spelling, before the page is
+	// taken over.
 	// The canonical link the browser keeps after it hydrates is the one of the server render: the
 	// query parameters the Loads read, in Go's spelling, and no other.
-	for _, c := range []struct{ path, want, canonical string }{
-		{"/en-US/store?q=a%20b&utm=x%2Fy", "store go=en-US react=en-US path=/store q=a b", "/en-US/store?q=a+b"},
-		{"/en-US/store?utm=&q=a%2Fb&utm=c%20d", "store go=en-US react=en-US path=/store q=a/b", "/en-US/store?q=a%2Fb"},
-		{"/store?e=&q=a%20b&utm=c%2Fd", "store go=zh-CN react=zh-CN path=/store q=a b", "/store?q=a+b"},
-		{"/en-US/store/csr?x=a%20b&y=&x=%2F", "csr go=en-US react=en-US", "/en-US/store/csr"},
-		{"/store/csr?x=a%20b&y=&x=%2F", "csr go=zh-CN react=zh-CN", "/store/csr"},
-		{"/projects?next=%2Fa&q=a%20b", "projects go=zh-CN react=zh-CN", "/projects"},
+	for _, c := range []struct{ path, address, want, canonical string }{
+		{"/en-US/store?q=a%20b&utm=x%2Fy", "", "store go=en-US react=en-US path=/store q=a b", "/en-US/store?q=a+b"},
+		{"/en-US/store?utm=&q=a%2Fb&utm=c%20d", "/en-US/store?q=a/b&utm=&utm=c+d", "store go=en-US react=en-US path=/store q=a/b", "/en-US/store?q=a%2Fb"},
+		{"/store?e=&q=a%20b&utm=c%2Fd", "", "store go=zh-CN react=zh-CN path=/store q=a b", "/store?q=a+b"},
+		{"/en-US/store/csr?x=a%20b&y=&x=%2F", "/en-US/store/csr?x=a+b&x=/&y=", "csr go=en-US react=en-US", "/en-US/store/csr"},
+		{"/store/csr?x=a%20b&y=&x=%2F", "/store/csr?x=a+b&x=/&y=", "csr go=zh-CN react=zh-CN", "/store/csr"},
+		{"/projects?next=%2Fa&q=a%20b", "", "projects go=zh-CN react=zh-CN", "/projects"},
 	} {
+		if c.address == "" {
+			c.address = c.path
+		}
 		open(c.path, c.want)
 		// The router replaces the address bar and loads the page again right after hydration.
 		time.Sleep(500 * time.Millisecond)
-		if got := eval(here); got != c.path {
-			t.Errorf("%s: the address bar shows %v", c.path, got)
+		if got := eval(here); got != c.address {
+			t.Errorf("%s: the address bar shows %v, want %s", c.path, got, c.address)
 		}
 		if got := eval(`() => [...document.querySelectorAll('link[rel="canonical"]')].map((e) => e.getAttribute("href")).join(" ")`); got != "https://i18n.example.com"+c.canonical {
 			t.Errorf("%s: the canonical link after hydrating is %v, want %s", c.path, got, c.canonical)

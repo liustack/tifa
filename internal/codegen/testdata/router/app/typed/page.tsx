@@ -24,6 +24,12 @@ export default function Typed() {
       <Link to="/typed" search={{ page: undefined }} activeOptions={{ explicitUndefined: true }} id="undef">
         undef
       </Link>
+      <Link from="/typed" to="/typed" search={(prev) => ({ ...prev, page: 2 })} id="prev">
+        prev
+      </Link>
+      <Link to="/typed" search id="kept">
+        kept
+      </Link>
     </>
   )
 }

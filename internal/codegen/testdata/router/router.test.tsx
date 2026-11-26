@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { createMemoryHistory, isRedirect, RouterProvider } from '@tanstack/react-router'
 import { hydrate } from '@tanstack/react-router/ssr/client'
 import { htmlAttributes, routeTree } from './.tifa/routes'
-import { cleanAddress, createAppRouter, load, parseSearch, unmatched, type Dehydrated } from './.tifa/runtime/router'
+import { cleanAddress, createAppRouter, load, parseSearch, stringifySearch, unmatched, type Dehydrated } from './.tifa/runtime/router'
 import { serve, type RenderResult } from './.tifa/runtime/server'
 import { alternateTags, pageOwnTags, defaultHTMLAttributes, headHTML, headTags, htmlAttributesOf, splitDocumentHead, type Tag } from './.tifa/runtime/head'
 import { collector, TifaError, type InjectedResult, type RouteResult } from './.tifa/runtime/data'
@@ -181,7 +181,8 @@ test('the router reads the query of a route as Go does', async () => {
     JSON.stringify(match.search) === '{"q":["a"],"tag":["x","y"],"tab":"own"}' && JSON.stringify(match.loaderDeps) === '{"q":["a"],"tag":["x","y"]}',
     `search ${JSON.stringify(match.search)}, loaderDeps ${JSON.stringify(match.loaderDeps)}`,
   )
-  assert(open.router.state.location.href === '/q?q=a&tag=x&tag=y&tab=own', `href ${open.router.state.location.href}`)
+  // The router writes the names in order, those Go does not read included.
+  assert(open.router.state.location.href === '/q?q=a&tab=own&tag=x&tag=y', `href ${open.router.state.location.href}`)
   // The query of a URL as browsers and forms write it comes back as it is.
   for (const href of ['/q?q=a&q=b', '/q?q=a+b', '/q?q=1,2:3/4', '/q?q=%E4%B8%AD&r=%26%3D%2B%25%23']) {
     const { router } = await client(href)
@@ -214,7 +215,7 @@ const shown = (router: { state: { matches: any[] } }) => {
 }
 const typedData = { ...appData, 'app/typed/layout': ok('layout'), 'app/typed/route': ok('page') }
 
-test('a route reads its query by the types of the Go fields, and the address keeps its text', async () => {
+test('a route reads its query by the types of the Go fields, and the address keeps its text in the order of the names', async () => {
   const { router, calls } = await client('/typed?page=2&min=1.5&on=true&ids=1&ids=3&tags=a&q=007&small=100&utm=z&sort=new')
   const page = shown(router)
   assert(
@@ -225,15 +226,16 @@ test('a route reads its query by the types of the Go fields, and the address kee
   const layout: any = router.state.matches[router.state.matches.length - 2]
   assert(layout.search.page === 2 && layout.search.sort === 'new', `layout search ${JSON.stringify(layout.search)}`)
   assert(JSON.stringify(page.loaderDeps) === '{"ids":[1,3],"min":1.5,"on":true,"page":2,"q":"007","small":100,"tags":["a"]}', `deps ${JSON.stringify(page.loaderDeps)}`)
-  assert(router.state.location.href === '/typed?page=2&min=1.5&on=true&ids=1&ids=3&tags=a&q=007&small=100&utm=z&sort=new', `href ${router.state.location.href}`)
-  assert(calls.every(([u]) => u === '/typed?page=2&min=1.5&on=true&ids=1&ids=3&tags=a&q=007&small=100&utm=z&sort=new'), `calls ${JSON.stringify(calls)}`)
+  const sorted = '/typed?ids=1&ids=3&min=1.5&on=true&page=2&q=007&small=100&sort=new&tags=a&utm=z'
+  assert(router.state.location.href === sorted, `href ${router.state.location.href}`)
+  assert(calls.every(([u]) => u === sorted), `calls ${JSON.stringify(calls)}`)
 })
 
 test('an empty number or bool is a parameter that was not passed, and the address is cleaned after hydration', async () => {
   // Go renders the URL without the empty numbers and bools (renderURL), so the router finds nothing to
   // redirect, and the page is the one of the address without them.
   const address = '/typed?page=&min=&on=&q=&ids=&ids=1&ids=&tags='
-  const rendered = '/typed?q=&ids=1&tags='
+  const rendered = '/typed?ids=1&q=&tags='
   const result = await renderResult(rendered, typedData)
   assert(result.html !== undefined && result.redirect === undefined, `render: ${JSON.stringify(result)}`)
   const { router, calls } = await hydrateFrom(result.html, address, undefined, ok, true)
@@ -256,10 +258,56 @@ test('a number written another way is the same number, and the address is rewrit
   assert(result.html !== undefined && result.redirect === undefined, `render: ${JSON.stringify(result)}`)
   const { router, calls } = await hydrateFrom(result.html, address, undefined, ok, true)
   assert(calls.length === 0, `asked for ${JSON.stringify(calls)}`)
-  assert(router.state.location.href === '/typed?page=7&min=10.5&on=true&ids=1&q=007', `href ${router.state.location.href}`)
+  assert(router.state.location.href === rendered, `href ${router.state.location.href}`)
   const search = shown(router).search
   assert(search.page === 7 && search.min === 10.5 && search.on === true && JSON.stringify(search.ids) === '[1]' && search.q === '007', `search ${JSON.stringify(search)}`)
   assert(router.state.matches.every((m: any) => m.status === 'success'), `${JSON.stringify(router.state.matches.map((m: any) => m.status))}`)
+})
+
+test('the router writes every query parameter in the order of its name, as Go writes the render URL', async () => {
+  assert(stringifySearch({ q: 'a', min: '1.5', page: '2' }) === '?min=1.5&page=2&q=a', stringifySearch({ q: 'a', min: '1.5', page: '2' }))
+  // The values of a name keep their order, and a name no Load reads takes its place by name too.
+  assert(stringifySearch({ tag: ['y', 'x'], utm_source: 'mail', b: '1' }) === '?b=1&tag=y&tag=x&utm_source=mail', stringifySearch({ tag: ['y', 'x'], utm_source: 'mail', b: '1' }))
+  // By code point, as Go compares the bytes of UTF-8: U+FFFD before U+1F600, which JavaScript's own
+  // comparison of UTF-16 units puts the other way, and a capital before a small letter.
+  assert(stringifySearch({ '😀': '1', '�': '2', a: '3', B: '4' }) === '?B=4&a=3&%EF%BF%BD=2&%F0%9F%98%80=1', stringifySearch({ '😀': '1', '�': '2', a: '3', B: '4' }))
+  const { router } = await client('/typed?page=2')
+  const next = router.buildLocation({ to: '/typed', search: { q: 'x', page: 3, on: true, min: 0.5 } } as never)
+  assert(next.href === '/typed?min=0.5&on=true&page=3&q=x', `href ${next.href}`)
+})
+
+test('a link built from the query of the page hydrates as the server wrote it, whatever the order of the address', async () => {
+  // The server renders the URL with the parameters sorted by name (renderURL). The address has them
+  // in another order, as a shared link or a plain form writes them.
+  const rendered = '/typed?min=1.5&on=true&q=x'
+  const address = '/typed?q=x&on=true&min=1.5'
+  const html = await render(rendered, typedData)
+  const href = (id: string) =>
+    html
+      .match(new RegExp('<a [^>]*id="' + id + '"[^>]*>'))?.[0]
+      .match(/href="([^"]*)"/)?.[1]
+      .replace(/&amp;/g, '&')
+  assert(href('prev') === '/typed?min=1.5&on=true&page=2&q=x', `server prev ${href('prev')}`)
+  assert(href('kept') === rendered, `server kept ${href('kept')}`)
+  for (const clean of [false, true]) {
+    const { router, calls } = await hydrateFrom(html, address, undefined, ok, clean)
+    assert(calls.length === 0, `asked for ${JSON.stringify(calls)}`)
+    const prev = router.buildLocation({ from: '/typed', to: '/typed', search: (p: any) => ({ ...p, page: 2 }) } as never)
+    const kept = router.buildLocation({ to: '/typed', search: true } as never)
+    assert(prev.href === href('prev'), `clean ${clean}: browser prev ${prev.href}, server ${href('prev')}`)
+    assert(kept.href === href('kept'), `clean ${clean}: browser kept ${kept.href}, server ${href('kept')}`)
+  }
+})
+
+test('the address is sorted by name before the page is taken over, with every parameter kept', async () => {
+  const html = await render('/typed?min=1.5&q=x', typedData)
+  const { router, calls } = await hydrateFrom(html, '/typed?utm_source=mail&q=x&min=1.5#top', undefined, ok, true)
+  assert(calls.length === 0, `asked for ${JSON.stringify(calls)}`)
+  assert(router.history.location.href === '/typed?min=1.5&q=x&utm_source=mail#top', `address ${router.history.location.href}`)
+  assert(router.history.length === 1, `history ${router.history.length}`)
+  // An address already in order is left as it is, in the spelling the visitor wrote.
+  const { router: sorted } = await hydrateFrom(html, '/typed?min=1.5&q=a%20b&utm_source=mail', undefined, ok, true)
+  assert(sorted.history.location.href === '/typed?min=1.5&q=a%20b&utm_source=mail', `sorted address ${sorted.history.location.href}`)
 })
 
 test('a value that is not valid fails the route with the TifaError that Go answers with', async () => {
@@ -280,8 +328,8 @@ test('a navigation writes typed values and asks Go with the text', async () => {
   const next = router.buildLocation({ to: '/typed', search: { page: 3, on: true, ids: [4, 5], min: 0.5 } } as never)
   router.history.push(next.href)
   await router.load()
-  assert(router.state.location.href === '/typed?page=3&on=true&ids=4&ids=5&min=0.5', `href ${router.state.location.href}`)
-  assert(calls.some(([u, id]) => id === 'app/typed/route' && u === '/typed?page=3&on=true&ids=4&ids=5&min=0.5'), `calls ${JSON.stringify(calls)}`)
+  assert(router.state.location.href === '/typed?ids=4&ids=5&min=0.5&on=true&page=3', `href ${router.state.location.href}`)
+  assert(calls.some(([u, id]) => id === 'app/typed/route' && u === '/typed?ids=4&ids=5&min=0.5&on=true&page=3'), `calls ${JSON.stringify(calls)}`)
   assert(shown(router).search.page === 3, `page ${shown(router).search.page}`)
 })
 
@@ -293,14 +341,14 @@ test('a Link with typed values is active at the address that has them', async ()
   assert(/data-status="active"/.test(link('same')) && /aria-current="page"/.test(link('same')), `same: ${link('same')}`)
   assert(!/data-status="active"/.test(link('other')), `other: ${link('other')}`)
   // The address a Link writes is the one the values make.
-  assert(/href="\/typed\?page=2&amp;on=true&amp;ids=1&amp;ids=3&amp;min=1.5"/.test(link('same')), `href: ${link('same')}`)
+  assert(/href="\/typed\?ids=1&amp;ids=3&amp;min=1.5&amp;on=true&amp;page=2"/.test(link('same')), `href: ${link('same')}`)
   // What the router builds for a typed search has the text of the address in it, and the matches
   // still have the typed values.
   const { router } = await client('/typed?page=2&on=true&ids=1&ids=3&min=1.5')
   const built = router.buildLocation({ to: '/typed', search: { page: 2, on: true, ids: [1, 3], min: 1.5 } } as never).search
   assert(JSON.stringify(built) === JSON.stringify(router.state.location.search), `built ${JSON.stringify(built)}, location ${JSON.stringify(router.state.location.search)}`)
   const again = router.buildLocation({ to: '/typed', search: (prev: any) => ({ ...prev, page: prev.page + 1 }), from: '/typed' } as never)
-  assert(again.href === '/typed?page=3&on=true&ids=1&ids=3&min=1.5', `next page ${again.href}`)
+  assert(again.href === '/typed?ids=1&ids=3&min=1.5&on=true&page=3', `next page ${again.href}`)
   assert(shown(router).search.page === 2 && shown(router).search.on === true, `match ${JSON.stringify(shown(router).search)}`)
 })
 

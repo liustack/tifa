@@ -366,23 +366,76 @@ function unescapeQuery(text: string): string | undefined {
 // stringifySearch writes a query parseSearch reads back as the same values, spelled the way
 // browsers and forms send it, so the router keeps the URL of a request as it is: a space is +,
 // and only the characters that would change the meaning, or that browsers escape, are escaped.
+// The names are in order (byName), as Go writes the URL it renders a page at (renderURL in
+// server/page.go), and the values of a name keep theirs. So a search object writes the same address
+// whatever order its keys came in: a link built from the query of the page, such as
+// search={(prev) => ({ ...prev, page: 2 })}, gets the same href on the server, whose router reads
+// the render URL, and in the browser, whose router reads the address bar. The keys are those a for
+// in loop gives, and a search whose keys come in order, as the router reads them from an address,
+// is written as it goes, with no list of the keys.
 export function stringifySearch(search: Record<string, unknown>): string {
   let text = ''
+  let last: string | undefined
   for (const key in search) {
-    const value = search[key]
-    if (value === undefined) continue
-    if (Array.isArray(value)) {
-      // The name is written for the first item, as an empty list has none to write it for.
-      let name: string | undefined
-      for (const item of value) {
-        name ??= encodeQueryPart(key) + '='
-        text += (text === '' ? '?' : '&') + name + encodeQueryPart(String(item))
-      }
-    } else {
-      text += (text === '' ? '?' : '&') + encodeQueryPart(key) + '=' + encodeQueryPart(String(value))
+    if (last !== undefined && byName(last, key) > 0) {
+      const keys: string[] = []
+      for (const name in search) keys.push(name)
+      text = ''
+      for (const name of keys.sort(byName)) text = writeParameter(text, name, search[name])
+      return text
     }
+    last = key
+    text = writeParameter(text, key, search[key])
   }
   return text
+}
+
+// writeParameter is text with the parameter name and its value, or each item of a list, after it.
+function writeParameter(text: string, key: string, value: unknown): string {
+  if (value === undefined) return text
+  if (Array.isArray(value)) {
+    // The name is written for the first item, as an empty list has none to write it for.
+    let name: string | undefined
+    for (const item of value) {
+      name ??= encodeQueryPart(key) + '='
+      text += (text === '' ? '?' : '&') + name + encodeQueryPart(String(item))
+    }
+    return text
+  }
+  return text + (text === '' ? '?' : '&') + encodeQueryPart(key) + '=' + encodeQueryPart(String(value))
+}
+
+// byName orders two names of a query by their code points, as Go orders their UTF-8 bytes. The
+// comparison of strings in JavaScript goes by UTF-16 units, which puts a character above U+FFFF,
+// written with two surrogates (D800 to DFFF), before one from E000 to FFFF.
+function byName(a: string, b: string): number {
+  const n = Math.min(a.length, b.length)
+  for (let i = 0; i < n; i++) {
+    let x = a.charCodeAt(i)
+    let y = b.charCodeAt(i)
+    if (x === y) continue
+    if (x >= 0xd800 && y >= 0xd800) {
+      x = x < 0xe000 ? x + 0x2000 : x - 0x800
+      y = y < 0xe000 ? y + 0x2000 : y - 0x800
+    }
+    return x - y
+  }
+  return a.length - b.length
+}
+
+// inNameOrder reports whether the names of a query come in the order stringifySearch writes them.
+// It reads the names as parseSearch does and skips the parts it skips.
+function inNameOrder(searchStr: string): boolean {
+  let last: string | undefined
+  for (const part of (searchStr.startsWith('?') ? searchStr.slice(1) : searchStr).split('&')) {
+    if (part === '' || part.includes(';')) continue
+    const at = part.indexOf('=')
+    const name = unescapeQuery(at < 0 ? part : part.slice(0, at))
+    if (name === undefined || unescapeQuery(at < 0 ? '' : part.slice(at + 1)) === undefined) continue
+    if (last !== undefined && byName(last, name) > 0) return false
+    last = name
+  }
+  return true
 }
 
 // routerQuery is a query spelled the way stringifySearch writes it.
@@ -407,9 +460,10 @@ function withRouterQuery(url: string) {
 }
 
 // browserHistory is the history of the browser with the query of the address bar read in the
-// router's spelling, for a router with a rewrite. The address bar keeps the URL as the visitor wrote
-// it: without this the router would replace it with its own spelling right after hydration, and load
-// the page again. It reads the location as the default one of @tanstack/history does (parseHref):
+// router's spelling and order, for a router with a rewrite. The address bar keeps the spelling the
+// visitor wrote (cleanAddress writes it again only when the names are out of order or a value is
+// cleaned): without this the router would replace it
+// with its own spelling right after hydration, and load the page again. It reads the location as the default one of @tanstack/history does (parseHref):
 // a path that starts with several slashes keeps one, and a state without a key gets a new one.
 // @tanstack/history does export parseHref, but react-router does not re-export it and an app does
 // not install @tanstack/history itself, so this is a copy. TanStackCopies in internal/bundle
@@ -456,7 +510,12 @@ function encodeQueryPart(text: string) {
 // but then the history has told it of a new location and it loads the page again, with a request
 // for the data the page already has. Done here, before it has anything to tell, the address bar
 // changes and nothing loads: the page is the one of the address it now has.
-export function cleanAddress(router: AnyRouter): void {
+// It also puts the parameters of the address in the order of their names, as the router writes
+// them (stringifySearch), and keeps every one, those no Load reads included. The router reads the
+// query as it is whatever its order, so this only changes what the address bar shows. search is the
+// query of the address bar: the history of a router with a rewrite (browserHistory) gives the router
+// the query already in its order.
+export function cleanAddress(router: AnyRouter, search: string = router.history.location.search): void {
   router.updateLatestLocation()
   const here = router.latestLocation
   const clean = router.buildLocation({
@@ -467,7 +526,7 @@ export function cleanAddress(router: AnyRouter): void {
     state: true,
     _includeValidateSearch: true,
   } as never)
-  if (trimPathRight(here.publicHref) !== trimPathRight(clean.publicHref))
+  if (trimPathRight(here.publicHref) !== trimPathRight(clean.publicHref) || !inNameOrder(search))
     router.history.replace(clean.publicHref, here.state, { ignoreBlocker: true })
 }
 

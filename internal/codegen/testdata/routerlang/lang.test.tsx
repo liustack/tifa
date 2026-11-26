@@ -5,7 +5,7 @@
 import { createMemoryHistory, isRedirect } from '@tanstack/react-router'
 import { routeTree, htmlAttributes } from './.tifa/routes'
 import { i18n } from './.tifa/i18n.gen'
-import { browserHistory, createAppRouter, load, type RouterContext } from './.tifa/runtime/router'
+import { browserHistory, cleanAddress, createAppRouter, load, type RouterContext } from './.tifa/runtime/router'
 import { makeRewrite, reaches } from './.tifa/runtime/prefix'
 import { routerHref, type Click } from './.tifa/runtime/html'
 import { serve } from './.tifa/runtime/server'
@@ -357,6 +357,27 @@ test('a query spelled another way than the router writes it is the URL the route
   // A path the router spells another way still goes to its own spelling.
   const path = mounted('/en-US/%73tore?q=a%20b', 'en-US')
   assert(path.read === '/en-US/%73tore?q=a+b' && path.built === '/en-US/store?q=a+b', `${path.read} ${path.built}`)
+})
+
+test('the address bar is sorted by name under a prefix, with every parameter kept', async () => {
+  // browserHistory gives the router the query in its order already, so the browser hands cleanAddress
+  // the query of the address bar itself.
+  const clean = (url: string) => {
+    const written = browserAt(url)
+    const router = createAppRouter(routeTree, async (): Promise<RouteResult> => ({ status: 200, data: null }), {
+      history: browserHistory(),
+      rewrite: makeRewrite(languages, 'en-US'),
+    })
+    cleanAddress(router, (globalThis as any).window.location.search)
+    // The history writes to the address bar in a microtask, or at once when flushed.
+    router.history.flush()
+    router.history.destroy()
+    return written
+  }
+  const out = clean('/en-US/store?utm=mail&q=a%20b#top')
+  assert(out.join() === '/en-US/store?q=a+b&utm=mail#top', `wrote ${out.join()}`)
+  const kept = clean('/en-US/store?q=a%20b&utm=mail')
+  assert(kept.length === 0, `wrote ${kept.join()} for an address in order`)
 })
 
 let failed = 0

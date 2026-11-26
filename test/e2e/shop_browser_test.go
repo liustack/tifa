@@ -240,14 +240,14 @@ func TestShopOrderListFiltersInBrowser(t *testing.T) {
 	b.check("shipped")
 	b.click("Page 2")
 	waitFor(t, "page 2 of the shipped orders", func() bool { return b.counted() == "40 orders, 26 to 40" })
-	if rows := b.rows(); len(rows) != 15 || rows[0] != "SH-1015" || rows[14] != "SH-1001" || b.search() != "?status=shipped&page=2" {
+	if rows := b.rows(); len(rows) != 15 || rows[0] != "SH-1015" || rows[14] != "SH-1001" || b.search() != "?page=2&status=shipped" {
 		t.Errorf("shipped, page 2: %v, %q", rows, b.search())
 	}
 
 	// A search from page 2 goes back to page 1 and looks at all the orders, SH-1005 among them.
 	b.code(`async (page) => { await page.getByRole('searchbox', { name: 'Search order numbers or customers' }).fill('sh-1005') }`)
 	waitFor(t, "the search", func() bool { return b.counted() == "1 orders, 1 to 1" })
-	if rows := b.rows(); len(rows) != 1 || rows[0] != "SH-1005" || b.search() != "?status=shipped&q=sh-1005" || b.tabs() != "All 1,To ship 0,Shipped 1" {
+	if rows := b.rows(); len(rows) != 1 || rows[0] != "SH-1005" || b.search() != "?q=sh-1005&status=shipped" || b.tabs() != "All 1,To ship 0,Shipped 1" {
 		t.Errorf("search: %v, %q, %q", rows, b.search(), b.tabs())
 	}
 	b.check("search")
@@ -264,7 +264,7 @@ func TestShopOrderListFiltersInBrowser(t *testing.T) {
 	// A filter that matches nothing says so, and a way out clears every filter.
 	b.code(`async (page) => { await page.getByRole('searchbox', { name: 'Search order numbers or customers' }).fill('nobody by this name') }`)
 	waitFor(t, "an empty result", func() bool { return b.counted() == "0 orders" })
-	if b.eval(`() => document.body.textContent.includes("No matching orders")`) != true || b.search() != "?status=shipped&q=nobody+by+this+name" || b.tabs() != "All 0,To ship 0,Shipped 0" {
+	if b.eval(`() => document.body.textContent.includes("No matching orders")`) != true || b.search() != "?q=nobody+by+this+name&status=shipped" || b.tabs() != "All 0,To ship 0,Shipped 0" {
 		t.Errorf("empty: %q, %q", b.search(), b.tabs())
 	}
 	b.check("empty")
@@ -296,7 +296,7 @@ func TestShopOrderListFiltersInBrowser(t *testing.T) {
 		t.Errorf("amount high: %q, tabs %q", b.counted(), b.tabs())
 	}
 	b.code(`async (page) => { await page.getByRole('combobox', { name: 'Placed' }).click(); await page.getByRole('option', { name: 'Last 7 days' }).click() }`)
-	waitFor(t, "the period filter", func() bool { return b.search() == "?period=7&amount=high" })
+	waitFor(t, "the period filter", func() bool { return b.search() == "?amount=high&period=7" })
 	b.check("select boxes")
 
 	// Sorting covers all the orders too: by amount, the biggest order of the shop is first although it
@@ -311,15 +311,15 @@ func TestShopOrderListFiltersInBrowser(t *testing.T) {
 		}
 	}
 	b.click("Amount")
-	head([]string{"SH-1008", "SH-1032", "SH-1009"}, "?sort=totalCents&dir=desc")
+	head([]string{"SH-1008", "SH-1032", "SH-1009"}, "?dir=desc&sort=totalCents")
 	b.click("Page 2")
 	waitFor(t, "page 2 of the sort", func() bool { return b.counted() == "42 orders, 26 to 42" })
-	if b.search() != "?sort=totalCents&dir=desc&page=2" {
+	if b.search() != "?dir=desc&page=2&sort=totalCents" {
 		t.Errorf("page 2 of the sort: %q", b.search())
 	}
 	b.click("Page 1")
 	b.click("Amount")
-	head([]string{"SH-1030", "SH-1024", "SH-1016"}, "?sort=totalCents&dir=asc")
+	head([]string{"SH-1030", "SH-1024", "SH-1016"}, "?dir=asc&sort=totalCents")
 	b.check("sorted")
 	b.click("Page 2")
 	waitFor(t, "page 2 of the ascending sort", func() bool { return b.counted() == "42 orders, 26 to 42" })
@@ -380,7 +380,7 @@ func TestShopOrderListChangesWhileLoadingInBrowser(t *testing.T) {
 	b.waitHeld()
 	b.code(`async (page) => { await page.getByRole('combobox', { name: 'Placed' }).click(); await page.getByRole('option', { name: 'Last 7 days' }).click() }`)
 	b.release()
-	waitFor(t, "both filters", func() bool { return b.search() == "?period=7&amount=high" })
+	waitFor(t, "both filters", func() bool { return b.search() == "?amount=high&period=7" })
 	waitFor(t, "the answer to both", func() bool {
 		return b.eval(`() => document.querySelector('[role="combobox"][aria-label="Amount"]')?.textContent`) == "Over ¥500"
 	})
@@ -396,7 +396,7 @@ func TestShopOrderListChangesWhileLoadingInBrowser(t *testing.T) {
 	b.waitHeld()
 	b.code(`async (page) => { await page.getByRole('tab', { name: /Shipped/ }).click() }`)
 	b.release()
-	waitFor(t, "the search and the tab", func() bool { return b.search() == "?status=shipped&q=sh-1005" })
+	waitFor(t, "the search and the tab", func() bool { return b.search() == "?q=sh-1005&status=shipped" })
 	waitFor(t, "the answer to both", func() bool { return b.counted() == "1 orders, 1 to 1" })
 	if v := b.eval(`() => document.querySelector('input[type="search"]').value`); v != "sh-1005" {
 		t.Errorf("the search box shows %v", v)
