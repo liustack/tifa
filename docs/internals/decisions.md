@@ -277,6 +277,16 @@ A lower one never buys out a higher one: routes are folders, and each write has 
 
 **Reopen when** apps are seen needing to tell 0 from no value in a way a `bool` field does not serve.
 
+### A build warning for a link built on prev
+
+**Turned down (2026-11-26).** `tifa build` warning of `search={(prev) => ({ ...prev, ... })}` or `search` alone on a `Link`, which reads the whole query while rendering.
+
+**Why not.** Spreading `prev` is how TanStack teaches links that change one parameter, and the navigation docs show it. The link differs from the server's only on an address with a parameter no `Load` reads, such as `utm_source`, and a production build keeps the server's `href` and reports nothing. A warning on every such link would be noise for a rare case that does no harm.
+
+**Instead.** The router writes every address with its parameters in the order of their names, so the order never makes a difference, and the docs on the memo say how to name the keys a link keeps when the `href` must match: [Query parameters](../reference/memo.md#query-parameters).
+
+**Reopen when** the differing `href` causes real problems in apps, such as a crawler or a click that should not carry a tracking parameter.
+
 ### An empty number or bool in a query string
 
 **Turned down (2026-11-26).** Answering `?page=` with a redirect to the address without it, or keeping the empty text as a value in the browser.
