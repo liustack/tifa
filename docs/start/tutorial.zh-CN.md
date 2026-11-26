@@ -2,7 +2,7 @@
 summary: '入门教程：`tifa new`、`tifa dev`、页面、表单、测试、一个可执行文件'
 audience: app
 order: 1
-translatedFrom: 977bbedc2327
+translatedFrom: fdcbeeaf3f4f
 read_when:
   - '第一次用 Tifa，想从头跟着做一个应用'
   - '编写或检查新用户从 `tifa new` 到跑起可执行文件的步骤'
@@ -25,6 +25,8 @@ pnpm install
 ```
 
 在一台从没构建过 Tifa 应用的机器上，`go mod tidy`、`pnpm install` 以及第一次 `go tool tifa dev` 或 `go tool tifa build` 都要下载 Go 和 npm 包并编译 Tifa，可能要几分钟。之后的运行会用上缓存，只要几秒。
+
+`pnpm install` 也会运行 `go tool tifa gen`（`package.json` 里的 `prepare` 脚本），它写出 `.tifa/` 里的类型，编辑器要读它们。请在这之后再打开编辑器：之前，对 `./route.gen` 的 import 会报错。
 
 `tifa new` 只写文件，并打印接下来的步骤。请保留名字 `tutorial-app`，因为下面的代码会 import `tutorial-app/app/todos`。文件夹名就是模块路径，根包叫 `tutorialapp`。像 `todos` 这样的名字会被拒绝，因为应用会 import 同名的包。见 [`tifa new`](../build-and-deploy/build.zh-CN.md#tifa-new)。
 

@@ -2,7 +2,7 @@
 summary: '怎样创建、构建、检查和升级应用：`tifa new`、`build`、`check`、`gen`、`upgrade`、`version`、`info`、.tifa/、go.mod'
 audience: app
 order: 2
-translatedFrom: b941e0e9920b
+translatedFrom: a96f69ce19c1
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '修改 `tifa check`，或者想知道它运行哪些步骤、需要什么'
@@ -56,7 +56,7 @@ tifa new <dir> [--module module-path] [--empty]
 - 根包以模块路径的最后一个元素命名（不算 `/v2` 这样的主版本后缀），转成小写，只保留字母和数字。它必须是一个 Go 标识符，且不能是关键字、`main` 或 `init`（Go 不接受把 `init` 作为被导入包的名字）。`app/` 下的 Go 文件用这个名字导入它，所以这个名字不能在它们使用的地方另有含义：不能是它们导入的某个包（比如领域包 `todos` 或 `tifa`），不能是它们用到的预声明名字（比如 `error`），也不能是它们在使用根包的作用域里的某个参数或变量（比如 `db` 或 `ctx`）。`tifa new` 保存了一份这类名字的清单并拒绝它们，所以 `tifa new todos` 会失败，并要求换一个文件夹名或用 `--module`，`--module example.com/todos` 也会失败，并要求为 `--module` 换一个最后的元素。它们用到的其他名字，比如 `c` 或 `rows`，没有问题。`package.json` 里的名字与此相同，只是截到 214 个字符，这是 npm 的上限。
 - `go.mod` 要求的 Tifa 版本，就是 go 命令下载时运行的那个 Tifa 命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<version> new myapp`，或在应用里运行 `go tool tifa new`。在 Tifa 检出目录里构建的命令，或被替换成这样的命令，会写下 `v0.0.0`，并多加一步，用 `go mod edit -replace` 把 `go.mod` 指向这个检出目录。
 - `go.mod` 固定了一个 `github.com/liustack/sqlite` 版本。这个 SQLite 驱动是纯 Go 的，不需要 C 编译器。
-- `tifa new` 只写文件。它不运行任何 go 或 npm 命令，也不需要网络。它会打印接下来的步骤：`cd` 进文件夹，`go mod tidy`，`pnpm install` 和 `go tool tifa dev`，后者会在 http://127.0.0.1:9527 提供应用。
+- `tifa new` 只写文件。它不运行任何 go 或 npm 命令，也不需要网络。它会打印接下来的步骤：`cd` 进文件夹，`go mod tidy`，`pnpm install` 和 `go tool tifa dev`，后者会在 http://127.0.0.1:9527 提供应用。它还会说明要在安装之后再打开编辑器，因为安装会运行 `go tool tifa gen`，写出编辑器要读的 `.tifa/` 里的类型。
 - 它会在 PATH 里查找 `pnpm`，但不运行它。找到 pnpm 时，安装步骤以及 `README.md` 和 `AGENTS.md` 里的命令都用 pnpm（`pnpm install`，`README.md` 里还有 `pnpm typecheck`）。否则用 npm（`npm install`，`README.md` 里还有 `npm run typecheck`）。`package.json` 里没有 `packageManager` 字段，所以同一个应用两种都能用。
 - `pnpm-workspace.yaml` 为 pnpm 10.16 或更高版本设置了 `minimumReleaseAge: 4320`（单位是分钟，即 3 天），pnpm 11 默认就有一天。被入侵的 npm 包通常在几天内就会被发现并撤下，这个时间限制会让新版本一直进不了你的安装，你用的包所依赖的包也一样。`package.json` 固定了精确的版本，`pnpm install` 会写出 `pnpm-lock.yaml`，你把它提交，并用 `pnpm install --frozen-lockfile` 来安装。如果安装因为你需要的版本太新而失败，就等一等，或把这个包列进 `minimumReleaseAgeExclude`。更旧的 pnpm 和 npm 会忽略这个文件。npm 在 `.npmrc` 里有 `min-release-age`（单位是天），作用相同。
 
