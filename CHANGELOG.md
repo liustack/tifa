@@ -4,6 +4,17 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Changed
+
+- The `ci.yml` that `tifa new` writes installs the newest patch of the Go minor of `go.mod` (`go-version: '1.27.x'` with `check-latest: true`) and runs `govulncheck`, and the workflow of `tifa deploy` installs the newest patch the same way. `go-version-file: go.mod` installed exactly 1.27.0, which lacks the `net/http` fixes of later patches, and `net/http` is compiled into the program. The workflow of `tifa deploy` is written again by `tifa deploy setup`. `tifa deploy setup` stops with a message when `go.mod` has no `go` line. Upgrading: in the `ci.yml` of an app you have, replace `go-version-file: go.mod` with `go-version: '1.27.x'` and a line `check-latest: true` (the minor of your `go` line), and add the step `- run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...` after `go tool tifa check`.
+- The systemd unit of an app made by `tifa deploy setup` has `StartLimitIntervalSec=0` and `RestartSec=2s`. Before, systemd stopped restarting the program after 5 starts in 10 seconds and left it failed, so a request that crashed the program again and again took the site down. Now it keeps restarting. `tifa deploy setup` writes the unit again.
+
+### Fixed
+
+- A file under `/assets/` answers 412 for a failed `If-Match` with no `Cache-Control: public, max-age=31536000, immutable`, which a shared cache could have kept and handed to every client.
+- A redirect that the router makes while it renders a page writes a tab, a line feed, a carriage return and other control characters of its address as `%09`, `%0A`, `%0D` and so on. A browser drops them from an address, so `/<tab>/evil.example` could be read as `//evil.example`.
+- On a site with languages, a `Load` that redirects to another language and an address that is not an `http`, `https` or relative one (such as `javascript:`) is an error and no longer runs in the browser.
+
 ## [0.6.0] - 2026-11-26
 
 ### Added
