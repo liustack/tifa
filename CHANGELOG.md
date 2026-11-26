@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-26
+
 ### Added
 
 - [Conventions](docs/reference/conventions.md), one page that lists every file, folder and name Tifa reads: the files of an app and of a folder, the exports of `page.tsx` and `layout.tsx`, the names of `route.go` with their types, the hooks, the `Set` calls and the options, what the build refuses, and the generated files. [Philosophy](docs/start/philosophy.md) now says why for each idea and for each thing Tifa leaves out.
