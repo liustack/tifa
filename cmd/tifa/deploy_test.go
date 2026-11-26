@@ -180,7 +180,10 @@ func TestDeployUnits(t *testing.T) {
 		"Requires=tifa-shop.socket\nAfter=tifa-shop.socket\n",
 		"WorkingDirectory=%h/shop/shared\n",
 		"ExecStart=%h/shop/current/shop\n",
-		"Restart=on-failure\n",
+		"Restart=on-failure\nRestartSec=2s\n",
+		// Without this, systemd stops restarting after 5 starts in 10 seconds and leaves the unit
+		// failed, so a request that crashes the program again and again takes the site down.
+		"[Unit]\nDescription=shop (Tifa)\nStartLimitIntervalSec=0\n",
 		"WantedBy=default.target",
 	} {
 		if !strings.Contains(service, want) {

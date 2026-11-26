@@ -501,6 +501,7 @@ WantedBy=sockets.target
 	u.service = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
 Description=%[1]s (Tifa)
+StartLimitIntervalSec=0
 Requires=%[2]s
 After=%[2]s
 
@@ -508,7 +509,7 @@ After=%[2]s
 WorkingDirectory=%%h/%[1]s/shared
 ExecStart=%%h/%[1]s/current/%[1]s
 %[3]sRestart=on-failure
-RestartSec=1s
+RestartSec=2s
 
 [Install]
 WantedBy=default.target
