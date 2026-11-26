@@ -2,7 +2,7 @@
 summary: '怎样用 Tifa 会话让用户登录和登出：argon2id、SetSession、保护页面、登出'
 audience: app
 order: 3
-translatedFrom: 20c0a2a32f0a
+translatedFrom: 8bc082e8727a
 read_when:
   - '给应用加登录和登出，或者把一些页面放在登录之后'
   - '选择怎样保存和检查密码'
@@ -106,7 +106,7 @@ func CheckHash(password, hash string) (bool, error) {
 }
 ```
 
-它生成的文本形如 `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<key>`，这是书写 argon2 哈希的通用方式。参数跟着哈希一起保存，所以以后你可以调高参数，而旧的哈希仍然能校验。有人注册或修改密码时运行 `HashPassword`，把结果保存在你的用户表里。本指南没有注册页面。
+它生成的文本形如 `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<key>`，这是书写 argon2 哈希的通用方式。参数跟着哈希一起保存，所以以后你可以调高参数，而旧的哈希仍然能校验。有人注册或修改密码时运行 `HashPassword`，把结果保存在你的用户表里。[注册并确认邮箱地址](sign-up.zh-CN.md) 展示了注册页，[重置密码](password-reset.zh-CN.md) 展示了重置。
 
 ## 检查登录 {#checking-the-sign-in}
 
@@ -810,9 +810,9 @@ func TestSignInAndOut(t *testing.T) {
 
 **会话持续多久。** 从登录起 30 天，由 `session.max_age` 设置。它不会续期。对涉及钱或私人数据的应用，请把它缩短。
 
-**OAuth、魔法链接、两步验证码。** 它们替换的是密码检查，不是其余部分。检查成功后，像上面那样调用 `tifa.SetSession`。这些流程的临时状态放在库自己的一个短期 cookie 里（见[登录库](../pages-and-data/sessions.zh-CN.md#sign-in-libraries)）。
+**OAuth、魔法链接、两步验证码。** 它们替换的是密码检查，不是其余部分。检查成功后，像上面那样调用 `tifa.SetSession`。这些流程的临时状态放在库自己的一个短期 cookie 里（见[登录库](../pages-and-data/sessions.zh-CN.md#sign-in-libraries)）。[用 Google 或 GitHub 登录](oauth.zh-CN.md) 展示了 OAuth 流程。
 
-**注册和重置密码。** 这里没有展示。两者最后都落在 `HashPassword` 和对你的用户表的一次写入上。
+**注册、邮箱确认和重置密码。** 见 [注册并确认邮箱地址](sign-up.zh-CN.md) 和 [重置密码](password-reset.zh-CN.md)。两者最后都落在 `HashPassword` 和对你的用户表的一次写入上。
 
 ## 检查一下 {#check-it}
 
