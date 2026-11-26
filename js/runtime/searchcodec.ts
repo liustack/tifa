@@ -170,6 +170,16 @@ export function searchText<S>(spec: Spec): (context: { search: S; next: (search:
   const text = (value: unknown, key: string) => (fields.has(key) && (typeof value === 'number' || typeof value === 'boolean') ? String(value) : value)
   return (({ search, next }: { search: Record<string, unknown>; next: (search: unknown) => Record<string, unknown> }) => {
     const result = next(search)
+    // Most Links ask for no number, bool or list of the spec, and their search goes on as it is.
+    let changes = false
+    for (const key in result) {
+      const value = result[key]
+      if (fields.has(key) && (typeof value === 'number' || typeof value === 'boolean' || (lists.has(key) && Array.isArray(value)))) {
+        changes = true
+        break
+      }
+    }
+    if (!changes) return result
     const out: Record<string, unknown> = Object.create(null)
     for (const key of Object.keys(result)) {
       const value = result[key]

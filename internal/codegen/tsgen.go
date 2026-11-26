@@ -705,6 +705,7 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 	var imports strings.Builder
 	runtime := map[string]bool{"createAppRouter": true}
 	codec := false
+	textMiddleware := false // a route has the searchText middleware
 	lazy := false
 	eager := func(n *tsNode) bool { return n.id == rootLayout || n.exported("head") }
 	// export returns the expression of one export of node i's module.
@@ -878,8 +879,14 @@ func routesModule(nodes []*tsNode, public []string) ([]byte, []*tsRoute, error) 
 		if hasSearch(n) {
 			codec = true
 			runtime["searchFailed"] = true
-			opts = append(opts, fmt.Sprintf("validateSearch: searchCodec<S%d>(%s)", i, searchSpec(n)),
-				fmt.Sprintf("search: { middlewares: [searchText<S%d>(%s)] }", i, searchSpec(n)), "onError: searchFailed")
+			opts = append(opts, fmt.Sprintf("validateSearch: searchCodec<S%d>(%s)", i, searchSpec(n)))
+			// A route whose parameters are all single texts gets no middleware: it would change
+			// nothing, and a route without one spares every Link to it the chain of middlewares.
+			if needsSearchText(n) {
+				textMiddleware = true
+				opts = append(opts, fmt.Sprintf("search: { middlewares: [searchText<S%d>(%s)] }", i, searchSpec(n)))
+			}
+			opts = append(opts, "onError: searchFailed")
 		}
 		if n.load != nil {
 			query = n.load.Query
@@ -980,7 +987,11 @@ declare module "@tanstack/react-router" {
 	names = append(names, "type RouterContext")
 	fmt.Fprintf(&out, `import { %s } from "./runtime/router"`+"\n", strings.Join(names, ", "))
 	if codec {
-		out.WriteString(`import { searchCodec, searchText } from "./runtime/searchcodec"` + "\n")
+		if textMiddleware {
+			out.WriteString(`import { searchCodec, searchText } from "./runtime/searchcodec"` + "\n")
+		} else {
+			out.WriteString(`import { searchCodec } from "./runtime/searchcodec"` + "\n")
+		}
 	}
 	rootHead := app != nil && app.exported("documentHead")
 	if heads && rootHead {
@@ -1396,6 +1407,17 @@ func searchSpec(n *tsNode) string {
 // hasSearch reports whether the Load or Layout function of n reads query parameters, so that
 // route.gen exports their type and routes.tsx gives it to the route.
 func hasSearch(n *tsNode) bool { return n.load != nil && len(n.load.Query) > 0 }
+
+// needsSearchText reports whether a query parameter of n is a number, a bool or a list, which the
+// searchText middleware writes back as the router reads the address. Text it leaves as it is.
+func needsSearchText(n *tsNode) bool {
+	for _, f := range n.load.Fields {
+		if f.List || f.Kind != "string" {
+			return true
+		}
+	}
+	return false
+}
 
 // i18nModule writes i18n.gen.ts, the languages of the app for the browser runtime: the default
 // language, whether every URL of an area has a prefix, the languages of the site, and the languages
