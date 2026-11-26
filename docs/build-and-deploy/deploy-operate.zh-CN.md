@@ -2,7 +2,7 @@
 summary: '管理已部署的应用：`tifa deploy env`、没有终端时设置密钥、`logs`、`status`、`remove`，以及应用在服务器上把文件放在哪里'
 audience: app
 order: 15
-translatedFrom: 9458d988ee39
+translatedFrom: cd8c58aa8716
 read_when:
   - '用 tifa deploy env 设置已部署应用 .env 里的密钥或设置'
   - 'agent 运行 tifa deploy env set，或带 --cache-purge-token 的 tifa deploy setup，浏览器里打开了一个页面用来输入密钥'
@@ -42,6 +42,7 @@ go tool tifa deploy logs        # the last 100 lines of the log, -n 500 for more
 go tool tifa deploy logs -f     # and then the new ones, until Ctrl-C
 go tool tifa deploy status
 go tool tifa deploy status --all   # every server of ~/.tifa/config.yaml, once
+go tool tifa deploy status --json  # this app, as JSON
 go tool tifa deploy remove
 ```
 
@@ -86,6 +87,30 @@ Only the servers this machine has set up or deployed to, the ones in ~/.tifa/con
 - `--json` 把同样的内容作为一个 JSON 文档打印到 stdout：一个服务器列表。每台服务器有 `name`、`id`、`host`、`reached`、`error`（没连上时）和 `apps`，连上时还有 `facts`：`os`、`arch`、`cpus`、`memoryTotalKiB`、`memoryAvailableKiB`、`diskTotalKiB`、`diskUsedKiB`（`tifa` 的家目录所在的磁盘）、`uptimeSeconds`、`load1`、`load5` 和 `load15`。服务器没说的数字是 0。每个应用有 `name`、`host`、`deployed`、`release`、`commit`、`checkPassed`、`service`、`activeSince`、`restarts`、`health`（`GET /healthz` 的状态码，服务没运行时为空，没有回答时为 `000`）、`memoryKiB`、`ok` 和 `error`。
 - 它只看某一个时刻，不是监控：不刷新、不报警、不留历史。它只覆盖那个文件里的服务器，也就是这台机器设置过或部署过的服务器。要报警，请用服务器之外的探测，比如 UptimeRobot 或 Cloudflare 的健康检查，因为服务器上的探测会和服务器一起挂掉。
 - `--all` 不接受 `--host` 和 `--dir`。
+
+不带 `--all` 的 `status --json` 为当前文件夹的应用打印一个 JSON 对象，给脚本或 agent 用。它有上面应用的那些字段（`name`、`host`、`deployed`、`release`、`commit`、`checkPassed`、`service`、`activeSince`、`restarts`、`health`、`memoryKiB` 和 `ok`），还有它问的那台服务器 `server`（有 `host`，主机来自 `~/.tifa/config.yaml` 时还有 `name` 和 `id`），以及 `releases`：保留的发布，当前的排第一，其余从新到旧，每个有 `id`、`commit` 和 `checkPassed`。退出方式和文字版一样：应用不在服务器上或连不上服务器时报错，其余都是 0，服务停了也是 0，所以要看 `ok`。
+
+```json
+{
+  "name": "shop",
+  "host": "vps",
+  "deployed": true,
+  "release": "20261120T120000Z",
+  "commit": "ccc333",
+  "checkPassed": true,
+  "service": "active",
+  "activeSince": "Fri 2026-11-20 12:00:05 UTC",
+  "restarts": 0,
+  "health": "200",
+  "memoryKiB": 39630,
+  "ok": true,
+  "server": {"name": "vps", "id": "vps-1a2b3c4d", "host": "vps"},
+  "releases": [
+    {"id": "20261120T120000Z", "commit": "ccc333", "checkPassed": true},
+    {"id": "20261120T110000Z", "commit": "bbb222-dirty", "checkPassed": false}
+  ]
+}
+```
 
 `remove` 把应用从服务器上拿掉，收回 Tifa 为它做的东西，别的不动：
 

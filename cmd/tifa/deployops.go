@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -63,7 +64,7 @@ func deployLogs(ctx context.Context, t deployTarget, lines int, follow bool, std
 
 // deployStatus prints which release runs, the releases kept, the service, the answer of the
 // health check now and the memory of the program.
-func deployStatus(ctx context.Context, t deployTarget, stdout, stderr io.Writer) error {
+func deployStatus(ctx context.Context, t deployTarget, asJSON bool, stdout, stderr io.Writer) error {
 	s, err := t.probe(ctx, statusScript(t.app), stderr)
 	if err != nil {
 		return err
@@ -71,8 +72,28 @@ func deployStatus(ctx context.Context, t deployTarget, stdout, stderr io.Writer)
 	if s.Port == 0 {
 		return fmt.Errorf("%s is not on %s yet: run go tool tifa deploy first", t.app, t.host)
 	}
+	if asJSON {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(appStatusOf(t, s))
+	}
 	fmt.Fprint(stdout, deployStatusText(t, s, deployNow()))
 	return nil
+}
+
+// releaseOrder lists the releases of s as status shows them: the current one first, then the
+// others from the newest.
+func releaseOrder(s serverState) []string {
+	ids := []string{}
+	if s.Current != "" {
+		ids = append(ids, s.Current)
+	}
+	for _, id := range slices.Backward(s.Releases) {
+		if id != s.Current {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // deployStatusText is what status prints about the app on the server s at the time now.
@@ -83,16 +104,7 @@ func deployStatusText(t deployTarget, s serverState, now time.Time) string {
 	if s.Current == "" {
 		line("release", "none yet: run go tool tifa deploy")
 	}
-	// The current release first, then the others from the newest.
-	ids := []string{}
-	if s.Current != "" {
-		ids = append(ids, s.Current)
-	}
-	for _, id := range slices.Backward(s.Releases) {
-		if id != s.Current {
-			ids = append(ids, id)
-		}
-	}
+	ids := releaseOrder(s)
 	width := 0
 	for _, id := range ids {
 		width = max(width, len(s.latest(id).Commit))
@@ -167,18 +179,15 @@ are covered.`,
 				}
 				return deployStatusAll(cmd.Context(), asJSON, cmd.OutOrStdout())
 			}
-			if asJSON {
-				return errors.New("--json goes with --all")
-			}
 			t, err := loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			return deployStatus(cmd.Context(), t, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deployStatus(cmd.Context(), t, asJSON, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "look at every server in ~/.tifa/config.yaml once, with no app checkout")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "with --all, print one JSON document")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON: one object for this app, or with --all one document for every server")
 	return cmd
 }
 

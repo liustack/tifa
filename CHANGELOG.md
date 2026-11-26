@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa deploy status --json` works without `--all`: it prints one JSON object for the app of the folder, with the fields of an app of `--all`, the `server` it asked and the `releases` kept (`id`, `commit`, `checkPassed`). It exits as the text does. See [Logs, status and remove](docs/build-and-deploy/deploy-operate.md#logs-status-and-remove).
+
 ### Changed
 
 - `tifa deploy` runs ssh with `BatchMode=yes` when there is no terminal, so it never waits for an answer no one can give, and gives a server it reaches directly 15 seconds to answer, unless your ssh configuration sets a `ConnectTimeout` (a `ProxyCommand` or `ProxyJump`, such as Cloudflare Access, gets no limit). A host key that is not in `known_hosts` yet, one that changed, and a server ssh cannot reach each get an error that says what to do. See [Deploy](docs/build-and-deploy/deploy.md#deploy-with-tifa-deploy).

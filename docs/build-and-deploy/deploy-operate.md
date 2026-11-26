@@ -41,6 +41,7 @@ go tool tifa deploy logs        # the last 100 lines of the log, -n 500 for more
 go tool tifa deploy logs -f     # and then the new ones, until Ctrl-C
 go tool tifa deploy status
 go tool tifa deploy status --all   # every server of ~/.tifa/config.yaml, once
+go tool tifa deploy status --json  # this app, as JSON
 go tool tifa deploy remove
 ```
 
@@ -85,6 +86,30 @@ Only the servers this machine has set up or deployed to, the ones in ~/.tifa/con
 - `--json` prints the same as one JSON document on stdout: a list of servers. A server has `name`, `id`, `host`, `reached`, `error` (when it was not reached) and `apps`, and `facts` when it was reached: `os`, `arch`, `cpus`, `memoryTotalKiB`, `memoryAvailableKiB`, `diskTotalKiB`, `diskUsedKiB` (the disk of the home of `tifa`), `uptimeSeconds`, `load1`, `load5` and `load15`. A number the server did not say is 0. An app has `name`, `host`, `deployed`, `release`, `commit`, `checkPassed`, `service`, `activeSince`, `restarts`, `health` (the status of `GET /healthz`, empty while the service does not run, `000` for no answer), `memoryKiB`, `ok` and `error`.
 - It is a look at one moment, not monitoring: it does not refresh, alert or keep a history. It covers only the servers in that file, which are the ones this machine has set up or deployed to. For alerts, use a probe outside the server, such as UptimeRobot or the health checks of Cloudflare, since a probe on the server dies with the server.
 - `--all` takes no `--host` and no `--dir`.
+
+`status --json` without `--all` prints one JSON object for the app of the folder, for a script or an agent. It has the fields of an app above (`name`, `host`, `deployed`, `release`, `commit`, `checkPassed`, `service`, `activeSince`, `restarts`, `health`, `memoryKiB` and `ok`), the server it asked as `server` (`host`, and `name` and `id` when the host comes from `~/.tifa/config.yaml`), and `releases`: the releases kept, the current one first and then the newest first, each with `id`, `commit` and `checkPassed`. It exits as the text does: with an error when the app is not on the server or the server cannot be reached, else 0, also when the service is down, so read `ok`.
+
+```json
+{
+  "name": "shop",
+  "host": "vps",
+  "deployed": true,
+  "release": "20261120T120000Z",
+  "commit": "ccc333",
+  "checkPassed": true,
+  "service": "active",
+  "activeSince": "Fri 2026-11-20 12:00:05 UTC",
+  "restarts": 0,
+  "health": "200",
+  "memoryKiB": 39630,
+  "ok": true,
+  "server": {"name": "vps", "id": "vps-1a2b3c4d", "host": "vps"},
+  "releases": [
+    {"id": "20261120T120000Z", "commit": "ccc333", "checkPassed": true},
+    {"id": "20261120T110000Z", "commit": "bbb222-dirty", "checkPassed": false}
+  ]
+}
+```
 
 `remove` takes the app off the server and takes back what Tifa made for it, and nothing else:
 

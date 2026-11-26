@@ -197,9 +197,6 @@ func TestDeployStatusAllRefusesHostAndDir(t *testing.T) {
 			t.Errorf("%v: %v", args, err)
 		}
 	}
-	if _, _, err := run(t, "deploy", "status", "--json"); err == nil || !strings.Contains(err.Error(), "--all") {
-		t.Errorf("--json alone: %v", err)
-	}
 }
 
 func TestParseServerFacts(t *testing.T) {
