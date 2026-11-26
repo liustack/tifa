@@ -234,6 +234,29 @@ func TestFrontMatterBecomesTheJSONOfTheSchema(t *testing.T) {
 	}
 }
 
+// A key the struct has no field for, such as the weight of a page moved from Hugo, is a warning that
+// names the nearest field. The entry is read without it.
+func TestUnknownFrontMatterKeysAreWarnings(t *testing.T) {
+	tree, _ := FromReflect(reflect.TypeFor[richPost]())
+	src := []byte("---\ntitle: x\ndescription: d\nupdated: 2026-08-09\ntags: []\nmeta: {}\nimage: {src: /a.jpg, alt: a}\ntag: y\nweight: 3\n---\n")
+	m := parseMatter(src, tree, "scan.richPost")
+	if len(m.errs) > 0 {
+		t.Fatalf("errors: %v", m.errs)
+	}
+	if len(m.warns) != 3 {
+		t.Fatalf("warnings: %v", m.warns)
+	}
+	if want := `"alt" is not a key of image.`; !strings.HasPrefix(m.warns[0].msg, want) {
+		t.Errorf("first warning %q", m.warns[0].msg)
+	}
+	if want := `"tag" is not a field of scan.richPost. Did you mean "tags"?`; !strings.HasPrefix(m.warns[1].msg, want) {
+		t.Errorf("second warning %q", m.warns[1].msg)
+	}
+	if strings.Contains(string(m.data), "weight") || strings.Contains(string(m.data), "alt") {
+		t.Errorf("data holds an unknown key: %s", m.data)
+	}
+}
+
 func TestDates(t *testing.T) {
 	tree, _ := FromReflect(reflect.TypeFor[note]())
 	for _, c := range []struct {

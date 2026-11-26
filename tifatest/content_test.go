@@ -52,7 +52,7 @@ func TestLoadContentReadsTheSourceFiles(t *testing.T) {
 func TestLoadContentFailsOnWhatTheBuildRefuses(t *testing.T) {
 	t.Chdir(filepath.Join("testdata", "badcontent"))
 	msg := fatal(t, LoadContent)
-	if !strings.Contains(msg, `content/blog/en/a.md:2:1: "titel" is not a field of tifatest.testPost. Did you mean "title"?`) {
+	if !strings.Contains(msg, `content/blog/en/a.md:1:1: front matter has no "title", which tifatest.testPost.Title needs.`) {
 		t.Errorf("message %q", msg)
 	}
 }

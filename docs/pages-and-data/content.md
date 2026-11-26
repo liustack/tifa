@@ -150,7 +150,7 @@ Its keys are the `json` names of the fields of the schema struct, and the build 
 
 - A field may be a string, number, bool, `time.Time`, pointer, slice, map with string keys or nested struct. `time.Time` takes `2006-01-02` (midnight UTC) and RFC 3339, quoted or not. Types that read their own JSON, `[]byte`, `time.Duration`, interfaces and the json options other than `omitempty` and `omitzero` (such as `,string`) fail the build.
 - A field is required unless it is a pointer, slice or map, or has `omitempty` or `omitzero`. This is the same rule as for optional fields in the TypeScript types of the page.
-- A key that is not a field fails the build, with the nearest field name when one is close.
+- A key that is not a field is a warning, with the nearest field name when one is close, and the entry is read without it. So a page moved from Hugo or Jekyll, with `weight` or `categories` in its front matter, builds. A key that was meant for a field shows in the warning too.
 - A `yaml` tag on a field fails the build: the keys are the json names.
 - Tifa reads four keys itself. They are not fields of the schema, and writing them is not an error:
 
@@ -513,7 +513,6 @@ content/blog/notes.md: the collection blog has languages, so its files go in a l
 content/blog/zh-CN/202610/demo/index.mdx: MDX is not supported: a body becomes HTML at build time and cannot hold React components. Rename it to index.md and put the components in the page
 content/blog/zh-CN/a/index.md:1:1: no front matter: an entry starts with --- and the keys of contenttest.Post
 content/blog/zh-CN/202608/free-search/index.md:5:8: draft: want true or false, got "yes"
-content/blog/zh-CN/202608/free-search/index.md:9:1: "tag" is not a field of contenttest.Post. Did you mean "tags"? Fields: title, description, updated, tags, cover
 content/blog/en/202608/free-search/index.md:1:1: front matter has no "title", which contenttest.Post.Title needs. Make the field a pointer or add omitempty to make it optional
 content/blog/en/202608/free-search/index.md:2:7: slug: "free/search" is not one URL segment: it holds /
 content/docs/en/guide/index.md: the ID guide is also the ID of content/docs/en/guide.md
