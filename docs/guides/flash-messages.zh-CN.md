@@ -2,7 +2,7 @@
 summary: '在 Tifa 应用里重定向之后只显示一次的消息（「已保存」）：处理函数设一个短 cookie，下一个页面读出并清掉它，以及带 Cache 的页面怎么办'
 audience: app
 order: 16
-translatedFrom: 69a951d3510c
+translatedFrom: bebb12ed41cd
 read_when:
   - '写入后重定向，要只显示一次「已保存」「已删除」或「已退出」'
   - '消息显示了两次，在带 `Cache` 的页面上不显示，或者客户端导航之后不显示'
@@ -127,7 +127,7 @@ func Load(c *tifa.Ctx) (View, error) {
 
 带 `const Cache` 的页面对所有人都一样：它的请求在你的代码运行之前就丢掉了 cookie，它的 HTML 上的 `Set-Cookie` 会被去掉（[给 CDN 用的 Cache](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns)）。由此有两件事：
 
-- 它的 `Load` 看不到 flash cookie。里面直接写 `c.Cookie("flash")`，`tifa check` 会报「c.Cookie is always empty here」。通过另一个包里的辅助函数来读，比如上面的 `TakeFlash`，检查**不会**报，它只是什么也显示不出来。
+- 它的 `Load` 看不到 flash cookie。里面直接写 `c.Cookie("flash")`，`tifa check` 会报「c.Cookie is always empty here」。`TakeFlash` 不会被报，因为不带 `Cache` 的页面也调用它（见 [构建会检查](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns)）：在这个页面上它只是什么也显示不出来。
 - 它的回答什么也清不掉。为这样一个页面设的 flash 会留在浏览器里，60 秒之内第一个不带 `Cache`、又调用 `TakeFlash` 的页面会把它显示出来，晚了一个页面。
 
 两条出路：

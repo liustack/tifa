@@ -126,7 +126,7 @@ The render memo ([The render memo](../reference/memo.md)) keys a page by its dat
 
 A page with `const Cache` is the same for everyone: its requests lose their cookies before your code runs, and a `Set-Cookie` on its HTML is removed ([Cache for CDNs](../pages-and-data/ssr-and-cache.md#cache-for-cdns)). Two things follow:
 
-- Its `Load` sees no flash cookie. A direct `c.Cookie("flash")` in it fails `tifa check` with "c.Cookie is always empty here". A read through a helper in another package, as `TakeFlash` above, is **not** reported by the check, so it just shows nothing.
+- Its `Load` sees no flash cookie. A direct `c.Cookie("flash")` in it fails `tifa check` with "c.Cookie is always empty here". `TakeFlash` is not reported, because pages without `Cache` call it too ([The build checks it](../pages-and-data/ssr-and-cache.md#cache-for-cdns)): on this page it just shows nothing.
 - Its answer clears nothing. A flash set for such a page stays in the browser, and the first page without `Cache` that calls `TakeFlash` within the 60 seconds shows it, a page late.
 
 Two ways out:
