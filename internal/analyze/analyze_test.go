@@ -434,6 +434,12 @@ func TestViolations(t *testing.T) {
 			{"db/db.go:8:", "c.Request"},
 			{"db/db.go:10:", "c.Writer"},
 		}},
+		// The framework writes the answer of a page, so Load, Layout and the functions they call do not.
+		{"loadwrite", [][]string{
+			{"app/route.go:5:", "c.NoContent", "writes the response", "Layout"},
+			{"app/page/route.go:10:", "c.JSON", "writes the response", "Load"},
+			{"out/out.go:5:", "c.Text", "writes the response"},
+		}},
 		// c.Query in Load, Layout and the functions they call is refused, also through a struct that embeds the Ctx.
 		{"embeddedctx", [][]string{{"app/page/route.go:10:", "c.Query", "second parameter", "func Load(c *tifa.Ctx, q Filter)"}}},
 		// The walk follows the Ctx as an argument and as the receiver of a method, a struct that embeds it

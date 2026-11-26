@@ -234,7 +234,8 @@ func isFrameworkPath(path string) bool {
 // refusedInLoad returns why fn may not run in Load, Layout and the functions they call, and an
 // empty string when it may. The refused functions are the methods of the Ctx that read the
 // request where the analyzer cannot see which parameters are read, so the page would not load
-// again when they change.
+// again when they change, and those that write the response, which the framework writes for the
+// page.
 func refusedInLoad(fn *types.Func) string {
 	recv := fn.Signature().Recv()
 	if recv == nil {
@@ -250,6 +251,8 @@ func refusedInLoad(fn *types.Func) string {
 		return `c.BindQuery decodes the query string in a method handler, where the response is the handler's own: Load and Layout take their query parameters as the second parameter, for example type Filter struct { Page int ` + "`json:\"page\"`" + ` } and func Load(c *tifa.Ctx, q Filter) (T, error)`
 	case "Bind":
 		return `c.Bind reads the request body, which a page load and the data request of a navigation do not have: in Load and the functions it calls, take the query parameters as the second parameter, func Load(c *tifa.Ctx, q Filter) (T, error). c.Bind is for the POST, PUT, PATCH and DELETE handlers`
+	case "JSON", "Text", "NoContent":
+		return "c." + fn.Name() + " writes the response, which tifa writes for a page from what its Load and Layout functions return: in Load, Layout and the functions they call, return the data, an error such as tifa.Error{Status: 404, Message: \"no such order\"}, or tifa.Redirect(url, 302). c." + fn.Name() + " is for method handlers and OnRequest"
 	}
 	return ""
 }
