@@ -7,6 +7,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Added
 
 - `tifa deploy rollback` takes an optional release ID, as `tifa deploy status` lists it (such as `20261120T110000Z`), and goes to that release, older or newer than the one that runs, with the same restart and health check. The release must still be on the server and have passed its health check when it was deployed, else nothing changes and the error lists the releases it can go to. See [Roll back](docs/build-and-deploy/deploy.md#roll-back).
+- `tifa deploy status --json` works without `--all`: it prints one JSON object for the app of the folder, with the fields of an app of `--all`, the `server` it asked and the `releases` kept (`id`, `commit`, `checkPassed`). It exits as the text does. See [Logs, status and remove](docs/build-and-deploy/deploy-operate.md#logs-status-and-remove).
 
 ### Changed
 

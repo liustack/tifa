@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -182,5 +184,85 @@ func TestHealthLine(t *testing.T) {
 		if got := healthLine(code); got != want {
 			t.Errorf("%q: got %q, want %q", code, got, want)
 		}
+	}
+}
+
+// status --json for one app prints one object with the fields of an app of --all, the server it
+// was asked on, and the releases kept as the text lists them. The exit is the text's: an app that
+// is not well still exits 0.
+func TestDeployStatusJSON(t *testing.T) {
+	root, _ := statusApp(t, "ActiveState=failed\nActiveEnterTimestamp=\nMainPID=0\nNRestarts=3\n")
+	out, _, err := run(t, "deploy", "status", "--json", "--dir", root)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	var got struct {
+		appReport
+		Server   map[string]any
+		Releases []map[string]any
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	want := statusOf("shop", "vps", serverState{})
+	want.Deployed, want.Release, want.Commit, want.CheckPassed = true, "20261120T120000Z", "ccc333", true
+	want.Service, want.Restarts, want.OK = "failed", 3, false
+	if got.appReport != want {
+		t.Errorf("app: %+v\nwant %+v", got.appReport, want)
+	}
+	if !reflect.DeepEqual(got.Server, map[string]any{"host": "vps"}) {
+		t.Errorf("server: %v", got.Server)
+	}
+	wantReleases := []map[string]any{
+		{"id": "20261120T120000Z", "commit": "ccc333", "checkPassed": true},
+		{"id": "20261120T110000Z", "commit": "bbb222-dirty", "checkPassed": false},
+		{"id": "20261120T100000Z", "commit": "aaa111", "checkPassed": true},
+	}
+	if !reflect.DeepEqual(got.Releases, wantReleases) {
+		t.Errorf("releases: %v", got.Releases)
+	}
+}
+
+// An app that is not on the server has no status in JSON either.
+func TestDeployStatusJSONNeedsTheApp(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	t.Setenv(deployHostEnv, "vps")
+	fakeServer(t, t.TempDir(), nil)
+	out, _, err := run(t, "deploy", "status", "--json", "--dir", root)
+	if err == nil || !strings.Contains(err.Error(), "tifa deploy first") || out != "" {
+		t.Errorf("got %v, %q", err, out)
+	}
+}
+
+// With the server taken from ~/.tifa, the object names it as --all does.
+func TestDeployStatusJSONNamesTheServer(t *testing.T) {
+	tifaDir, machine := statusAllWorld(t)
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeFile(t, filepath.Join(tifaDir, "config.yaml"),
+		fmt.Sprintf("servers:\n  - id: %s\n    host: vps\n    apps:\n      - {name: shop, path: %s, host: vps}\n", machine, root))
+	out, _, err := run(t, "deploy", "status", "--json", "--dir", root)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	var got struct {
+		Server map[string]any
+		OK     bool
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	name := machine[:strings.LastIndex(machine, "-")]
+	if !reflect.DeepEqual(got.Server, map[string]any{"name": name, "id": machine, "host": "vps"}) || !got.OK {
+		t.Errorf("%+v\n%s", got, out)
+	}
+}
+
+// --json with --all keeps its meaning, and the flag no longer needs --all.
+func TestDeployStatusJSONFlagHelp(t *testing.T) {
+	out, _, _ := run(t, "deploy", "status", "--help")
+	if strings.Contains(out, "with --all, print") {
+		t.Errorf("help still says --json needs --all:\n%s", out)
 	}
 }

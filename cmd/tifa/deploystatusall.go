@@ -168,6 +168,43 @@ type appReport struct {
 	Error       string `json:"error,omitempty"`
 }
 
+// serverRef is the server an app status was asked on. Name and ID are known only when the host
+// came from ~/.tifa/config.yaml, since only there is the machine ID of the server.
+type serverRef struct {
+	Name string `json:"name,omitempty"`
+	ID   string `json:"id,omitempty"`
+	Host string `json:"host"`
+}
+
+// releaseReport is a release kept on the server, as the text status lists it.
+type releaseReport struct {
+	ID          string `json:"id"`
+	Commit      string `json:"commit"`
+	CheckPassed bool   `json:"checkPassed"`
+}
+
+// appStatus is what status --json prints for one app: the fields of an app of --all, the server
+// and the kept releases.
+type appStatus struct {
+	appReport
+	Server   serverRef       `json:"server"`
+	Releases []releaseReport `json:"releases"`
+}
+
+// appStatusOf builds the status of the app of t from its probe s, with statusOf as --all does.
+func appStatusOf(t deployTarget, s serverState) appStatus {
+	srv := serverRef{Host: t.dest.raw}
+	if t.dest.knownID != "" {
+		srv.ID, srv.Name = t.dest.knownID, knownServer{ID: t.dest.knownID}.name()
+	}
+	out := appStatus{appReport: statusOf(t.app, t.dest.raw, s), Server: srv, Releases: []releaseReport{}}
+	for _, id := range releaseOrder(s) {
+		_, passed := s.good(id)
+		out.Releases = append(out.Releases, releaseReport{ID: id, Commit: s.latest(id).Commit, CheckPassed: passed})
+	}
+	return out
+}
+
 // healthPasses judges an answer of GET healthPath the way a deploy does.
 func healthPasses(code string) bool {
 	return code != "" && code != "000" && code < "500"
