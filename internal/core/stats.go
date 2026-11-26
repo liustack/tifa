@@ -41,8 +41,8 @@ type SSRStats struct {
 type MemoStats struct {
 	Entries int
 	// Hits are answered from an entry. Misses made the page or the file, and Shared waited for a page another
-	// request was making at the time. Evictions are the entries dropped, the least recently used
-	// first, to make room for another.
+	// request was making at the time. Evictions are the entries dropped to make room for another,
+	// those hit only once first.
 	Hits, Misses, Shared, Evictions uint64
 }
 
