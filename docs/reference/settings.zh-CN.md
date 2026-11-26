@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的每一项设置：名称、默认值、参数、环境变量和作用'
 audience: app
 order: 7
-translatedFrom: 20a24e4a78c3
+translatedFrom: 381bc50dd273
 read_when:
   - '修改会话的有效时长、会话 Cookie 名，或者默认会话存储可以用多少内存'
   - '部署 Tifa 应用，或者修改它的端口、请求体上限、读写超时、压缩、虚拟机数量、虚拟机栈深度、渲染超时、渲染队列、渲染记忆，或者带 `Cache` 的页面发出的 Cache-Control'
@@ -22,7 +22,7 @@ read_when:
 | `build.public` | `public` | 仅项目文件 | 静态文件的文件夹，这些文件原样复制进程序，从 `/` 提供 |
 | `build.public_dotfiles` | 无 | 仅项目文件 | 用逗号分隔的路径，在静态文件的文件夹里，最后一个名字以点开头，比如 `.nojekyll,docs/.assets`。名字以点开头的文件和文件夹本来不会被复制，写在这里的会被复制。路径相对于那个文件夹，用 `/` 分隔。写在这里的文件夹会连同里面的内容一起复制，更深处以点开头的名字仍然要各自写一项。`.well-known` 不用写。路径不存在、走出这个文件夹，或者不是以点开头的名字结尾，`tifa build` 和 `tifa check` 会失败。`tifa build` 会列出它没有复制的内容，`.DS_Store` 除外 |
 | `build.skip_tanstack_check` | `false` | 仅项目文件 | `true` 会构建 TanStack Router 不是 Tifa 测试过的版本的应用，这可能让页面在浏览器里变成空白。见 [生成的文件和应用的配置](generated-files.zh-CN.md#the-apps-tsconfig-and-vite-config) |
-| `build.debug_info` | `false` | 仅项目文件 | `true` 把 DWARF 调试信息留在程序里，供 Delve 这样的调试器使用。不设时，`tifa build` 用 `-ldflags=-w` 去掉调试信息，这让示例 shop 的程序小约 20%。无论哪种，panic 仍然会给出每一帧的文件和行号。`tifa dev` 始终保留它。见 [build.md](../build-and-deploy/build.zh-CN.md#debug-info) |
+| `build.debug_info` | `false` | 仅项目文件 | `true` 把 DWARF 调试信息和完整的源文件路径留在程序里，供 Delve 这样的调试器使用。不设时，`tifa build` 用 `-ldflags=-w` 去掉调试信息，这让示例 shop 的程序小约 20%，并用 `-trimpath` 去掉构建机器上的文件夹路径。无论哪种，panic 仍然会给出每一帧的文件和行号。`tifa dev` 始终保留它。见 [build.md](../build-and-deploy/build.zh-CN.md#debug-info) |
 | `build.i18next_cache` | `true` | 仅项目文件 | 服务端渲染会保留 i18next 翻译出来的字符串，同样的键和选项再来时直接给出，所以每次渲染都翻译同样文本的页面耗时更少：shop 的店面页面只要它的 0.778。`false` 会关掉它。应用的 formatter 和后处理器对同样的输入必须给出同样的文本。应用在第一次渲染之后不通过 i18next 的 API 改动 i18next 的资源或选项，或者给 i18next 传了读取请求内容的其他函数时，请关掉它，否则页面可能显示过期的翻译。见 [Tifa 里的 i18next](i18next.zh-CN.md#i18next-cache) |
 | `i18n.default` | 无 | 仅项目文件 | 带 `_locales/` 文件夹的应用的默认语言，是常见写法的 BCP 47 标签，比如 `zh-CN` 或 `en-US`。这种语言的 URL 没有前缀（除非 `i18n.prefix` 是 `always`），它在 `tifa.Languages()` 里排第一。只有一种语言的应用可以省略它。有多种语言时，没有它 `tifa build` 会失败，没有任何区域有它的文件时也会失败。每个区域都必须有默认语言。见[多语言站点](../guides/i18n.zh-CN.md) |
 | `i18n.prefix` | `off` | 仅项目文件 | `always` 会把语言放进每个有语言的路由的 URL，默认语言也不例外：`/store` 会以 308 跳转到 `/zh-CN/store`。`off` 让默认语言没有前缀。不在任何区域里的路由，两种模式下都没有前缀 |

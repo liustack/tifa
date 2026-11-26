@@ -2,7 +2,7 @@
 summary: '用 `tifa build` 构建程序：各个步骤、语言、调试信息、为另一个系统构建、要附上的声明、go.mod'
 audience: app
 order: 8
-translatedFrom: 97d461e5d610
+translatedFrom: b0cbd3b63ee3
 read_when:
   - '修改 internal/codegen、cmd/tifa 里的 build 命令，或者 server.Main'
   - '把构建好的程序交给别人，核对要附上哪些声明'
@@ -22,7 +22,7 @@ tifa build [--dir app-root] [-o output-path]
 1. 对 `app/` 和根目录的 `hooks.go` 做静态分析。如果违反了某条约定，它会为每个问题打印 `file:line: reason`，然后退出。
 2. 把生成的代码写进 `.tifa/`。只重写内容有变化的文件，不再生成的文件会被删除。
 3. 用应用自己的 Vite 打包，它在 Node 上运行，输出写进 `.tifa/dist/`。见[前端输出](../reference/build-output.zh-CN.md#frontend-output)。Tifa 在整个构建过程中只运行一个 Node 进程，不管 shell 里怎么设置，都使用 `NODE_ENV=production`，所以构建总是使用 React 的生产版本。它还为第 2 步用 Vite 的解析器读取 `page.tsx` 和 `layout.tsx` 的导出。没有页面的应用不用 Node 就能构建，除非它的内容集合里有条目（见[内容](../pages-and-data/content.zh-CN.md#markdown-to-html)）。可执行文件从不需要 Node。
-4. 运行 `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`。默认输出是 `bin/<模块路径的最后一段>`，不算 `/v2` 这样的主版本后缀，在为 Windows 构建时（环境里的 `GOOS`，见下文）加上 `.exe`。为任何其他系统构建时写不带后缀的名字，`-o` 按给定的值使用。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌入可执行文件。`-w` 省去调试信息，见下文的「调试信息」。
+4. 运行 `CGO_ENABLED=0 go build -o <output> -trimpath -ldflags=-w ./.tifa`。默认输出是 `bin/<模块路径的最后一段>`，不算 `/v2` 这样的主版本后缀，在为 Windows 构建时（环境里的 `GOOS`，见下文）加上 `.exe`。为任何其他系统构建时写不带后缀的名字，`-o` 按给定的值使用。生成的 main 用 `//go:embed all:dist` 把 `.tifa/dist/` 嵌入可执行文件。`-trimpath` 和 `-w` 省去构建机器上的文件夹路径和调试信息，见下文的「调试信息」。
 
 分析还会读取 `content.go` 和 `content/` 文件夹，并以同样的形式打印它们的问题（见[内容](../pages-and-data/content.zh-CN.md#errors)）。对每个有条目没有翻译的集合和语言，它会打印一条警告，并列出还在等待发布日期的条目。
 
@@ -55,7 +55,9 @@ tifa build [--dir app-root] [-o output-path]
 
 除了 DWARF，Go 在每个程序里还保存着它自己的函数、文件和行号表，所以大多数东西照常工作。panic 和堆栈跟踪仍然给出每一帧的文件和行号，`runtime.Caller` 和 pprof 分析读的也是同一张表。你会失去的是 Delve（`dlv`）这样的调试器：它们需要 DWARF，所以无法单步执行构建出的程序，也看不到它的变量。Tifa 不传 `-s`，因为那样还会去掉符号表，而 `go tool nm` 这样的工具要读它。
 
-要保留调试信息，在[项目文件](../reference/settings.zh-CN.md#settings)里设置 `build.debug_info`：
+`tifa build` 还传 `-trimpath`，让程序里不带构建机器上的文件夹路径。panic 按文件在模块里的路径给出文件，比如 `example.com/shop/app/orders/route.go:42`，而不是 `/home/me/src/shop/app/orders/route.go:42`。两台机器用同样的 Go 和同样的参数构建同样的代码，得到的程序相同。要保留完整路径，在 `GOFLAGS` 里写 `-trimpath=false`。`GOFLAGS` 里已经有任何形式的 `-trimpath` 时，Tifa 不再添加。
+
+要保留调试信息和完整路径（Delve 靠完整路径找到源文件），在[项目文件](../reference/settings.zh-CN.md#settings)里设置 `build.debug_info`：
 
 ```yaml
 build:

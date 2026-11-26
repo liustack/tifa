@@ -271,15 +271,30 @@ func languagesLDFlag(m *analyze.Manifest) string {
 	return "-X " + languagesVar + "=list:" + list
 }
 
-// buildFlags are the flags of go build in tifa build: the ldflags of GOFLAGS with -w, unless
-// build.debug_info keeps the DWARF debug info, and with x, which the program needs (see
-// languagesLDFlag). tifa dev passes settings with DebugInfo.
+// buildFlags are the flags of go build in tifa build: -trimpath and the ldflags of GOFLAGS with -w,
+// unless build.debug_info keeps the DWARF debug info and the paths a debugger reads, and with x,
+// which the program needs (see languagesLDFlag). -trimpath takes the folders of the machine that
+// builds out of the program, so its panics name a file by its path in its module. It is left out
+// when GOFLAGS already has -trimpath, in any form, since a flag on the command line would win over it.
 func buildFlags(ctx context.Context, root string, settings config.Build, x string) ([]string, error) {
 	goflags, err := goEnvFlags(ctx, root)
 	if err != nil {
 		return nil, err
 	}
-	return ldflags(goflags, !settings.DebugInfo, x)
+	flags, err := ldflags(goflags, !settings.DebugInfo, x)
+	if err != nil || settings.DebugInfo {
+		return flags, err
+	}
+	words, err := splitQuoted(goflags)
+	if err != nil {
+		return nil, fmt.Errorf("GOFLAGS: %w", err)
+	}
+	for _, word := range words {
+		if name, _, _ := strings.Cut(trimDashes(word), "="); name == "trimpath" {
+			return flags, nil
+		}
+	}
+	return append([]string{"-trimpath"}, flags...), nil
 }
 
 // goEnvFlags returns GOFLAGS as the go command sees it in root: go env also reads it from the

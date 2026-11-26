@@ -21,7 +21,7 @@ tifa build [--dir app-root] [-o output-path]
 1. Statically analyzes `app/` and the root `hooks.go`. If a convention is broken, it prints `file:line: reason` for each problem and exits.
 2. Writes the generated code into `.tifa/`. Only files whose content changed are rewritten, and files no longer generated are deleted.
 3. Bundles with the app's own Vite, which runs on Node, and writes the output to `.tifa/dist/`. See [Frontend output](../reference/build-output.md#frontend-output). Tifa runs one Node process for the whole build, with `NODE_ENV=production` whatever the shell sets, so the build always uses the production build of React. It also reads the exports of `page.tsx` and `layout.tsx` with Vite's parser for step 2. An app without pages builds without Node, unless its content collections have entries (see [Content](../pages-and-data/content.md#markdown-to-html)). The executable never needs Node.
-4. Runs `CGO_ENABLED=0 go build -o <output> -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`, not counting a major version suffix such as `/v2`, with `.exe` added when the build is for Windows (the `GOOS` of the environment, see below). A build for any other system writes the bare name, and `-o` is used as given. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. `-w` leaves out the debug info, see "Debug info" below.
+4. Runs `CGO_ENABLED=0 go build -o <output> -trimpath -ldflags=-w ./.tifa`. The default output is `bin/<last segment of the module path>`, not counting a major version suffix such as `/v2`, with `.exe` added when the build is for Windows (the `GOOS` of the environment, see below). A build for any other system writes the bare name, and `-o` is used as given. The generated main embeds `.tifa/dist/` into the executable with `//go:embed all:dist`. `-trimpath` and `-w` leave out the folders of the build machine and the debug info, see "Debug info" below.
 
 The analysis also reads `content.go` and the `content/` folder, and prints their problems in the same form (see [Content](../pages-and-data/content.md#errors)). It prints a warning for each collection and language with entries that have no translation, and lists the entries that wait for their date.
 
@@ -54,7 +54,9 @@ The analysis finds the areas of the app: each folder of `app/` with a `_locales`
 
 Go keeps its own table of functions, files and lines in every program, apart from DWARF, so most things work as before. Panics and stack traces still give the file and line of each frame, and `runtime.Caller` and pprof profiles read the same table. What you lose is debuggers such as Delve (`dlv`): they need DWARF, so they cannot step through the built program or show its variables. Tifa does not pass `-s`, which would also take out the symbol table that tools such as `go tool nm` read.
 
-To keep the debug info, set `build.debug_info` in the [project file](../reference/settings.md#settings):
+`tifa build` also passes `-trimpath`, which keeps the folders of the machine that builds out of the program. A panic names a file by its path in its module, such as `example.com/shop/app/orders/route.go:42`, and not by `/home/me/src/shop/app/orders/route.go:42`. Two machines that build the same code with the same Go and the same flags make the same program. To keep the full paths, put `-trimpath=false` in `GOFLAGS`. Tifa adds nothing when `GOFLAGS` already has `-trimpath` in any form.
+
+To keep the debug info and the full paths, which Delve reads to find the source files, set `build.debug_info` in the [project file](../reference/settings.md#settings):
 
 ```yaml
 build:
