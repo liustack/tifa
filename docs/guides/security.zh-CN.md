@@ -2,7 +2,7 @@
 summary: 'Tifa 默认替你防住了什么（跨站写入、会话 cookie、上限、响应头），以及你必须自己做的事'
 audience: app
 order: 12
-translatedFrom: 61c62c748245
+translatedFrom: 3d9da3dc07b0
 read_when:
   - '准备上线，想知道 Tifa 已经防了什么、还有什么留给你'
   - '检查一个应用，或者 coding agent 写的代码，看有没有安全漏洞'
@@ -99,6 +99,67 @@ Tifa 存会话。它不认识你的用户、角色和所有者。访问检查写
 Tifa 没有限流器。`OnRequest` 能看到每个请求的方法和路径，所以按地址限流就写在那里。`deploy.front: none` 时，地址取 `c.Request().RemoteAddr` 的主机部分。在代理后面，`RemoteAddr` 是代理的地址，所以读你自己的代理设置的那一个头，不要取 `X-Forwarded-For` 最左边的值，那是访客写的。见[客户端地址](../build-and-deploy/deploy.zh-CN.md#behind-a-cdn-or-proxy)。错误密码也要拖慢，登录指南里有做法。如果没登录的访客也能开启会话，在入口处限制它，否则洪水式请求会把真正的会话挤出内存存储。详见[会话](../pages-and-data/sessions.zh-CN.md#where-to-store-sessions)。
 
 公开页面也这样限。没有被任何 `Load` 或布局声明的查询参数，在算 memo 的键之前就被丢掉，所以它换多少个值都命中同一条，不花什么代价。值没有上限的已声明参数就不同了，比如搜索词 `q` 或页码 `page`：每个新值都要跑一次 `Load`，并占一次 VM 渲染，还可能把别的页面挤出 memo。限速放在 `OnRequest` 里。见[查询参数](../reference/memo.zh-CN.md#query-parameters)。
+
+想要一个能直接抄的限流器，先 `go get golang.org/x/time/rate`。它给每个地址记一个令牌桶，表太大时就清空，只限最贵的那些路由（所有写操作，和 `q` 没有上限的搜索页），超限时答 429。把 `"/search"` 改成你自己的路由，有代理时把键换成你的代理设的头。
+
+```go
+// hooks.go
+import (
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/liustack/tifa"
+	"golang.org/x/time/rate"
+)
+
+// maxAddresses 限制内存：超过它，表就从头开始。
+const maxAddresses = 10_000
+
+var buckets = struct {
+	sync.Mutex
+	byAddress map[string]*rate.Limiter
+}{byAddress: map[string]*rate.Limiter{}}
+
+// allow 从 address 的桶里取一个令牌：每秒一个请求，突发 10 个。
+func allow(address string) bool {
+	buckets.Lock()
+	defer buckets.Unlock()
+	l, ok := buckets.byAddress[address]
+	if !ok {
+		if len(buckets.byAddress) >= maxAddresses {
+			clear(buckets.byAddress)
+		}
+		l = rate.NewLimiter(rate.Every(time.Second), 10)
+		buckets.byAddress[address] = l
+	}
+	return l.Allow()
+}
+
+// costly 是写操作，或参数没有上限的页面。
+func costly(c *tifa.Ctx) bool {
+	m := c.Request().Method
+	return (m != http.MethodGet && m != http.MethodHead) || c.Pattern() == "/search"
+}
+
+func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
+	if costly(c) {
+		// 用于 deploy.front: none。在代理后面，改读你自己的代理设的头。
+		host, _, err := net.SplitHostPort(c.Request().RemoteAddr)
+		if err != nil {
+			host = c.Request().RemoteAddr
+		}
+		if !allow(host) {
+			c.Writer().Header().Set("Retry-After", "1")
+			return tifa.Error{Status: 429, Message: "Too many requests. Try again in a moment."}
+		}
+	}
+	return next(c)
+}
+```
+
+表最多记 10,000 个地址，所以来自很多地址的洪水式请求不会让内存涨上去，只会把桶重置。一个进程只有一张表，Tifa 就是这样运行的。
 
 ### 查询要用参数 {#write-queries-with-parameters}
 
