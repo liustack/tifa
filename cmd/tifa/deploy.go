@@ -201,8 +201,10 @@ func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Rea
 	if viaSudo {
 		user, script = t.dest.user, sudoScript(script)
 	}
-	c := exec.CommandContext(ctx, sshProgram, "-l", user, "--", t.host, "sh -c "+shellQuote(script))
-	c.Stdin, c.Stdout, c.Stderr = stdin, stdout, stderr
+	args := append([]string{"-l", user}, sshOptions(ctx, t.host)...)
+	c := exec.CommandContext(ctx, sshProgram, append(args, "--", t.host, "sh -c "+shellQuote(script))...)
+	said := &tailWriter{}
+	c.Stdin, c.Stdout, c.Stderr = stdin, stdout, io.MultiWriter(stderr, said)
 	// Killing ssh does not close its output when another process holds it too, such as the
 	// master of an ssh ControlMaster, so Wait would wait for that process. Once ssh has ended,
 	// give the output this long, then close it.
@@ -211,7 +213,15 @@ func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Rea
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 255 {
 		hint := ""
-		if user == deployUser {
+		switch {
+		case strings.Contains(said.String(), "REMOTE HOST IDENTIFICATION HAS CHANGED"):
+			hint = fmt.Sprintf(". The host key of %[1]s changed since this machine last logged in. If the server was rebuilt or reinstalled, delete the old key with ssh-keygen -R %[2]s and run again. If not, someone may be between you and the server: do not go on", t.host, t.knownHostsArg())
+		case strings.Contains(said.String(), "Host key verification failed"):
+			hint = fmt.Sprintf(". The host key of %[1]s is not in your known_hosts yet, and ssh could not ask whether to trust it. Log in once with ssh %[1]s in a terminal and check the key it shows, or accept it with ssh -o StrictHostKeyChecking=accept-new -l %[2]s %[1]s true, then run again", t.host, user)
+		case strings.Contains(said.String(), "Could not resolve hostname") || strings.Contains(said.String(), "timed out") ||
+			strings.Contains(said.String(), "Connection refused") || strings.Contains(said.String(), "No route to host"):
+			hint = fmt.Sprintf(". ssh could not reach %s: check that the server is on, that the address is right and that ssh is open on its firewall", t.host)
+		case user == deployUser:
 			hint = fmt.Sprintf(". If the server has no user %s yet, run go tool tifa deploy setup first", deployUser)
 		}
 		return &sshLoginError{user: user, host: t.host, hint: hint, err: err}
@@ -221,6 +231,81 @@ func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Rea
 	}
 	return err
 }
+
+// sshConnectTimeout is how long ssh may take to reach a server it reaches directly and to start
+// talking to it, so that a server that is off fails in seconds rather than at the timeout of TCP.
+const sshConnectTimeout = "15"
+
+// sshOptions are the options of ssh for host. Without a terminal ssh cannot ask anything, so
+// BatchMode makes it fail at once instead. A host that ssh reaches directly, with no ConnectTimeout
+// in the ssh configuration, gets sshConnectTimeout. A ProxyCommand or ProxyJump gets none, because
+// it may wait for the developer, as the login of Cloudflare Access does in the browser, and the
+// timeout of ssh counts that wait.
+func sshOptions(ctx context.Context, host string) []string {
+	var opts []string
+	if !stdinIsTerminal(os.Stdin) {
+		opts = append(opts, "-o", "BatchMode=yes")
+	}
+	out, err := exec.CommandContext(ctx, sshProgram, "-G", "--", host).Output()
+	if err != nil {
+		// ssh itself reports a host it cannot read when it logs in: leave the timeout to it.
+		return opts
+	}
+	direct, ownTimeout := true, true
+	for _, line := range strings.Split(string(out), "\n") {
+		word, value, _ := strings.Cut(strings.TrimSpace(line), " ")
+		switch strings.ToLower(word) {
+		case "proxycommand", "proxyjump":
+			if value != "" && value != "none" {
+				direct = false
+			}
+		case "connecttimeout":
+			ownTimeout = value != "none"
+		}
+	}
+	if direct && !ownTimeout {
+		opts = append(opts, "-o", "ConnectTimeout="+sshConnectTimeout)
+	}
+	return opts
+}
+
+// knownHostsName is the name known_hosts keeps the key of the server under: the host, with the
+// port in [host]:port when it is not 22.
+func (t deployTarget) knownHostsName() string {
+	name, port := t.dest.name, t.dest.port
+	if name == "" {
+		name = t.host
+	}
+	if port != 0 && port != 22 {
+		return fmt.Sprintf("[%s]:%d", name, port)
+	}
+	return name
+}
+
+// knownHostsArg is knownHostsName as a shell word: [host]:port is quoted, since a shell may read
+// the brackets as a pattern.
+func (t deployTarget) knownHostsArg() string {
+	name := t.knownHostsName()
+	if strings.HasPrefix(name, "[") {
+		return shellQuote(name)
+	}
+	return name
+}
+
+// tailWriter keeps the last tailWriterSize bytes written to it.
+type tailWriter struct{ b []byte }
+
+const tailWriterSize = 4096
+
+func (w *tailWriter) Write(p []byte) (int, error) {
+	w.b = append(w.b, p...)
+	if len(w.b) > tailWriterSize {
+		w.b = w.b[len(w.b)-tailWriterSize:]
+	}
+	return len(p), nil
+}
+
+func (w *tailWriter) String() string { return string(w.b) }
 
 // noSudoExit is the status sudoScript ends with when sudo -n cannot run a command: the user has no
 // passwordless sudo, or the server has no sudo. No script of tifa deploy exits with it.
@@ -238,7 +323,7 @@ type noSudoError struct{ user, host string }
 
 func (e *noSudoError) Error() string {
 	return fmt.Sprintf("ssh %[1]s@%[2]s worked, but %[1]s cannot run sudo without a password, and the steps that change the server run as root through it. "+
-		"Give %[1]s passwordless sudo on the server, with the line %[1]s ALL=(ALL) NOPASSWD:ALL in a file of /etc/sudoers.d, or name the host without a user so tifa deploy logs in as root. Nothing was changed by this step",
+		"Give %[1]s passwordless sudo on the server, with the line %[1]s ALL=(ALL) NOPASSWD:ALL in a file of /etc/sudoers.d (and no requiretty for it, which makes sudo want a terminal), or name the host without a user so tifa deploy logs in as root. Nothing was changed by this step",
 		e.user, e.host)
 }
 
