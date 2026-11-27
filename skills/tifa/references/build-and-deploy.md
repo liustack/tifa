@@ -1,8 +1,8 @@
 # Build, configure and deploy
 
-Contents: `tifa dev`, `tifa build`, go.mod and package setup, settings, search engines and language models, `tifa deploy`, building for Linux, running the program, HTTPS, running behind a CDN or proxy, sizing, license notices.
+Contents: `tifa dev`, `tifa build`, go.mod and package setup, settings, search engines and language models, `tifa deploy`, building for Linux, running the program, a Dockerfile and Kubernetes manifests, HTTPS, running behind a CDN or proxy, sizing, license notices.
 
-Full docs (in the folder `go tool tifa docs` prints): `docs/build-and-deploy/dev.md`, `docs/build-and-deploy/build.md`, `docs/build-and-deploy/config.md`, `docs/reference/settings.md`, `docs/reference/performance.md`.
+Full docs (in the folder `go tool tifa docs` prints): `docs/build-and-deploy/dev.md`, `docs/build-and-deploy/build.md`, `docs/build-and-deploy/config.md`, `docs/build-and-deploy/kubernetes.md`, `docs/reference/settings.md`, `docs/reference/performance.md`.
 
 ## `tifa dev`
 
