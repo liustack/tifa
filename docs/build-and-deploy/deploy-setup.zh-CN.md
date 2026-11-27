@@ -2,7 +2,7 @@
 summary: '用 `tifa deploy setup` 配好服务器、Cloudflare 和 GitHub：计划、每种 `front` 改了什么、在没有 gh 的机器上运行 setup'
 audience: app
 order: 11
-translatedFrom: a432bf117adc
+translatedFrom: d176d90683c6
 read_when:
   - '在没有 gh 的机器上运行 tifa deploy setup 或 remove，用 TIFA_DEPLOY_GITHUB_TOKEN 里的细粒度令牌'
   - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，你想知道要开放哪些端口，或者想知道 setup 和 remove 在 ufw 里改了什么'
@@ -102,7 +102,7 @@ setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你�
 - **有域名时**，也就是 `site.url` 的主机，比如 `https://shop.example.com`：systemd 为应用打开 443 和 80 端口，应用运行它[内置的 HTTPS](https.zh-CN.md#https)。setup 把 `SERVER_TLS_DOMAINS=<domain>` 和 `SERVER_TLS_CACHE=%h/<app>/certs` 写进服务的环境，这样程序从 Let's Encrypt 获取证书，并保存在 `/srv/tifa/<app>/certs`，每个发布都共用它。80 端口回答 Let's Encrypt 的检查，其他请求都转到 HTTPS。第一次部署之前，DNS 必须把域名指向这台服务器：程序拿到证书之前不回答 HTTPS，部署的健康检查会失败，并说明原因。
 - **没有域名时**：没有 `site.url`，或者它的主机是 IP 地址或 `localhost`。应用在 80 端口上提供普通 HTTP。
 
-**你自己的证书。** 想用你手上的证书提供 HTTPS（比如 Cloudflare Origin CA 证书），就在应用的 `.env`（git 会忽略它）或环境变量里写出它在你机器上的文件，不要写进 `tifa.yaml`：
+**你自己的证书。** 想用你手上的证书提供 HTTPS（比如 [Cloudflare Origin CA 证书](deploy-proxy.zh-CN.md#your-own-cloudflare-in-front)），就在应用的 `.env`（git 会忽略它）或环境变量里写出它在你机器上的文件，不要写进 `tifa.yaml`：
 
 ```sh
 TIFA_DEPLOY_TLS_CERT=certs/origin.pem

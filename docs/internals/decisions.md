@@ -1106,6 +1106,17 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 **Why.** The same setting fits every front the user runs, and the old name said load balancer only, so a user with their own Cloudflare in Flexible mode, or their own proxy, would not have found it. Cloudflare proxies only some ports of the origin (HTTP 80, 8080, 8880, 2052, 2082, 2086, 2095, [network ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)), and none of them is in the range setup picks from.
 
+### Your own Cloudflare in front
+
+**Settled (2026-11-27).**
+- The redirect from plain HTTP to HTTPS of an app that serves HTTPS itself stays on, with no setting to turn it off. Caddy, Kamal (kamal-proxy with `ssl: true`) and Rails (`config.force_ssl`, on in production by default) redirect the same way. A user who wants plain HTTP to reach the app, as Cloudflare in Flexible mode sends it, uses `front: external`.
+- Flexible mode is `front: external` with `deploy.port` set to a port Cloudflare proxies for HTTP, such as 80 or 8080. Full (strict) is `front: none`, with Let's Encrypt or the user's own certificate. Flexible in front of `front: none` loops on the redirect, and the docs say so.
+- `front: cloudflare` keeps the Cloudflare Tunnel.
+
+**Turned down (2026-11-27).**
+- A Cloudflare Load Balancer set up by Tifa for several servers. **Reopen when** users ask for balancing that Cloudflare manages.
+- Tifa managing the DNS of the user's Cloudflare without the Tunnel, with proxied A records: more to manage (A records, certificates, the firewall of the origin) and no one asked. **Reopen when** users ask for it.
+
 ### Your own certificate with front none
 
 **Settled (2026-11-27).** An app with `front: none` and a domain can serve HTTPS with a certificate of the user's, such as a Cloudflare Origin CA certificate. The files are named on the developer's machine by `TIFA_DEPLOY_TLS_CERT` and `TIFA_DEPLOY_TLS_KEY`, read like `TIFA_DEPLOY_HOST` (the environment, else the `.env` of the app), never in `tifa.yaml`. Both or neither, and only with `front: none` and a domain. Setup checks them on the machine first (PEM, the key matches, the certificate covers the host of `site.url`, not expired), uploads them to `/srv/tifa/<app>/shared/tls/` (owned by `tifa`, folder `0700`, files `0600`, each written beside its place and renamed), and the service gets `SERVER_TLS_CERT` and `SERVER_TLS_KEY` in place of `SERVER_TLS_DOMAINS` and `SERVER_TLS_CACHE`. The local files are the truth: other files on the server are replaced in the plan, which shows both, with no restart since the program reloads them. Without the inputs, setup goes back to Let's Encrypt and deletes `shared/tls`. Only setup uploads, never deploy. `server.tls_cert` in `tifa.yaml` stays a runtime setting, for the place the program runs, and setup says when the service overrides it.

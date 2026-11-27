@@ -102,7 +102,7 @@ With `front: none` the program meets visitors directly, with no nginx, Caddy or 
 - **With a domain**, the host of `site.url` such as `https://shop.example.com`: systemd opens ports 443 and 80 for the app, and the app runs its [built-in HTTPS](https.md#https). Setup writes `SERVER_TLS_DOMAINS=<domain>` and `SERVER_TLS_CACHE=%h/<app>/certs` into the environment of the service, so the program gets its certificate from Let's Encrypt and keeps it in `/srv/tifa/<app>/certs`, which every release shares. Port 80 answers the checks of Let's Encrypt and sends everything else to HTTPS. DNS must point the domain at the server before the first deploy: until the program has its certificate it answers no HTTPS, and the health check of the deploy fails and says so.
 - **Without a domain**: no `site.url`, or its host is an IP address or `localhost`. The app serves plain HTTP on port 80.
 
-**Your own certificate.** To serve HTTPS with a certificate you have, such as a Cloudflare Origin CA certificate, name its files on your machine in the `.env` of the app (git ignores it), or in the environment, never in `tifa.yaml`:
+**Your own certificate.** To serve HTTPS with a certificate you have, such as a [Cloudflare Origin CA certificate](deploy-proxy.md#your-own-cloudflare-in-front), name its files on your machine in the `.env` of the app (git ignores it), or in the environment, never in `tifa.yaml`:
 
 ```sh
 TIFA_DEPLOY_TLS_CERT=certs/origin.pem

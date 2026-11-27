@@ -2,17 +2,18 @@
 summary: '在 Tifa 应用前面放 nginx、负载均衡器、CDN 或反向代理：`deploy.front: nginx` 和 `external`、CDN 的设置，以及代理后面的跨站 403'
 audience: app
 order: 14
-translatedFrom: f673451de0d7
+translatedFrom: 6ce3b9195f7f
 read_when:
   - '不用 Cloudflare，用 `deploy.front: nginx` 把几个 Tifa 应用放在同一台服务器上，或者 setup 因为服务器上有一个不是 Tifa 装的 nginx 而停下'
   - '用 `deploy.front: external` 在 Tifa 应用前面放服务商的负载均衡器或你自己的代理，并把目标和健康检查填进去'
   - '在 Tifa 应用前面放 CDN 或 nginx、Cloudflare、CloudFront 之类的反向代理'
+  - '域名在你自己的 Cloudflare 账号里、开了代理，不用 `front: cloudflare` 的隧道，要在 Full (strict) 和 Flexible 之间选'
   - 'POST 只在代理后面得到 403，信息是 `cross-origin request detected`'
 ---
 
 # 在前面放 nginx 或 CDN {#put-nginx-or-a-cdn-in-front}
 
-访客可以通过 `tifa deploy setup` 装好的 nginx 到达程序，也可以通过你在服务商那里建的负载均衡器，或者你自己的代理或 CDN。这一篇讲这三种。
+访客可以通过 `tifa deploy setup` 装好的 nginx 到达程序，也可以通过你在服务商那里建的负载均衡器，或者你自己的代理或 CDN。这一篇讲这三种，以及服务器前面是你自己的 Cloudflare 的情况。
 
 ## 在 nginx 后面 {#behind-nginx}
 
@@ -155,6 +156,43 @@ load balancer or proxy: send plain HTTP to these targets, and check each with GE
 
 - 一个服务，协议 HTTPS 带证书，源端口 443，目标端口是应用的端口。它的健康检查：HTTP，应用的端口，路径 `/healthz`。
 - 把负载均衡器和服务器放进同一个 Network，就能用服务器的私有地址添加它们（[创建负载均衡器](https://docs.hetzner.com/cloud/load-balancers/getting-started/creating-a-load-balancer/)）。在服务器的防火墙里只允许这个 Network 访问应用的端口。
+
+## 前面是你自己的 Cloudflare {#your-own-cloudflare-in-front}
+
+域名在你自己的 Cloudflare 账号里、DNS 记录开了代理（橙色云朵），又不想用 `front: cloudflare` 的隧道时，看这一节。`tifa.yaml` 怎么写，取决于 Cloudflare 里这个 zone 的 SSL/TLS 加密模式。
+
+**Full (strict)：`front: none`。** 应用自己提供 HTTPS，Cloudflare 连到它的 443 端口，并检查它的证书。
+
+```yaml
+site:
+  url: https://shop.example.com
+deploy:
+  front: none
+```
+
+证书来自下面两处之一：
+
+- **Let's Encrypt**，和没有 Cloudflare 时一样。在代理后面，Let's Encrypt 在 443 端口上的检查到不了应用，程序会自己改用 80 端口上的检查，Cloudflare 会把它转过来。这个主机的 `/.well-known/acme-challenge/` 不要被你的跳转规则、WAF 规则和 Workers 碰到，否则检查会失败。2026-11-27 用开了代理的记录、Full 模式实测过：程序经 80 端口从 Let's Encrypt 拿到了证书，Cloudflare 返回网站时是 200，普通 HTTP 得到一个转到 HTTPS 的 308。
+- **Cloudflare Origin CA 证书**，由 Cloudflare 为你的域名签发，Full (strict) 模式信任它。浏览器不信任它，所以记录要一直开着代理。把证书和私钥存在你的机器上，用 `TIFA_DEPLOY_TLS_CERT` 和 `TIFA_DEPLOY_TLS_KEY` 写出它们，setup 会上传（见[你自己的证书](deploy-setup.zh-CN.md#the-app-serves-visitors-itself)）。
+
+**Flexible：`front: external`。** Cloudflare 负责 HTTPS，用普通 HTTP 连到应用，端口要选它为 HTTP 代理的端口，比如 80 或 8080（见[网络端口](https://developers.cloudflare.com/fundamentals/reference/network-ports/)）：
+
+```yaml
+deploy:
+  front: external
+  port: 80
+```
+
+这样从 Cloudflare 到服务器这一段是普通 HTTP，路上的人都能看到内容。Full (strict) 会把它加密。
+
+**`front: none` 不要配 Flexible。** 应用把每个普通 HTTP 请求转到 HTTPS，Flexible 模式下的 Cloudflare 又用普通 HTTP 去要，浏览器最后会因为跳转太多而停下（见 [ERR_TOO_MANY_REDIRECTS](https://developers.cloudflare.com/ssl/troubleshooting/too-many-redirects/)）。
+
+两种模式都要注意：
+
+- **访客的地址**在 `CF-Connecting-IP` 里。`c.Request().RemoteAddr` 是 Cloudflare 的地址（见 [CDN 设置](#cdn-settings) 里的 Cloudflare）。
+- **知道服务器地址的人仍然可以绕过 Cloudflare 直接访问。** 要不要在服务商的防火墙或 ufw 里只让 [Cloudflare 的地址](https://www.cloudflare.com/ips/)访问应用的端口，由你决定：Tifa 不做这件事。
+- **每次部署之后自己清 Cloudflare 的缓存**，如果它缓存了页面（见[部署之后](deploy-by-hand.zh-CN.md#after-a-deploy)）。只有 `front: cloudflare` 会替你清。
+- **几台服务器。** 用 `front: external`，在服务器前面放你自己的负载均衡器，让开了代理的记录指向它。不建议用几条开了代理的 A 记录、每台服务器一条：Cloudflare 没说它怎么从中挑一条，也不会停止把访客送到挂掉的服务器。
 
 ## 在 CDN 或代理后面 {#behind-a-cdn-or-proxy}
 

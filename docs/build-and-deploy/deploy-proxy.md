@@ -6,12 +6,13 @@ read_when:
   - Putting several Tifa apps on one server without Cloudflare, with `deploy.front: nginx`, or setup stopped because the server has an nginx that Tifa did not install
   - Putting a load balancer of your provider or a proxy of your own in front of a Tifa app, with `deploy.front: external`, and entering the targets and the health check in it
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
+  - 'The domain is in your own Cloudflare account, proxied, without the tunnel of `front: cloudflare`, and you choose between Full (strict) and Flexible'
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
 ---
 
 # Put nginx or a CDN in front
 
-Visitors can reach the program through nginx that `tifa deploy setup` installs, through a load balancer you set up at your provider, or through a proxy or CDN of your own. This page covers all three.
+Visitors can reach the program through nginx that `tifa deploy setup` installs, through a load balancer you set up at your provider, or through a proxy or CDN of your own. This page covers all three, and your own Cloudflare in front of the server.
 
 ## Behind nginx
 
@@ -154,6 +155,43 @@ Checked against the vendors' documentation on 2026-11-27. Names change, so open 
 
 - A service with protocol HTTPS and a certificate, source port 443, and the port of the app as destination port. Its health check: HTTP, the port of the app, path `/healthz`.
 - Put the balancer and the servers in one Network to add the servers by their private addresses ([creating a load balancer](https://docs.hetzner.com/cloud/load-balancers/getting-started/creating-a-load-balancer/)). Allow the port of the app in the firewall of the servers from that Network only.
+
+## Your own Cloudflare in front
+
+Use this when the domain is in a Cloudflare account of yours, its DNS record proxied (the orange cloud), and you do not want the tunnel of `front: cloudflare`. What to set in `tifa.yaml` follows the SSL/TLS encryption mode of the zone in Cloudflare.
+
+**Full (strict): `front: none`.** The app serves HTTPS itself, and Cloudflare connects to it on port 443 and checks its certificate.
+
+```yaml
+site:
+  url: https://shop.example.com
+deploy:
+  front: none
+```
+
+The certificate comes from one of two places:
+
+- **Let's Encrypt**, as without Cloudflare. Behind the proxy, the check of Let's Encrypt on port 443 cannot reach the app, and the program falls back by itself to the check on port 80, which Cloudflare passes on. Keep your redirect rules, WAF rules and Workers off `/.well-known/acme-challenge/` on that host, or the check fails. Tested on 2026-11-27 with a proxied record in Full mode: the program got its certificate from Let's Encrypt through port 80, Cloudflare served the site with 200, and plain HTTP got a 308 to HTTPS.
+- **A Cloudflare Origin CA certificate**, which Cloudflare makes for your domain and trusts in Full (strict) mode. Browsers do not trust it, so keep the record proxied. Save the certificate and its key on your machine and name them with `TIFA_DEPLOY_TLS_CERT` and `TIFA_DEPLOY_TLS_KEY`, and setup uploads them (see [Your own certificate](deploy-setup.md#the-app-serves-visitors-itself)).
+
+**Flexible: `front: external`.** Cloudflare ends HTTPS, and connects to the app over plain HTTP on a port it proxies for HTTP, such as 80 or 8080 ([network ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)):
+
+```yaml
+deploy:
+  front: external
+  port: 80
+```
+
+The way from Cloudflare to the server is then plain HTTP, which anyone on that path can read. Full (strict) encrypts it.
+
+**Never Flexible with `front: none`.** The app sends each plain HTTP request to HTTPS, Cloudflare in Flexible mode asks for it over plain HTTP again, and the browser stops with too many redirects ([ERR_TOO_MANY_REDIRECTS](https://developers.cloudflare.com/ssl/troubleshooting/too-many-redirects/)).
+
+With either mode:
+
+- **The address of the visitor** is in `CF-Connecting-IP`. `c.Request().RemoteAddr` is an address of Cloudflare (see Cloudflare in [CDN settings](#cdn-settings)).
+- **The server can still be reached past Cloudflare** by anyone who knows its address. Letting only [the addresses of Cloudflare](https://www.cloudflare.com/ips/) reach the port of the app, in the firewall of your provider or in ufw, is your choice: Tifa does not do it.
+- **Clear the cache of Cloudflare after each deploy** yourself, when it keeps pages (see [After a deploy](deploy-by-hand.md#after-a-deploy)). Only `front: cloudflare` does it for you.
+- **Several servers.** Use `front: external` with a load balancer of yours in front of the servers, and point the proxied record at it. Several proxied A records, one per server, are not recommended: Cloudflare does not say how it picks one, and it does not stop sending visitors to a server that is down.
 
 ## Behind a CDN or proxy
 
