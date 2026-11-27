@@ -216,7 +216,7 @@ go tool tifa deploy run --host vps2 seed  # flags of deploy run go before the co
 
 - Everything from the command on goes to the program, flags included. `--dir` and `--host` of `deploy run` go before it.
 - The output, the error output and the exit status are those of the command, so a script or an agent can read them.
-- On a terminal, the command gets a terminal on the server too, so it can ask a question and Ctrl-C reaches it. Without one, as an agent runs it, the input of `deploy run` is the input of the command: `go tool tifa deploy run import < todos.csv`.
+- On a terminal, the command gets a terminal on the server too, so it can ask a question and Ctrl-C reaches it. Without one, as an agent runs it, the input of `deploy run` is the input of the command: `go tool tifa deploy run import < todos.csv`. When the connection goes away, such as on Ctrl-C or when the agent stops it, the command gets SIGTERM within a second, which ends its context, and SIGKILL if it still runs 10 seconds later.
 - It runs the release that is live. A command added in a new release runs on the server once that release is deployed.
 - To run a command with the new release on each deploy, before it starts and while the old one serves, name it in `deploy.release_command`, as `release_command: migrate` (see [The release command](../build-and-deploy/deploy.md#the-release-command)). A failure there stops the deploy.
 - To run a command after each good deploy, on your machine or in CI, see [After a deploy](../build-and-deploy/deploy-operate.md#after-a-deploy).

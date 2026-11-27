@@ -137,7 +137,7 @@ go tool tifa deploy run --host vps2 seed --count 5
 
 - Its flags, `--dir` and `--host`, go before the command. Everything from the command on goes to the program as it was given, flags, quotes, spaces and `$` included. `--` ends the flags of `run` too: `go tool tifa deploy run -- --help` prints the help of the program.
 - The output, the error output and the exit status are those of the program, and `run` adds no message of its own after it.
-- With a terminal on both its input and its output, ssh gets a terminal on the server, so the command can ask a question and Ctrl-C reaches it. Otherwise, as a coding agent runs it, ssh runs in BatchMode with no terminal, and the input of `run` is the input of the program (`go tool tifa deploy run import < rows.csv`).
+- With a terminal on both its input and its output, ssh gets a terminal on the server, so the command can ask a question and Ctrl-C reaches it. Otherwise, as a coding agent runs it, ssh runs in BatchMode with no terminal, and the input of `run` is the input of the program (`go tool tifa deploy run import < rows.csv`). When the connection goes away, such as on Ctrl-C or when the agent stops it, the program gets SIGTERM within a second, which ends the context of the command, and SIGKILL if it still runs 10 seconds later.
 - An app with no release yet stops with `run go tool tifa deploy first`.
 
 ### After a deploy
