@@ -95,12 +95,45 @@ func TestNewApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	exe := buildAt(t, dir)
-	// The app opens its database at DB_PATH, by default app.db in the folder it runs in.
+	// The command migrate runs the migrations OpenDB runs, as deploy.before_start runs it before a
+	// deploy starts the new release. A database that is not there it leaves to the service, which
+	// makes it, or restores it with db.backup, when it starts.
+	migrate := func(path string) string {
+		t.Helper()
+		cmd := exec.Command(exe, "migrate")
+		cmd.Dir = t.TempDir()
+		cmd.Env = append(os.Environ(), "DB_PATH="+path)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("migrate %s: %v\n%s", path, err, out)
+		}
+		return string(out)
+	}
+	missing := filepath.Join(t.TempDir(), "missing.db")
+	if out := migrate(missing); !strings.Contains(out, "no database at "+missing) {
+		t.Errorf("migrate of a missing database: %s", out)
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Error("migrate made a database")
+	}
+	// The app opens its database at DB_PATH, by default app.db in the folder it runs in. An empty
+	// file is an empty SQLite database: migrate runs every file on it, once, and the service then
+	// finds nothing to run.
 	db := filepath.Join(t.TempDir(), "todos.db")
+	write(t, db, "")
+	if out := migrate(db); !strings.Contains(out, "migrations: ran") || !strings.Contains(out, "001_init.sql") {
+		t.Errorf("migrate of a new database ran no file: %s", out)
+	}
+	if out := migrate(db); strings.Contains(out, "migrations: ran") {
+		t.Errorf("migrate ran a file again: %s", out)
+	}
 	t.Setenv("DB_PATH", db)
 	base, _, output := start(t, exe)
 	if status, _, body := get(t, base+"/"); status != 200 || !strings.Contains(body, "<title>hello</title>") || !strings.Contains(body, "Nothing to do") {
 		t.Fatalf("GET /: %d\n%s\n%s", status, body, output)
+	}
+	if strings.Contains(output.String(), "migrations: ran") {
+		t.Errorf("the service ran migrations that migrate ran:\n%s", output)
 	}
 	if _, err := os.Stat(db); err != nil {
 		t.Fatalf("the app did not open its database at DB_PATH: %v", err)
