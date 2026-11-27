@@ -1,5 +1,5 @@
 ---
-summary: 'Set up the whole app in hooks.go and setup.ts: OnStart, OnShutdown, OnRequest, OnError, middleware'
+summary: 'Set up the whole app in hooks.go and setup.ts: OnStart, OnShutdown, OnRequest, OnError, OnCommand, middleware'
 audience: app
 order: 11
 read_when:
@@ -7,19 +7,21 @@ read_when:
   - Writing `OnRequest` or `OnError`, or wrapping the app in `net/http` middleware with `tifa.SetHTTPHandler`
   - Setting up something once for the whole app on the JavaScript side, such as i18next formatters or dayjs plugins, in setup.ts
   - Finding out where a resource the whole app shares, such as a database handle, lives
+  - Adding a command to the program of the app with OnCommand
 ---
 
 # Hooks
 
 ## hooks.go
 
-`hooks.go` in the project root. All four functions are optional:
+`hooks.go` in the project root. All five functions are optional:
 
 ```go
 func OnStart(ctx context.Context) error         // before listening: open the database, logs, etc.
 func OnShutdown(ctx context.Context) error      // after an exit signal, once in-flight requests finish
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // the only middleware, call next(c) to continue
 func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, return an error users may see
+func OnCommand(root *cobra.Command)             // add commands to the program, next to serve, config and version
 ```
 
 - `OnStart` gets the context of the program: it is done when the program gets SIGINT or SIGTERM. Pass it to the calls that can wait, such as `db.PingContext(ctx)`, so Ctrl-C does not wait for a database that never answers. If `OnStart` returns an error, the program stops. `ctx` stays valid after `OnStart` returns, so a goroutine may watch it, but it is done as soon as the stop signal comes: before the requests in flight finish and before `OnShutdown` runs. Work that requests feed, such as a job queue, runs on a context of its own that `OnShutdown` cancels, so the jobs the last requests queue still run (see [Background work](../guides/jobs.md)).
@@ -28,6 +30,8 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 - Resources the whole app shares, such as a database connection or a logger, go in files at the app root next to `hooks.go`, for example `db.go` or `middleware.go`. Each one builds a package-level variable or a function: set it up in `OnStart`, release it in `OnShutdown`, and use it directly anywhere, for example `myapp.DB` after importing `example.com/myapp`. Domains under `app/` import the root package for this. Models and queries stay in their domains. Route code uses these resources only inside functions, never while package-level variables are initialized. Do not use `init()` for setup. See [which way imports go](../start/structure.md#which-way-imports-go).
 - `next` runs the matched route, once. A second call returns an error. Pass it the `*tifa.Ctx` the route should see: `next(c)`, or `next(c.WithContext(ctx))` to store request-scoped values in the standard context, as `r.WithContext(ctx)` does for a request. The same call gives the request a deadline, see [Stopping slow work](../build-and-deploy/tuning.md#stopping-slow-work). `c.WithContext` returns a copy and leaves `c` alone. Business packages provide typed getters.
 - The error `next` returns can be recognized with `errors.Is` and `errors.As`, a redirect as `*tifa.RedirectError`, and a render turned away because every VM is busy as `tifa.ErrSSRBusy` (see [Handling a rejected render](../build-and-deploy/tuning.md#handling-a-rejected-render)).
+
+- `OnCommand` gets the root [Cobra](https://github.com/spf13/cobra) command of the program before the command line is read, and adds the commands of the app to it with `root.AddCommand`. It only adds commands. A command runs with the settings `serve` loads, and without `OnStart`, `OnShutdown`, the server or the VMs: it opens what it needs itself. See [Commands of the app](../guides/commands.md).
 
 ### Changing the log handler
 

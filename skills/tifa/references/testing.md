@@ -1,6 +1,6 @@
 # Testing a Tifa app
 
-Contents: the check command, testing domain code, testing route code with `tifatest`, middleware, signed-in requests, the render clock, checking the real HTML, testing page components and pages in a browser.
+Contents: the check command, testing domain code, testing route code with `tifatest`, middleware, signed-in requests, commands, the render clock, checking the real HTML, testing page components and pages in a browser.
 
 Full docs (in the folder `go tool tifa docs` prints): `docs/pages-and-data/testing-apps.md#testing`. The `docs/internals/testing.md` of the Tifa repository is about developing Tifa itself, not about testing an app.
 
@@ -107,6 +107,10 @@ func TestLayoutShowsTheUser(t *testing.T) {
 	// check shell.User and err
 }
 ```
+
+## Commands
+
+`tifatest.Command(t, tifaapp.App, "promote", "ann@example.com")` runs a command the app adds in `OnCommand` as the program does, without `OnStart`, and returns what it wrote to `cmd.OutOrStdout()` and `cmd.ErrOrStderr()` and its error. Put the test in a `_test` package that imports `<module>/.tifa/tifaapp`. Set `DBPath` and the other options in the test first: a flag of an option fails the test. See `docs/guides/commands.md#test-it`.
 
 ## Render clock
 

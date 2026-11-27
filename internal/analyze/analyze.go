@@ -46,6 +46,7 @@ var hooks = []struct {
 	{"OnShutdown", []string{"context.Context"}, []string{"error"}, "func(ctx context.Context) error"},
 	{"OnRequest", []string{ctxType, "func(" + ctxType + ") error"}, []string{"error"}, "func(c *tifa.Ctx, next func(*tifa.Ctx) error) error"},
 	{"OnError", []string{ctxType, "error"}, []string{corePath + ".Error"}, "func(c *tifa.Ctx, err error) tifa.Error"},
+	{"OnCommand", []string{"*github.com/spf13/cobra.Command"}, nil, "func(root *cobra.Command)"},
 }
 
 // Analyze loads the application whose module root is dir and returns its route manifest.

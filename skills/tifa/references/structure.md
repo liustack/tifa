@@ -11,7 +11,7 @@ Group code by business area, not by kind. A domain's types, queries and rules si
 ```text
 myapp/
   go.mod
-  hooks.go                  OnStart, OnShutdown, OnRequest, OnError
+  hooks.go                  OnStart, OnShutdown, OnRequest, OnError, OnCommand
   db.go                     var DB, opened in OnStart and closed in OnShutdown
   migrate.go  migrations/   the tables of every domain, one numbered SQL file per change
   schema.sql                the tables as the migrations leave them, written by a test

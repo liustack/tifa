@@ -1,8 +1,8 @@
 ---
-summary: '生成的程序：它的命令（`serve`、`config`、`version`），设置的来源，以及答复的压缩'
+summary: '生成的程序：它的命令（`serve`、`config`、`version` 和应用的命令），设置的来源，以及答复的压缩'
 audience: app
 order: 14
-translatedFrom: 8a99619fd606
+translatedFrom: a50534251c08
 read_when:
   - '想知道构建出的程序有哪些命令，或者它怎样压缩答复'
 ---
@@ -16,6 +16,9 @@ read_when:
 | `serve`（默认） | 加载配置，开启时设置 [HTTPS](../build-and-deploy/https.zh-CN.md#https)，运行 `OnStart`，监听 `server.addr`（开启 HTTPS 时还有 `server.http_addr`），并在 SIGINT 或 SIGTERM 时优雅地关闭并运行 `OnShutdown`。两个地址会一起停止接受连接，并一起完成它们的请求 |
 | `config` | 打印每一个设置，包括 Tifa 的和应用的，带它的值和这个值的来源，输出为带注释的 YAML 文件，部署时可以用 `-c` 传入 |
 | `version` | 打印应用模块、Tifa 模块和 Go 的版本 |
+| 应用的命令 | [`OnCommand`](../pages-and-data/hooks.zh-CN.md#hooksgo) 加上的命令。像 `serve` 一样加载设置，接受同样的设置参数，运行时没有 `OnStart`、`OnShutdown`、服务器和 VM。它的 context 在收到 SIGINT 或 SIGTERM 时结束，再收到一次就结束程序。它返回的错误只打印一次，程序以 1 退出。见[应用的命令](../guides/commands.zh-CN.md) |
+
+`help` 和 `completion` 来自 Cobra。`--help` 会把应用的命令和这些命令列在一起。应用的命令用了这五个命令之一的名字或别名，或者带了某个设置参数，程序会在启动时停下并说明原因。
 
 设置的来源，按优先级从高到低：命令行参数，环境变量，工作目录的 `.env` 文件，用 `-c`（或 `--config`）给出的文件，构建进程序的 `tifa.yaml` 的值，以及默认值。程序自己不读 `tifa.yaml`。不是设置的参数是错误。不是设置的变量和文件键会被放着不管。见[配置](../build-and-deploy/config.zh-CN.md#where-settings-come-from)。
 

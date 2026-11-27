@@ -2,7 +2,7 @@
 summary: '一页看完 Tifa 应用的全部约定：文件和文件夹、route.go 认的名字、根目录的 hooks 和选项、构建拒绝的写法，以及生成的文件'
 audience: app
 order: 1
-translatedFrom: 90cfd470eb35
+translatedFrom: eb5247719f48
 read_when:
   - '查一个文件、一个文件夹或一个名字在 Tifa 应用里做什么，或者该写哪一个'
   - '构建拒绝了一个文件夹名、一个文件或 `route.go` 里的一个名字，或者你写的名字好像被忽略了'
@@ -19,7 +19,7 @@ Tifa 读取的每样东西占一行，后面链到讲它的那一页。名字按
 | --- | --- |
 | `go.mod` | 应用的模块。`tifa` 是它的一个 tool，用 `go tool tifa` 运行。见 [go.mod](../build-and-deploy/build.zh-CN.md#gomod) |
 | `app/` | 应用的全部路由。见[路由](../pages-and-data/routing.zh-CN.md) |
-| `hooks.go` | `OnStart`、`OnShutdown`、`OnRequest` 和 `OnError`，都是可选的。见 [Hooks](../pages-and-data/hooks.zh-CN.md#hooksgo) |
+| `hooks.go` | `OnStart`、`OnShutdown`、`OnRequest`、`OnError` 和 `OnCommand`，都是可选的。见 [Hooks](../pages-and-data/hooks.zh-CN.md#hooksgo) |
 | `options.go` | 应用自己的选项，每个都是用 `tifa.String` 之类做出来的包级 `var`。见[应用自己的选项](../build-and-deploy/config.zh-CN.md#options-of-the-app) |
 | `content.go` | Markdown 集合，每个都是用 `content.Define` 做出来的包级 `var`。见[声明一个集合](../pages-and-data/content.zh-CN.md#declaring-a-collection) |
 | `content/` | 集合的 Markdown 文件，每个集合一个文件夹。见[哪些文件是条目](../pages-and-data/content.zh-CN.md#which-files-are-entries) |
@@ -32,7 +32,7 @@ Tifa 读取的每样东西占一行，后面链到讲它的那一页。名字按
 
 根目录的其他文件，比如 `db.go`、`mail.go`、`migrate.go`、`migrations/` 或 `sessions.go`，是应用自己的，`tifa new` 会写出其中一些。Tifa 一个都不读。根包可以放 hooks 和整个应用共享的东西，不放业务域的代码。见[应用的结构](../start/structure.zh-CN.md)。
 
-只有 `hooks.go` 存在时，Tifa 才读 hooks。四个 hook 的名字随后在根包里查找，包里的任何文件都行。把它们放在 `hooks.go` 里。
+只有 `hooks.go` 存在时，Tifa 才读 hooks。五个 hook 的名字随后在根包里查找，包里的任何文件都行。把它们放在 `hooks.go` 里。
 
 ## app/ 下的文件夹 {#folders-under-app}
 
@@ -112,6 +112,7 @@ hook 是根包里的包级函数，签名必须完全一致：
 | `OnShutdown` | `func(ctx context.Context) error` | 处理中的请求都返回之后 |
 | `OnRequest` | `func(c *tifa.Ctx, next func(*tifa.Ctx) error) error` | 每个页面、导航数据请求、API 路由和匹配不到的 URL。唯一的中间件 |
 | `OnError` | `func(c *tifa.Ctx, err error) tifa.Error` | 每个意外错误，panic 也算。见 [OnError](../pages-and-data/errors.zh-CN.md#onerror) |
+| `OnCommand` | `func(root *cobra.Command)` | 程序读取命令行之前，用来加应用的命令。见[应用的命令](../guides/commands.zh-CN.md) |
 
 装配是在 `OnStart` 里的一次调用，下面每一个在服务器开始监听之后调用都会 panic：
 

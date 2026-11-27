@@ -471,6 +471,21 @@ A redirect from the handler to the address the page already has does load it aga
 
 **Instead.** Wiring is a call in `OnStart`: `tifa.SetSessionStore`, `tifa.SetHTTPHandler`, `slog.SetDefault`. `OnRequest` is the middleware of the routes. `tifa.SetHTTPHandler` wraps the whole server, for `net/http` middleware and for handlers outside the routes, such as pprof: [Setting up in OnStart](../pages-and-data/hooks.md#setting-up-in-onstart).
 
+### Commands of the app
+
+**Settled (2026-11-27).** `func OnCommand(root *cobra.Command)` in `hooks.go`. The app adds plain Cobra commands to the root command of the program before the program reads its command line. A command gets the flags of the settings, the settings loaded as `serve` loads them, a context that ends on SIGINT and SIGTERM, and its error printed once with exit status 1. It runs no `OnStart` and no `OnShutdown`, and starts no server and no VMs: it opens what it needs, such as `OpenDB(DBPath)`. A name of the program (`serve`, `config`, `version`, `help`, `completion`) or a flag of the settings stops the program at start. `tifa deploy run` runs a command on the server as the service runs, and `tifatest.Command` runs one in a test.
+
+**Why.** Not every command needs the database or the setup of serving, so a command comes before `OnStart` and not after it. Cobra is already a dependency of Tifa, and agents and Go developers know it, so subcommands, flags, help, required arguments and completion need no API of Tifa's.
+
+**Turned down.**
+- `commands.go` with typed functions: a new convention file, for what Cobra already does.
+- `OnCommand(ctx, args []string)`: raw arguments, so every app writes its own parsing, help and errors.
+- Running `OnStart` before a command: it brings the setup of serving and the background loops, such as jobs and the backup copy, that a command does not want. A second backup copy next to the one of the service breaks it.
+- A wrapper of Tifa over Cobra: an API only Tifa has, which agents do not know.
+- A separate migrate step in `tifa deploy`: migrations run in `OnStart` (see [Tifa has no database layer](#tifa-has-no-database-layer-migrations-are-app-code-tifa-new-writes)).
+
+**Instead.** [Commands of the app](../guides/commands.md).
+
 ### Checks on how an app uses cookies and headers
 
 **Turned down (2026-11-03).** A warning in `tifa dev` when an app sets a cookie without a `Path`, and a note in the docs about what that breaks.

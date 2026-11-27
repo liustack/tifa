@@ -1,11 +1,12 @@
 ---
-summary: '怎样用 go test 测试应用：tifatest.NewCtx、tifatest.Start、Load、OnRequest、时钟'
+summary: '怎样用 go test 测试应用：tifatest.NewCtx、tifatest.Start、tifatest.Command、Load、OnRequest、时钟'
 audience: app
 order: 14
-translatedFrom: e3a155087358
+translatedFrom: 35fe6aa3aeed
 read_when:
   - '为 Load、布局函数、方法处理函数或 OnRequest 写 Go 测试'
   - '在 go test 里用 tifatest.Start 或 tifatest.StartPages 测试一次完整的请求，比如登录后跟随重定向'
+  - '用 tifatest.Command 测试应用在 OnCommand 里加的命令'
   - '`tifatest.Start` 失败，报错提到 `.tifa/tifaapp` 或 `.tifa/dist`'
   - '测试需要在渲染里使用固定的时间，用 `tifa.WithRenderClock`'
 ---
@@ -84,6 +85,8 @@ func TestSignInLeadsBackToTheWorkbench(t *testing.T) {
 - 当 `.tifa/tifaapp` 是用和现在代码不同的路由生成的，`Start` 会让测试失败。请再运行一次 `go tool tifa check`，或者让 `tifa dev` 一直运行。在全新的检出里 `.tifa` 不存在，在 `tifa check` 写出它之前，`go vet`、`go test` 和 `go mod tidy` 都会因为这个导入而失败。`tifa check` 在运行 `go vet` 和 `go test` 之前先生成，所以它不需要先做任何事。
 
 `tifatest.StartPages(t, tifaapp.App)` 还会把页面渲染成 HTML，用的是 `tifa build` 或 `tifa dev` 写到 `.tifa/dist` 的前端，并提供它的脚本、样式表和公开文件。`tifa check` 不打包，所以在这类测试之前要运行 `tifa build`，或者让 `tifa dev` 一直运行。`.tifa/dist` 不存在时，以及前端所用的某个文件在构建之后又改过时，`StartPages` 都会让测试失败：它会指出这些文件，比如页面、组件、样式表、`package.json`、锁文件或 Vite 配置。不管 `ssr.vms` 设成多少，页面都在两个 VM 上渲染，测试二进制里永远不会有更多。第一个 `StartPages` 会启动它们，这要花一点时间。之后构建相同的测试直接使用它们，构建不同的则关掉它们，再启动两个新的。
+
+`tifatest.Command(t, tifaapp.App, "seed", "--count", "3")` 运行应用在 `OnCommand` 里加的一个命令，方式和程序一样，只是不跑 `OnStart`，并返回它写出的内容和它的错误：见[测试](../guides/commands.zh-CN.md#test-it)。
 
 ## 渲染时钟 {#render-clock}
 

@@ -2,7 +2,7 @@
 summary: '怎样用 SQLite 保存数据：迁移和让回滚一直能用的规则、`database is locked`、把 `db.backup` 备份到 R2 或 S3、Postgres'
 audience: app
 order: 2
-translatedFrom: 8d0a68ef726c
+translatedFrom: b2cd4a3fdc4d
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'
@@ -142,7 +142,7 @@ go test -run TestSchema -update
 
 `schema.sql` 是唯一一个能看到每张表当前样子的文件。不要编辑它：`TestSchema` 从迁移文件写出它，它和迁移文件对不上时，`go test` 和 `go tool tifa check` 都会失败。在 `schema.sql` 里手改的表，永远到不了已经存在的数据库。
 
-迁移文件只写 SQL。需要 Go 的数据处理，比如对每一行调用一个服务，放进应用的 Go 代码里，比如一个[后台任务](jobs.zh-CN.md)。
+迁移文件只写 SQL。需要 Go 的数据处理，比如对每一行调用一个服务，放进应用的 Go 代码里：一个只运行一次的[应用的命令](commands.zh-CN.md)，或者一个[后台任务](jobs.zh-CN.md)。
 
 ### 运行器做什么 {#what-the-runner-does}
 

@@ -1,26 +1,28 @@
 ---
-summary: '怎样在 hooks.go 和 setup.ts 里设置整个应用：OnStart、OnShutdown、OnRequest、OnError、中间件'
+summary: '怎样在 hooks.go 和 setup.ts 里设置整个应用：OnStart、OnShutdown、OnRequest、OnError、OnCommand、中间件'
 audience: app
 order: 11
-translatedFrom: 3da4121dd5d7
+translatedFrom: e4e630e9715b
 read_when:
   - '在程序启动时打开数据库、开始工作或设置日志，或者让程序干净地停下'
   - '编写 `OnRequest` 或 `OnError`，或者用 `tifa.SetHTTPHandler` 给应用包一层 `net/http` 中间件'
   - '在 setup.ts 里为整个应用在 JavaScript 一侧做一次性设置，比如 i18next 格式化器或 dayjs 插件'
   - '想知道整个应用共享的资源（比如数据库句柄）放在哪里'
+  - '用 OnCommand 给应用的程序加命令'
 ---
 
 # Hooks {#hooks}
 
 ## hooks.go {#hooksgo}
 
-`hooks.go` 放在项目根目录。四个函数都是可选的：
+`hooks.go` 放在项目根目录。五个函数都是可选的：
 
 ```go
 func OnStart(ctx context.Context) error         // before listening: open the database, logs, etc.
 func OnShutdown(ctx context.Context) error      // after an exit signal, once in-flight requests finish
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // the only middleware, call next(c) to continue
 func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, return an error users may see
+func OnCommand(root *cobra.Command)             // add commands to the program, next to serve, config and version
 ```
 
 - `OnStart` 拿到的是程序的 context：程序收到 SIGINT 或 SIGTERM 时它就结束。把它传给可能要等待的调用，比如 `db.PingContext(ctx)`，这样按 Ctrl-C 时就不用等一个永远不回答的数据库。如果 `OnStart` 返回错误，程序就停止。`OnStart` 返回之后 `ctx` 仍然有效，所以 goroutine 可以监视它，但停止信号一到它就结束了：比正在处理的请求完成更早，也比 `OnShutdown` 运行更早。由请求喂数据的工作，比如任务队列，在它自己的 context 上运行，由 `OnShutdown` 来取消，所以最后几个请求排进去的任务仍然会运行（见 [后台任务](../guides/jobs.zh-CN.md)）。
@@ -29,6 +31,8 @@ func OnError(c *tifa.Ctx, err error) tifa.Error // unexpected errors: report, re
 - 整个应用共享的资源，比如数据库连接或日志器，放在应用根目录里、与 `hooks.go` 同级的文件中，例如 `db.go` 或 `middleware.go`。每个文件构建一个包级变量或函数：在 `OnStart` 里设置，在 `OnShutdown` 里释放，在任何地方直接使用，例如导入 `example.com/myapp` 之后用 `myapp.DB`。`app/` 下的各个域为此导入根包。模型和查询留在各自的域里。路由代码只在函数内部使用这些资源，绝不在包级变量初始化时使用。不要用 `init()` 做设置。见 [导入的方向](../start/structure.zh-CN.md#which-way-imports-go)。
 - `next` 运行匹配到的路由，只能运行一次。第二次调用会返回错误。传给它路由应该看到的 `*tifa.Ctx`：`next(c)`，或者用 `next(c.WithContext(ctx))` 把请求范围的值存进标准 context，就像 `r.WithContext(ctx)` 对请求所做的那样。同样的调用也能给请求一个截止时间，见[停下慢的工作](../build-and-deploy/tuning.zh-CN.md#stopping-slow-work)。`c.WithContext` 返回一个副本，不改动 `c`。业务包提供带类型的 getter。
 - `next` 返回的错误可以用 `errors.Is` 和 `errors.As` 识别，重定向是 `*tifa.RedirectError`，因为所有 VM 都忙而被拒绝的渲染是 `tifa.ErrSSRBusy`（见 [处理被拒绝的渲染](../build-and-deploy/tuning.zh-CN.md#handling-a-rejected-render)）。
+
+- `OnCommand` 在命令行被读取之前拿到程序的 [Cobra](https://github.com/spf13/cobra) 根命令，用 `root.AddCommand` 把应用的命令加上去。它只负责加命令。命令运行时用的是 `serve` 加载的那些设置，不跑 `OnStart` 和 `OnShutdown`，也没有服务器和 VM：它要用的东西自己打开。见[应用的命令](../guides/commands.zh-CN.md)。
 
 ### 更换日志 handler {#changing-the-log-handler}
 

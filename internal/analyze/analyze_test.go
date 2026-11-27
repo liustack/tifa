@@ -29,6 +29,17 @@ func TestConstantsNearSwitchNamesAreTheAppsOwn(t *testing.T) {
 	}
 }
 
+// OnCommand in hooks.go is a hook, which the program calls with the root of its command line.
+func TestOnCommandHook(t *testing.T) {
+	m, err := analyzeApp(t, "commands")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if want := []string{"OnCommand"}; !reflect.DeepEqual(m.Hooks, want) {
+		t.Errorf("Hooks = %v, want %v", m.Hooks, want)
+	}
+}
+
 // HEAD, OPTIONS and TRACE are method handlers in manifest order, OPTIONS next to a page too, and a
 // route may have HEAD alone.
 func TestHeadOptionsTraceHandlers(t *testing.T) {
@@ -398,6 +409,7 @@ func TestViolations(t *testing.T) {
 		}},
 		{"badhook", [][]string{
 			{"hooks.go:", "OnRequest must have the signature func(c *tifa.Ctx, next func(*tifa.Ctx) error) error"},
+			{"hooks.go:", "OnCommand must have the signature func(root *cobra.Command)"},
 		}},
 		{"badtype", [][]string{
 			{"app/page/route.go:56:", "Data.Updates", "chan int"},

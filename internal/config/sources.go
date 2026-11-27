@@ -508,3 +508,10 @@ func Clash(key string, others []string) error {
 
 // Args returns the arguments the sources were read from.
 func (s *Sources) Args() []string { return s.args }
+
+// HasFlag reports whether the arguments give the flag of key, such as --db-url for db.url.
+func (s *Sources) HasFlag(key string) bool {
+	// As a bool the flag needs no value, so a flag at the end is found too.
+	_, ok, _ := s.flag(FlagName(key), true)
+	return ok
+}

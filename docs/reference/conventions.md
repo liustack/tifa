@@ -18,7 +18,7 @@ One line for each thing Tifa reads, with a link to the page that explains it. Na
 | --- | --- |
 | `go.mod` | The module of the app. `tifa` is a tool of it, run as `go tool tifa`. See [go.mod](../build-and-deploy/build.md#gomod) |
 | `app/` | Every route of the app. See [Routing](../pages-and-data/routing.md) |
-| `hooks.go` | `OnStart`, `OnShutdown`, `OnRequest` and `OnError`, all optional. See [Hooks](../pages-and-data/hooks.md#hooksgo) |
+| `hooks.go` | `OnStart`, `OnShutdown`, `OnRequest`, `OnError` and `OnCommand`, all optional. See [Hooks](../pages-and-data/hooks.md#hooksgo) |
 | `options.go` | The options of the app, each a package-level `var` made with `tifa.String` and the like. See [Options of the app](../build-and-deploy/config.md#options-of-the-app) |
 | `content.go` | The Markdown collections, each a package-level `var` made with `content.Define`. See [Declaring a collection](../pages-and-data/content.md#declaring-a-collection) |
 | `content/` | The Markdown files of the collections, one folder for each collection. See [Which files are entries](../pages-and-data/content.md#which-files-are-entries) |
@@ -31,7 +31,7 @@ One line for each thing Tifa reads, with a link to the page that explains it. Na
 
 Other files at the root, such as `db.go`, `mail.go`, `migrate.go`, `migrations/` or `sessions.go`, are the app's own, and `tifa new` writes some of them. Tifa reads none of them. The root package may hold the hooks and what the whole app shares, and no domain code. See [Structuring an app](../start/structure.md).
 
-Tifa reads `hooks.go` only when it exists. The four hook names are then looked up in the root package, in any file of it. Keep them in `hooks.go`.
+Tifa reads `hooks.go` only when it exists. The five hook names are then looked up in the root package, in any file of it. Keep them in `hooks.go`.
 
 ## Folders under app/
 
@@ -111,6 +111,7 @@ The hooks are package-level functions of the root package, with these exact sign
 | `OnShutdown` | `func(ctx context.Context) error` | After the requests in flight have returned |
 | `OnRequest` | `func(c *tifa.Ctx, next func(*tifa.Ctx) error) error` | Every page, navigation data request, API route and unmatched URL. The only middleware |
 | `OnError` | `func(c *tifa.Ctx, err error) tifa.Error` | Every unexpected error, a panic included. See [OnError](../pages-and-data/errors.md#onerror) |
+| `OnCommand` | `func(root *cobra.Command)` | Before the program reads its command line, to add the commands of the app. See [Commands of the app](../guides/commands.md) |
 
 Wiring is a call in `OnStart`, and each of these panics once the server listens:
 

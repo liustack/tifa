@@ -746,6 +746,18 @@ func TestMainImportsTheRootPackageForItsSettings(t *testing.T) {
 	}
 }
 
+// OnCommand reaches the program like the other hooks, and only when the app has it.
+func TestMainWiresOnCommand(t *testing.T) {
+	files, err := generateGo(&analyze.Manifest{Module: "example.com/m", Hooks: []string{"OnStart", "OnCommand"}}, nil, false)
+	if err != nil || !regexp.MustCompile(`OnCommand: +hooks.OnCommand,`).Match(files["tifaapp/app.go"]) {
+		t.Fatalf("with OnCommand: %v\n%s", err, files["tifaapp/app.go"])
+	}
+	files, err = generateGo(&analyze.Manifest{Module: "example.com/m", Hooks: []string{"OnStart"}}, nil, false)
+	if err != nil || strings.Contains(string(files["tifaapp/app.go"]), "OnCommand") {
+		t.Fatalf("without OnCommand: %v\n%s", err, files["tifaapp/app.go"])
+	}
+}
+
 // content.go declares the collections when the root package starts, before the server loads
 // their entries, so the main imports the root package for them too.
 func TestMainImportsTheRootPackageForItsContent(t *testing.T) {

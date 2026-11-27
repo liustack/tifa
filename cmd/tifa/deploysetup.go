@@ -192,6 +192,12 @@ var stdinIsTerminal = func(r io.Reader) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
+// stdoutIsTerminal tells whether the output goes to a terminal. Tests replace it.
+var stdoutIsTerminal = func(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
+
 // confirm asks whether to apply the plan. Without --yes it needs a terminal.
 func confirm(in io.Reader, out io.Writer, yes bool) error {
 	if yes {

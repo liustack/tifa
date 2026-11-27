@@ -20,7 +20,7 @@ A domain lives in its folder under `app/`, next to the pages that show it. The r
 ```text
 myapp/
   go.mod
-  hooks.go                  OnStart, OnShutdown, OnRequest, OnError
+  hooks.go                  OnStart, OnShutdown, OnRequest, OnError, OnCommand
   setup.ts                  top-level code of the JavaScript side: i18next formatters and other setup
   options.go                the options of the app: var DBPath = tifa.String(...)
   db.go                     var DB, opened in OnStart and closed in OnShutdown

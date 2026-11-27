@@ -1,17 +1,18 @@
 ---
-summary: 'Run a deployed app: `tifa deploy env`, secrets without a terminal, `logs`, `status`, `remove`, and where an app keeps its files on the server'
+summary: 'Run a deployed app: `tifa deploy env`, secrets without a terminal, `logs`, `status`, `run`, `remove`, and where an app keeps its files on the server'
 audience: app
 order: 15
 read_when:
   - Setting a secret or a setting in the .env of a deployed app, with tifa deploy env
   - An agent runs tifa deploy env set, or tifa deploy setup with --cache-purge-token, and a page opened in the browser to type the secret
   - Reading the log of a deployed app, checking which release runs and whether it is healthy, or taking an app off its server and out of Cloudflare and GitHub, with tifa deploy logs, status or remove
+  - Running a command of the app on the server, such as one that changes data once, with tifa deploy run
   - Putting several apps on one server, or finding the log, the .env or the data of a deployed app
 ---
 
 # Run a deployed app
 
-Set a secret, read the log, see which release runs, take an app off a server, and find the files of an app on it.
+Set a secret, read the log, see which release runs, run a command of the app, take an app off a server, and find the files of an app on it.
 
 ## Settings and secrets on the server
 
@@ -121,6 +122,43 @@ Only the servers this machine has set up or deployed to, the ones in ~/.tifa/con
 - With the block `auto`: the key of the repository in `authorized_keys`, and the secrets and the variables that setup set (`TIFA_DEPLOY_FINGERPRINT` and the two of the Tailscale identity). The identity itself is in your Tailscale console: delete it there. `.github/workflows/tifa-deploy.yml` is a file of your repository, so it stays: until you delete it, each push fails to deploy.
 
 Like setup, remove prints a plan first. On a terminal it then asks you to type the name of the app, also with `--yes`. Without a terminal it removes nothing unless you pass `--yes`. What it cannot remove, without a login of cf, or gh or a token, is listed last with the login it needs. It removes the rest and exits with an error: log in and run it again. A step that fails does not stop the others, but the tunnel then stays until a run again has removed the rest. A run that finds nothing left says so in one line.
+
+## Run a command of the app
+
+```sh
+go tool tifa deploy run promote ann@example.com   # a command the app adds in OnCommand
+go tool tifa deploy run config                    # the settings of the service, and where each comes from
+go tool tifa deploy run --host vps2 seed --count 5
+```
+
+`run` runs the program of the current release with the arguments, over ssh as `tifa`, after the same look at the server as `status`: it finds the server the way `tifa deploy` does and stops when the host now answers as another machine than the one `~/.tifa/config.yaml` remembers. The program runs in `/srv/tifa/<app>/shared`, the folder of the service, with the variables the service has, so it reads the same `.env`, settings and data. It does not start or stop the service.
+
+- Its flags, `--dir` and `--host`, go before the command. Everything from the command on goes to the program as it was given, flags, quotes, spaces and `$` included. `--` ends the flags of `run` too: `go tool tifa deploy run -- --help` prints the help of the program.
+- The output, the error output and the exit status are those of the program, and `run` adds no message of its own after it.
+- With a terminal on both its input and its output, ssh gets a terminal on the server, so the command can ask a question and Ctrl-C reaches it. Otherwise, as a coding agent runs it, ssh runs in BatchMode with no terminal, and the input of `run` is the input of the program (`go tool tifa deploy run import < rows.csv`).
+- An app with no release yet stops with `run go tool tifa deploy first`.
+
+### After a deploy
+
+`tifa deploy` exits with 1 when the new release fails its health check, so work that must follow a good deploy chains with `&&` and runs on the release that just went live:
+
+```sh
+go tool tifa deploy && go tool tifa deploy run notify-team
+```
+
+In [GitHub Actions](deploy-github-actions.md), add a step after the step `Deploy` of `.github/workflows/tifa-deploy.yml`. Delete Tifa's first line of the file first, so setup leaves your edit alone. A step runs only when the steps before it passed, and it gets no terminal, as an agent does:
+
+```yaml
+      - name: Notify the team
+        if: inputs.action != 'rollback'
+        env:
+          TIFA_DEPLOY_HOST: ${{ secrets.TIFA_DEPLOY_HOST }}
+        run: go tool tifa deploy run --host "$TIFA_DEPLOY_HOST" notify-team
+```
+
+With `connect: cloudflare`, copy the two `TUNNEL_SERVICE_TOKEN_` variables of the step `Deploy` into its `env` too.
+
+The commands an app adds, and what they can rely on while the service runs, are in [Commands of the app](../guides/commands.md).
 
 ## On the server
 

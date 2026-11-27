@@ -8,6 +8,8 @@
 // Start runs the whole app in the test process, from tifaapp.App, and returns a server to send
 // requests to, so a test can sign in, post a form, follow the redirect and read the page.
 // StartPages also renders the pages with the front end of tifa build.
+//
+// Command runs a command that the app adds in OnCommand, as the program runs it.
 package tifatest
 
 import (

@@ -207,8 +207,7 @@ func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Rea
 	if viaSudo {
 		user, script = t.dest.user, sudoScript(script)
 	}
-	args := append([]string{"-l", user}, sshOptions(ctx, t.host)...)
-	c := exec.CommandContext(ctx, sshProgram, append(args, "--", t.host, "sh -c "+shellQuote(script))...)
+	c := exec.CommandContext(ctx, sshProgram, t.sshArgs(ctx, user, script, false)...)
 	said := &tailWriter{}
 	c.Stdin, c.Stdout, c.Stderr = stdin, stdout, io.MultiWriter(stderr, said)
 	// Killing ssh does not close its output when another process holds it too, such as the
@@ -236,6 +235,16 @@ func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Rea
 		return &noSudoError{user: user, host: t.host}
 	}
 	return err
+}
+
+// sshArgs are the arguments of ssh that run script with sh on the server, logged in as user, and
+// with terminal on a terminal of the server.
+func (t deployTarget) sshArgs(ctx context.Context, user, script string, terminal bool) []string {
+	args := append([]string{"-l", user}, sshOptions(ctx, t.host)...)
+	if terminal {
+		args = append(args, "-t")
+	}
+	return append(args, "--", t.host, "sh -c "+shellQuote(script))
 }
 
 // sshConnectTimeout is how long ssh may take to reach a server it reaches directly and to start
@@ -572,7 +581,7 @@ and changes nothing. The restart and the health check are the same as without a 
 	setup.Flags().BoolVar(&sf.all, "all", false, "list the things that are already right too")
 	setup.Flags().BoolVar(&sf.purgeToken, "cache-purge-token", false, "ask for the token that clears the CDN cache at each deploy, and replace the one the server has")
 	setup.Flags().StringVar(&sf.tailscaleClientID, "tailscale-client-id", "", "the client ID of the Tailscale identity CI joins your tailnet with (not secret)")
-	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host), newDeployStatusCmd(&dir, &host), newDeployRemoveCmd(&dir, &host))
+	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host), newDeployStatusCmd(&dir, &host), newDeployRunCmd(&dir, &host), newDeployRemoveCmd(&dir, &host))
 	return cmd
 }
 

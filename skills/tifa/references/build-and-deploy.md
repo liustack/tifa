@@ -140,6 +140,7 @@ go tool tifa deploy            # build for the server, upload, restart, check /h
 go tool tifa deploy rollback   # back to the release before
 go tool tifa deploy logs       # the journal of the app on the server, -n 500 for more lines, -f to follow until Ctrl-C
 go tool tifa deploy status     # the release that runs and its commit, the releases kept, since when the service runs, GET /healthz now, memory
+go tool tifa deploy run promote ann@example.com   # a command of the app (OnCommand) with the current release, as tifa, in the folder and settings of the service. Output and exit status pass through. The flags of run go before the command, the rest goes to the program
 go tool tifa deploy remove     # take the app off the server and take back what tifa made for it in Cloudflare and GitHub. Prints a plan, then asks for the name of the app on a terminal. Without a terminal it needs --yes
 ```
 
