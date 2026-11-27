@@ -1178,6 +1178,16 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 **Reopen when** a way to reach the server that is not ssh with a key (a provider API, say) makes the new-login check wrong.
 
+### A plan-only run of setup with fixed exit codes
+
+**Settled (2026-11-28).** `tifa deploy setup --plan` builds the plan setup builds, prints it and stops. It changes nothing on the server, in Cloudflare, in GitHub, in `~/.tifa` or on this machine, installs and logs in no tool (a missing cf or gh is a step setup cannot do), and asks nothing. It exits with 0 when everything matches `tifa.yaml`, 2 when the plan has something to add, change or remove or a step setup cannot do, and 1 when the plan could not be made. With several servers the worst status wins, and notes (advice such as the ssh password line) do not make it 2. `--plan --json` prints one object with keys that are written in [Set up the server](../build-and-deploy/deploy-setup.md#only-look-at-the-plan) and stay as they are. `--plan` with `--yes` is refused, and `--json` without `--plan` is refused.
+
+**Why.** An AI agent or a CI job cannot tell "changes are pending" from "setup failed" by the exit code of a setup that stopped for lack of a terminal: both are 1. It would have to read the text. The codes are the ones of Terraform's `plan -detailed-exitcode` (0 no changes, 1 error, 2 changes), which agents and CI authors already know. They are fixed and tested, one test for each, because Puppet shows what happens otherwise: in PUP-686 the exit codes of `--noop` and what the run reported disagreed, and a check built on the code could not be trusted.
+
+**Turned down.** Making 2 the exit code of a setup that stops with something left for you: that one keeps exit 1 and its error, since callers rely on it. Only `--plan` returns 2.
+
+**Reopen when** a caller needs a plan that tells apart what Tifa can apply from what only the developer can do, as separate codes.
+
 ## Coding agents
 
 ### Changing behavior when an agent is detected
