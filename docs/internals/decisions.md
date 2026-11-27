@@ -163,6 +163,8 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 **Instead.** The page calls `router.invalidate()` when it should show what the write changed: [Calling method handlers from the browser](../pages-and-data/handlers.md#calling-method-handlers-from-the-browser).
 
+A redirect from the handler to the address the page already has does load it again (2026-11-27): the server asked for that page, a form without script would load it, and TanStack Router loads a navigation to the same address too. Tifa still loads nothing it was not asked for.
+
 ### Renaming c.Param
 
 **Turned down (2026-11-25).** `c.PathParam`, or `c.PathValue` after the standard library, in place of `c.Param`.

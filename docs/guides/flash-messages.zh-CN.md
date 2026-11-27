@@ -2,7 +2,7 @@
 summary: '在 Tifa 应用里重定向之后只显示一次的消息（「已保存」）：处理函数设一个短 cookie，下一个页面读出并清掉它，以及带 Cache 的页面怎么办'
 audience: app
 order: 16
-translatedFrom: bebb12ed41cd
+translatedFrom: b89bd5f7a1dc
 read_when:
   - '写入后重定向，要只显示一次「已保存」「已删除」或「已退出」'
   - '消息显示了两次，在带 `Cache` 的页面上不显示，或者客户端导航之后不显示'
@@ -116,7 +116,6 @@ func Load(c *tifa.Ctx) (View, error) {
 
 在 `/items/new` 上，按钮调用生成的 `POST`，重定向经过路由器，`/items` 立刻显示「Item saved.」。刷新之后没有消息。没有脚本的表单也一样：POST 回答里带着 cookie，下一个 `/items` 的 GET 显示消息。
 
-- **重定向到你正在看的页面。** 重定向的地址就是页面已有的地址时，路由器没有重新加载页面，消息要刷新之后才出现。请重定向到别的页面，就像表单之后去列表页那样。
 - **304 也会清掉它。** `Load` 设的 `Set-Cookie` 会随 304、memo 命中和一次渲染一起发出，所以不管回答是怎么产生的，消息都会被取走。
 
 ### 配合渲染 memo {#with-the-render-memo}

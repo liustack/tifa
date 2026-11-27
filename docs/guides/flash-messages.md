@@ -115,7 +115,6 @@ The page shows `notice` when it is not empty, in an element with `role="status"`
 
 From `/items/new`, the button calls the generated `POST`, the redirect goes through the router, and `/items` shows "Item saved." at once. A reload shows no message. A form without script gets the same: the POST answers with the cookie and the next GET of `/items` shows the message.
 
-- **A redirect to the page you are on.** When the redirect goes to the address the page already has, the router did not load the page again, and the message showed only after a reload. Redirect to another page, as the list after a form does.
 - **A 304 clears it too.** The `Set-Cookie` of a `Load` goes out on a 304, on a memo hit and on a render alike, so the message is taken whichever way the answer is made.
 
 ### With the render memo
