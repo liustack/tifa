@@ -109,6 +109,7 @@ type Pool struct {
 	counts   poolStats
 	warned   map[string]bool // the Intl warnings logged
 	swapping bool            // one load-first replacement, including retries and closing the old VM
+	started  bool            // the first VMs have loaded, set before NewPool returns
 	swapWake chan struct{}
 	// refitAfter is when the pool may replace a grown VM again, after a VM loaded to replace one
 	// grew past growthBound too (see refitRenders), and refitPause how long it waited last. misfit
@@ -258,6 +259,7 @@ func NewPool(source string, sourceMap []byte, cfg config.SSR, dev bool) (*Pool, 
 		}
 		p.putIdle(vm)
 	}
+	p.started = true
 	return p, nil
 }
 
@@ -485,6 +487,12 @@ func (p *Pool) refill() {
 			p.putIdle(vm)
 			return
 		}
+		select {
+		case <-p.done:
+			// Close interrupted the load.
+			return
+		default:
+		}
 		core.Logger().Error("tifa: ssr: could not replace a VM, retrying", "err", p.sources.explain(err, true), "delay", delay)
 		timer := time.NewTimer(delay)
 		select {
@@ -529,7 +537,15 @@ func (p *Pool) Close() error {
 }
 
 func openVM(p *Pool) (*pooledVM, error) {
-	vm, err := Load(p.bytecode, p.memory, p.stack, p.timeout, p.dev)
+	// The first VMs load under startTimeout, which stops a bundle that never ends. Once they have
+	// loaded, the bundle ends, and a VM that replaces one has no limit: on a machine short of CPU
+	// its load can take longer, and a limit would throw that work away on every try and leave the
+	// pool without the VM until the machine eases. Close interrupts it instead.
+	limit, stop := startTimeout, (<-chan struct{})(nil)
+	if p.started {
+		limit, stop = 0, p.done
+	}
+	vm, err := load(p.bytecode, p.memory, p.stack, p.timeout, p.dev, limit, stop)
 	if err != nil {
 		return nil, err
 	}
@@ -901,9 +917,14 @@ func (p *Pool) replaceGrown() {
 			fresh.replacement = true
 			continue
 		}
-		if !warned {
-			core.Logger().Error("tifa: ssr: could not replace a growing VM, retrying with backoff", "err", p.sources.explain(err, true))
-			warned = true
+		select {
+		case <-p.done:
+			// Close interrupted the load. The loop ends below.
+		default:
+			if !warned {
+				core.Logger().Error("tifa: ssr: could not replace a growing VM, retrying with backoff", "err", p.sources.explain(err, true))
+				warned = true
+			}
 		}
 		timer := time.NewTimer(delay)
 		select {
