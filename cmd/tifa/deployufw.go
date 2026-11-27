@@ -54,6 +54,9 @@ type ufwState struct {
 	active, allowIn bool
 	// rules are the rules in the short form, in the order ufw matches them.
 	rules []ufwRule
+	// fromRules are the rules in the long form that allow a port from some address, such as the one
+	// of a load balancer.
+	fromRules []ufwRule
 }
 
 // parseUFW reads the output of ufwReadBody.
@@ -75,6 +78,8 @@ func parseUFW(out string) (ufwState, error) {
 		case "ufw-added":
 			if r, ok := parseUFWRule(value); ok {
 				u.rules = append(u.rules, r)
+			} else if r, ok := parseUFWFromRule(value); ok {
+				u.fromRules = append(u.fromRules, r)
 			}
 		}
 	}
@@ -114,6 +119,62 @@ func parseUFWRule(line string) (ufwRule, bool) {
 		return ufwRule{}, false
 	}
 	return r, true
+}
+
+// parseUFWFromRule reads a line of ufw show added with an incoming rule in the long form that allows
+// or limits a port, as ufw prints it: allow [in on <interface>] [log] from <address> [port <port>] to
+// <address> port <ports> [proto <protocol>]. It returns false for any other line, a rule of an
+// application profile too.
+func parseUFWFromRule(line string) (ufwRule, bool) {
+	text, ok := strings.CutPrefix(line, "ufw ")
+	if !ok {
+		return ufwRule{}, false
+	}
+	r := ufwRule{text: text, proto: "any"}
+	rest := text
+	if i := strings.Index(rest, " comment '"); i >= 0 {
+		r.comment = strings.TrimSuffix(rest[i+len(" comment '"):], "'")
+		rest = rest[:i]
+	}
+	f := strings.Fields(rest)
+	if len(f) == 0 || (f[0] != "allow" && f[0] != "limit") {
+		return ufwRule{}, false
+	}
+	r.action = f[0]
+	to := false
+	for i := 1; i < len(f); i++ {
+		next := ""
+		if i+1 < len(f) {
+			next = f[i+1]
+		}
+		switch f[i] {
+		case "in", "log", "log-all":
+		case "on", "from":
+			i++
+		case "to":
+			to = true
+			i++
+		case "port":
+			if to {
+				r.ports = next
+			}
+			i++
+		case "proto":
+			r.proto = next
+			i++
+		default:
+			return ufwRule{}, false
+		}
+	}
+	if r.ports == "" || strings.Trim(r.ports, "0123456789,:") != "" {
+		return ufwRule{}, false
+	}
+	return r, true
+}
+
+// allowsFromSomewhere says a rule in the long form allows port over TCP from some address.
+func (u ufwState) allowsFromSomewhere(port int) bool {
+	return slices.ContainsFunc(u.fromRules, func(r ufwRule) bool { return r.covers(port) })
 }
 
 // covers says the rule decides port over TCP.

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -379,6 +380,87 @@ nginx-site shop
 	out, _, _ = runHarden(t, false, "", "--host", "vps", "--yes")
 	if !strings.Contains(out, "nginx (pid 60) listens on port 80") || strings.Contains(srv.calls(), "ufw-apply") {
 		t.Errorf("output:\n%s\ncalls:\n%s", out, srv.calls())
+	}
+}
+
+// An app with deploy.front external listens on a port that only the load balancer of the user may
+// reach. harden does not allow it to everyone and keeps ufw off until a rule allows it, from the
+// address of the load balancer too. On 80 it is no visitor port either.
+func TestHardenLeavesTheExternalPortToTheUser(t *testing.T) {
+	for _, port := range []string{"8080", "80"} {
+		t.Run(port, func(t *testing.T) {
+			facts := `listen LISTEN 0 4096 *:` + port + ` *:* users:(("systemd",pid=700,fd=9))
+usock [::]:` + port + ` tifa-shop.socket tifa-shop.service
+external tifa-shop.socket
+`
+			srv := newHardenServer(t, factsWith(facts))
+			out, _, err := runHarden(t, false, "", "--host", "vps", "--yes")
+			if err == nil {
+				t.Fatalf("no error\n%s", out)
+			}
+			for _, want := range []string{
+				"port " + port + " is the app shop, with deploy.front external",
+				"ufw stays off and nothing changed",
+				"sudo ufw allow from <address of the load balancer> to any port " + port + " proto tcp",
+				"then run harden again",
+			} {
+				if !strings.Contains(out, want) {
+					t.Errorf("lacks %q:\n%s", want, out)
+				}
+			}
+			if strings.Contains(out, "listens on port "+port) {
+				t.Errorf("calls the app an unknown program:\n%s", out)
+			}
+			if strings.Contains(srv.calls(), "ufw-apply") {
+				t.Errorf("turned ufw on:\n%s", srv.calls())
+			}
+
+			// A rule that allows the port from the load balancer accounts for it, and harden adds none.
+			srv = newHardenServer(t, factsWith(facts+`ufw-installed yes
+ufw-status Status: inactive
+ufw-added ufw allow 22/tcp
+ufw-added ufw allow from 10.0.0.5 to any port `+port+` proto tcp comment 'load balancer'
+`, "ufw-installed"))
+			out, _, err = runHarden(t, false, "", "--host", "vps", "--yes")
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			if !strings.Contains(srv.calls(), "ufw-apply") || !strings.Contains(srv.scripts(), "ports=''") {
+				t.Errorf("calls:\n%s\nscripts:\n%s", srv.calls(), srv.scripts())
+			}
+		})
+	}
+}
+
+// The socket of an app with deploy.front external says so, and the read of harden finds it there.
+func TestHardenFindsExternalSockets(t *testing.T) {
+	if !strings.Contains(unitsOf("shop", 8080, "", true, false).socket, externalMark+"\n") {
+		t.Errorf("the socket of an external app lacks %q", externalMark)
+	}
+	if strings.Contains(unitsOf("shop", 80, "", false, false).socket, externalMark) {
+		t.Errorf("the socket of a front none app has %q", externalMark)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh")
+	}
+	home := t.TempDir()
+	units := filepath.Join(home, ".config", "systemd", "user")
+	writeFile(t, filepath.Join(units, "tifa-shop.socket"), unitsOf("shop", 8080, "", true, false).socket)
+	writeFile(t, filepath.Join(units, "tifa-blog.socket"), unitsOf("blog", 443, "blog.example.com", false, false).socket)
+	writeFile(t, filepath.Join(units, "tifa-blog-http.socket"), unitsOf("blog", 443, "blog.example.com", false, false).http)
+	out, err := exec.Command("sh", "-c", hardenExternalFunc+"external_sockets "+shellQuote(home)).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if string(out) != "external tifa-shop.socket\n" {
+		t.Errorf("got %q", out)
+	}
+	st, err := parseHardenState("usock [::]:8080 tifa-shop.socket tifa-shop.service\nusock [::]:443 tifa-blog.socket tifa-blog.service\n" + string(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.visitorPorts(); !slices.Equal(got, []int{443}) {
+		t.Errorf("visitor ports %v", got)
 	}
 }
 

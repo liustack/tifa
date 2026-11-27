@@ -542,15 +542,19 @@ func unitsOf(app string, port int, domain string, open, cert bool) appUnits {
 	case port == httpsPort:
 		listen = "ListenStream=443\nFileDescriptorName=server.addr\n"
 	}
+	mark := ""
+	if open {
+		mark = externalMark + "\n"
+	}
 	u := appUnits{socket: fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
-[Unit]
+%s[Unit]
 Description=%s socket (Tifa)
 
 [Socket]
 %s
 [Install]
 WantedBy=sockets.target
-`, app, listen)}
+`, mark, app, listen)}
 	sockets, extra := unit+".socket", ""
 	if itself && port == httpsPort {
 		u.http = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.

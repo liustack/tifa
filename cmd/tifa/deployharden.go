@@ -78,10 +78,22 @@ apt_install() {
 }
 `
 
+// externalMark is a line of the socket of an app with deploy.front external, where harden finds it: its
+// port is for the load balancer of the user, not for everyone.
+const externalMark = "# tifa: front external"
+
+// hardenExternalFunc prints the sockets of the user whose home is $1 that have externalMark.
+const hardenExternalFunc = `external_sockets() {
+	for f in "$1"/.config/systemd/user/tifa-*.socket; do
+		if [ -f "$f" ] && grep -qxF '` + externalMark + `' "$f"; then echo "external $(basename "$f")"; fi
+	done
+}
+`
+
 // hardenReadBody runs as root and prints what harden needs, one fact per line, a word and a value.
 const hardenReadBody = `set -eu
 # tifa: harden read
-export LC_ALL=C PATH="/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+` + hardenExternalFunc + `export LC_ALL=C PATH="/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 echo "os-id $(. /etc/os-release >/dev/null 2>&1; echo "${ID:-}")"
 echo "os-like $(. /etc/os-release >/dev/null 2>&1; echo "${ID_LIKE:-}")"
 if command -v apt-get >/dev/null 2>&1; then echo "apt yes"; fi
@@ -110,6 +122,7 @@ uid=$(id -u tifa 2>/dev/null || true)
 if [ -n "$uid" ] && [ -S "/run/user/$uid/bus" ]; then
 	runuser -u tifa -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user list-sockets --no-legend --plain 2>/dev/null | sed 's/^/usock /' || true
 fi
+if [ -n "$uid" ]; then external_sockets "$(getent passwd tifa | cut -d: -f6)"; fi
 if [ -f /etc/tifa/nginx ]; then echo "nginx-tifa yes"; fi
 for f in /etc/nginx/conf.d/tifa-*.conf; do
 	if [ -f "$f" ]; then a=$(basename "$f" .conf); echo "nginx-site ${a#tifa-}"; fi
@@ -304,6 +317,8 @@ func hardenScript(body string, vars ...string) string {
 type hardenListener struct {
 	port     int
 	programs []string
+	// unit is the socket of the user tifa that listens, for a socket of an app.
+	unit string
 }
 
 // hardenState is what the root script read of the server.
@@ -324,12 +339,14 @@ type hardenState struct {
 	ufwDefIn, ufwDefOut string
 	listen              []hardenListener
 	userSockets         []hardenListener
-	nginxTifa           bool
-	nginxSites          []string
-	docker, fail2ban    bool
-	reboot              bool
-	uaPkg               bool
-	uaConf, uaTimer     string
+	// externalUnits are the sockets of apps with deploy.front external.
+	externalUnits    []string
+	nginxTifa        bool
+	nginxSites       []string
+	docker, fail2ban bool
+	reboot           bool
+	uaPkg            bool
+	uaConf, uaTimer  string
 	// record is what /etc/tifa/harden holds, key to value.
 	record map[string]string
 	// ufwText is the lines of ufw status and ufw show added the server printed.
@@ -387,9 +404,11 @@ func parseHardenState(out string) (hardenState, error) {
 			f := strings.Fields(value)
 			if len(f) >= 3 {
 				if l, ok := hardenAddress(f[0]); ok {
-					s.userSockets = append(s.userSockets, hardenListener{port: l, programs: []string{f[len(f)-1]}})
+					s.userSockets = append(s.userSockets, hardenListener{port: l, programs: []string{f[len(f)-1]}, unit: f[1]})
 				}
 			}
+		case "external":
+			s.externalUnits = append(s.externalUnits, value)
 		case "nginx-tifa":
 			s.nginxTifa = true
 		case "nginx-site":
@@ -497,21 +516,29 @@ func (s hardenState) sshOnlyKeys() bool {
 
 // visitorPorts are the ports the apps of Tifa on the server serve visitors on: the public ports of
 // the sockets of the user tifa (apps with front none), and 80 and 443 when the nginx of Tifa has a
-// site.
-//
-// TODO(front: external): an app with front external, which another branch adds, has Tifa open no
-// port: only the load balancer of the user may reach it. When that lands, its listening port must
-// count as an unknown listener here, not as a visitor port: do not allow it to everyone, do not turn
-// ufw on, and tell the user to allow it from their load balancer first.
+// site. The port of an app with front external is not one: only the load balancer of the user may
+// reach it, so it stays an unknown listener until a rule of ufw allows it.
 func (s hardenState) visitorPorts() []int {
 	var ports []int
 	for _, u := range s.userSockets {
-		ports = append(ports, u.port)
+		if !slices.Contains(s.externalUnits, u.unit) {
+			ports = append(ports, u.port)
+		}
 	}
 	if s.nginxTifa && len(s.nginxSites) > 0 {
 		ports = append(ports, nginxPorts...)
 	}
 	return ports
+}
+
+// externalApp is the app with front external that listens on port.
+func (s hardenState) externalApp(port int) (string, bool) {
+	for _, u := range s.userSockets {
+		if u.port == port && slices.Contains(s.externalUnits, u.unit) {
+			return strings.TrimSuffix(strings.TrimPrefix(u.unit, "tifa-"), ".socket"), true
+		}
+	}
+	return "", false
 }
 
 // firewallPlan splits the listeners the server has now: the ports ufw has to allow, with the ports
@@ -544,6 +571,9 @@ func (s hardenState) firewallPlan(connected int) (allow []int, unknown []hardenL
 		}
 		if s.ufw != nil {
 			if r, ok := s.ufw.rule(l.port); ok && (r.action == "allow" || r.action == "limit") {
+				continue
+			}
+			if s.ufw.allowsFromSomewhere(l.port) {
 				continue
 			}
 		}
@@ -705,16 +735,25 @@ func (r *hardenRun) firewallSteps(p *setupPlan) {
 		return
 	}
 	if len(unknown) > 0 {
-		var names []string
+		var names, why, fix []string
 		for _, l := range unknown {
+			if app, ok := s.externalApp(l.port); ok {
+				why = append(why, fmt.Sprintf("port %d is the app %s, with deploy.front external, which only your load balancer or proxy should reach, and harden does not allow it to everyone", l.port, app))
+				fix = append(fix, fmt.Sprintf("allow port %d from your load balancer or proxy (sudo ufw allow from <address of the load balancer> to any port %d proto tcp)", l.port, l.port))
+				continue
+			}
 			who := "a program ss cannot name"
 			if len(l.programs) > 0 {
 				who = strings.Join(l.programs, ", ")
 			}
 			names = append(names, fmt.Sprintf("%s listens on port %d", who, l.port))
 		}
+		if len(names) > 0 {
+			why = append([]string{strings.Join(names, ". ") + ". It is not sshd, a socket of Tifa or the nginx of Tifa, and harden does not guess whether it should stay open"}, why...)
+			fix = append([]string{"allow the port of the program in ufw (sudo ufw allow <port>/tcp) or stop the program"}, fix...)
+		}
 		p.cannot("firewall: turn ufw on",
-			strings.Join(names, ". ")+". It is not sshd, a socket of Tifa or the nginx of Tifa, and harden does not guess whether it should stay open, so ufw stays off and nothing changed. Allow its port in ufw (sudo ufw allow <port>/tcp) or stop the program, then run harden again")
+			strings.Join(why, ". ")+". So ufw stays off and nothing changed. First "+strings.Join(fix, ", and ")+", then run harden again")
 		r.dockerNote(p)
 		return
 	}
