@@ -503,14 +503,18 @@ func unitName(app string) string { return "tifa-" + app }
 type appUnits struct{ socket, http, service string }
 
 // unitsOf writes the units of app for its port: 80 or 443 when it serves visitors itself, else a
-// loopback port behind the Cloudflare Tunnel. domain is the domain it serves HTTPS for, on 443.
+// loopback port behind the Cloudflare Tunnel or nginx, or with open that port on every address of
+// the server, for the load balancer of the user. domain is the domain it serves HTTPS for, on 443.
 //
 // The sockets hold the ports while the program restarts, see docs/build-and-deploy/deploy-by-hand.md. With
 // HTTPS the program gets two, each named by the setting it serves, and the settings of the
 // built-in HTTPS in its environment: the certificates stay in certs, next to the releases.
-func unitsOf(app string, port int, domain string) appUnits {
+func unitsOf(app string, port int, domain string, open bool) appUnits {
 	unit := unitName(app)
 	listen := fmt.Sprintf("ListenStream=127.0.0.1:%d\n", port)
+	if open && !servesVisitors(port) {
+		listen = fmt.Sprintf("ListenStream=%d\n", port)
+	}
 	switch port {
 	case httpPort:
 		listen = "ListenStream=80\n"
@@ -751,10 +755,11 @@ echo "---"
 exit 3
 `
 
-// appScript is appBody for app on port, with domain for HTTPS. move says its sockets listen
-// elsewhere than before, restart that its units changed. It checks the restarted app for tries seconds.
-func appScript(app string, port int, domain string, move, restart bool, tries int) string {
-	u := unitsOf(app, port, domain)
+// appScript is appBody for app on port, with domain for HTTPS, and with open on every address of
+// the server. move says its sockets listen elsewhere than before, restart that its units changed. It
+// checks the restarted app for tries seconds.
+func appScript(app string, port int, domain string, open, move, restart bool, tries int) string {
+	u := unitsOf(app, port, domain, open)
 	flag := map[bool]string{true: "1"}
 	return script(appBody, "app", app, "port", strconv.Itoa(port), "domain", domain,
 		"move", flag[move], "restart", flag[restart], "health", healthPath, "tries", strconv.Itoa(tries),

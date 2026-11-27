@@ -38,8 +38,8 @@ func removeApp(t *testing.T) (root, home string, calls func() string) {
 	writeFile(t, filepath.Join(home, "shop", "deploys.log"), "2026-11-20T10:00:05Z\tr1\tabc\tdeploy\tok\n")
 	units := filepath.Join(home, ".config", "systemd", "user")
 	for _, app := range []string{"shop", "notes"} {
-		writeFile(t, filepath.Join(units, "tifa-"+app+".socket"), unitsOf(app, 9531, "").socket)
-		writeFile(t, filepath.Join(units, "tifa-"+app+".service"), unitsOf(app, 9531, "").service)
+		writeFile(t, filepath.Join(units, "tifa-"+app+".socket"), unitsOf(app, 9531, "", false).socket)
+		writeFile(t, filepath.Join(units, "tifa-"+app+".service"), unitsOf(app, 9531, "", false).service)
 	}
 	writeFile(t, filepath.Join(home, "notes", "port"), "9532\n")
 	writeFile(t, filepath.Join(home, "notes", "shared", ".env"), "B=2\n")

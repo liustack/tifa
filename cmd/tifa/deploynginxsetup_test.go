@@ -234,7 +234,7 @@ func TestSetupNginxSiteUsesThePortTheAppGets(t *testing.T) {
 	// The plan said 9527, and the app got 9600 while the steps ran: the site follows.
 	srv = newSetupServer(t, "", nginxUserFacts(9527))
 	srv.nginx(t, nginxFacts(true, nil))
-	tg, err := loadDeployTarget(root, "", io.Discard)
+	tg, err := loadDeployTarget(root, nil, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

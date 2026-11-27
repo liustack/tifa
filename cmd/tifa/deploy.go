@@ -75,6 +75,36 @@ type deployTarget struct {
 	startTimeout time.Duration
 	// releaseCmd is deploy.release_command: the command of the app and its arguments, nil for none.
 	releaseCmd []string
+	// index and count place the server in the list of the app's servers, index 0 the first. count
+	// is 1 for an app on one server.
+	index, count int
+	// open says the app listens on its port on every address of the server, not on the loopback
+	// only: behind the load balancer of the user, which reaches each server.
+	open bool
+	// port is the port setup gives the app on each of several servers, the same on every one: a
+	// target group of a load balancer names one port. 0 picks it per server.
+	port int
+}
+
+// several says the app runs on more than one server.
+func (t deployTarget) several() bool { return t.count > 1 }
+
+// serverNote names the place of the server in the list, " (2 of 3)", for a message about one of
+// several servers, and nothing for an app on one server.
+func (t deployTarget) serverNote() string {
+	if !t.several() {
+		return ""
+	}
+	return fmt.Sprintf(" (%d of %d)", t.index+1, t.count)
+}
+
+// hostNames lists the hosts of the targets for a message: vps1, vps2.
+func hostNames(ts []deployTarget) string {
+	names := make([]string, len(ts))
+	for i, t := range ts {
+		names[i] = t.host
+	}
+	return strings.Join(names, ", ")
 }
 
 // healthTries is how many times, a second apart, the server asks for healthPath before a release
@@ -154,47 +184,75 @@ func checkDeploySettings(root string) error {
 	return nil
 }
 
-// loadDeployTarget reads the app at dir: its name from go.mod, the deploy settings from tifa.yaml, and
-// the server from the flag, else TIFA_DEPLOY_HOST in the environment, else TIFA_DEPLOY_HOST in .env,
-// else the servers of ~/.tifa. A server taken from there is announced on notice.
-func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, error) {
+// oneServerFronts are the values of deploy.front that serve an app from one server, and why.
+var oneServerFronts = map[string]string{
+	"none":       "where the server serves visitors itself, with HTTPS of its own",
+	"nginx":      "which serves the apps of one server",
+	"cloudflare": "and a tunnel on several servers sends each request to the one closest to the visitor, which does not spread the load",
+}
+
+// loadDeployTargets reads the app at dir: its name from go.mod, the deploy settings from tifa.yaml,
+// and the servers from the flags, else TIFA_DEPLOY_HOST in the environment, else TIFA_DEPLOY_HOST in
+// .env, else the servers of ~/.tifa. A server taken from there is announced on notice. It returns one
+// target per server, in the order named: the first is the first server.
+func loadDeployTargets(dir string, hostFlags []string, notice io.Writer) ([]deployTarget, error) {
 	root, err := filepath.Abs(dir)
 	if err != nil {
-		return deployTarget{}, err
+		return nil, err
 	}
 	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	if err != nil {
-		return deployTarget{}, fmt.Errorf("%s is not the root of an app: %w", root, err)
+		return nil, fmt.Errorf("%s is not the root of an app: %w", root, err)
 	}
 	modulePath := modfile.ModulePath(data)
 	if modulePath == "" {
-		return deployTarget{}, fmt.Errorf("%s has no module line", filepath.Join(root, "go.mod"))
+		return nil, fmt.Errorf("%s has no module line", filepath.Join(root, "go.mod"))
 	}
 	app, err := deployAppName(modulePath)
 	if err != nil {
-		return deployTarget{}, err
+		return nil, err
 	}
 	settings, err := codegen.ProjectSettings(root)
 	if err != nil {
-		return deployTarget{}, err
+		return nil, err
 	}
 	domain, err := deployDomain(settings.Deploy, settings.Site.URL)
 	if err != nil {
-		return deployTarget{}, err
+		return nil, err
 	}
 	own, err := ownDomain(settings.Deploy, settings.Site.URL)
 	if err != nil {
-		return deployTarget{}, err
+		return nil, err
 	}
 	if err := checkUnknownInputNames(root); err != nil {
-		return deployTarget{}, err
+		return nil, err
 	}
-	h, err := readDeployHost(root, app, hostFlag, notice)
+	hosts, err := readDeployHosts(root, app, hostFlags, notice)
+	if err != nil {
+		return nil, err
+	}
+	d := settings.Deploy
+	// Several servers share the load behind a load balancer of the user, and no other front.
+	if why, ok := oneServerFronts[d.Front]; ok && len(hosts) > 1 {
+		return nil, fmt.Errorf("%s names %d servers, and deploy.front is %s, %s: set deploy.front to loadbalancer in tifa.yaml, and put the servers behind a load balancer of yours", hosts[0].fromText(), len(hosts), d.Front, why)
+	}
+	ts := make([]deployTarget, len(hosts))
+	for i, h := range hosts {
+		ts[i] = deployTarget{root: root, app: app, host: h.addr(), dest: h, domain: domain, front: d.Front, own: own,
+			connectMode: d.Connect, startTimeout: d.StartTimeout, releaseCmd: d.ReleaseCommand, github: d.Auto.On, auto: d.Auto,
+			index: i, count: len(hosts), open: d.Front == "loadbalancer"}
+	}
+	return ts, nil
+}
+
+// loadDeployTarget is loadDeployTargets for a command that acts on one server: the first one, or the
+// one the flag names.
+func loadDeployTarget(dir string, hostFlags []string, notice io.Writer) (deployTarget, error) {
+	ts, err := loadDeployTargets(dir, hostFlags, notice)
 	if err != nil {
 		return deployTarget{}, err
 	}
-	return deployTarget{root: root, app: app, host: h.addr(), dest: h, domain: domain, front: settings.Deploy.Front, own: own,
-		connectMode: settings.Deploy.Connect, startTimeout: settings.Deploy.StartTimeout, releaseCmd: settings.Deploy.ReleaseCommand, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
+	return ts[0], nil
 }
 
 // sshWaitDelay is how long ssh may leave its output open once it has ended.
@@ -401,6 +459,10 @@ func (t deployTarget) visitorPort(s serverState) (int, error) {
 		return httpsPort, nil
 	case t.front == "none":
 		return httpPort, nil
+	case t.port != 0 && slices.Contains(s.Used, t.port):
+		return 0, fmt.Errorf("port %d of %s is taken, and the app needs the same port on each of its servers: run go tool tifa deploy setup again, which picks a port free on all of them", t.port, t.host)
+	case t.port != 0:
+		return t.port, nil
 	case s.Port >= firstPort && s.Port <= lastPort:
 		return s.Port, nil
 	}
@@ -468,7 +530,7 @@ func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stde
 	if servesVisitors(port) && s.LowPort > httpPort {
 		return s, fmt.Errorf("%s serves visitors on %s itself, which only root may open on %s yet: run go tool tifa deploy setup", t.app, portsText(port), t.host)
 	}
-	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), false, false, t.healthTries()), nil, io.Discard, stderr); err != nil {
+	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), t.open, false, false, t.healthTries()), nil, io.Discard, stderr); err != nil {
 		return s, err
 	}
 	fmt.Fprintf(stdout, "created %s on %s: %s/%s, %s, empty shared/.env\n", t.app, t.host, s.Home, t.app, portsText(port))
@@ -484,7 +546,8 @@ func (t deployTarget) ownFor(port int) string {
 }
 
 func newDeployCmd() *cobra.Command {
-	var dir, host string
+	var dir string
+	var host []string
 	var sf setupFlags
 	cmd := &cobra.Command{
 		Use:   "deploy",
@@ -496,18 +559,23 @@ asks GET /healthz until the answer is below 500. When that fails, the release be
 and deploy exits with 1. With deploy.front cloudflare it then clears the CDN cache of the host of site.url,
 with the token setup keeps on the server.
 It never uploads .env. On a server that setup prepared it makes the folder and units of a new
-app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHub.`,
+app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHub.
+
+With several servers, behind your load balancer (deploy.front loadbalancer), deploy builds once,
+uploads to each, runs deploy.release_command once on the first, and then switches one server at
+a time, each once the one before passed its health check. When one fails, it goes back, and so do
+the servers before it, so all of them run one release.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(dir, host, cmd.ErrOrStderr())
+			ts, err := loadDeployTargets(dir, host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			return deploy(cmd.Context(), t, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deploy(cmd.Context(), ts, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.PersistentFlags().StringVar(&dir, "dir", ".", "application root, the directory holding go.mod and app/")
-	cmd.PersistentFlags().StringVar(&host, "host", "", "the server: an ssh alias or ssh://host[:port], with user@ in front when root cannot log in (default "+deployHostEnv+" of the environment or of .env, else the server in ~/.tifa)")
+	cmd.PersistentFlags().StringArrayVar(&host, "host", nil, "the server: an ssh alias or ssh://host[:port], with user@ in front when root cannot log in. Several servers: give it again, or separate them with commas (default "+deployHostEnv+" of the environment or of .env, else the servers in ~/.tifa)")
 
 	setup := &cobra.Command{
 		Use:   "setup",
@@ -525,7 +593,9 @@ When all is right it prints one line and asks nothing. It can run again at any t
             with HTTPS: setup stops when another program has them, and lets the systemd of
             tifa open them, as root once. When ufw is on and blocks them, setup allows them
             there, in rules with the comment tifa <app>. Tifa does not change the firewall or
-            security groups of your provider
+            security groups of your provider. With deploy.front loadbalancer the app listens
+            on its port on every address, for your load balancer: setup opens it nowhere, and
+            ends with the targets and the health check to enter in the balancer
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
             the host of site.url (needs cf), and on the server a token that can only clear
             its cache, which every deploy reads. With deploy.front nginx: an nginx that setup
@@ -542,14 +612,17 @@ When all is right it prints one line and asks nothing. It can run again at any t
             and then TIFA_DEPLOY_HOST in .env is the ssh host
 
 On a terminal, a missing cf or gh comes first: a plan that installs it with pnpm, brew or
-winget and logs it in, then the plan of the rest. It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.`,
+winget and logs it in, then the plan of the rest. It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.
+
+With several servers it sets up each in turn, the first first, with one port for the app that is
+free on all of them, and then GitHub with all of them.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(dir, host, cmd.ErrOrStderr())
+			ts, err := loadDeployTargets(dir, host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			return deploySetup(cmd.Context(), t, sf, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deploySetupAll(cmd.Context(), ts, sf, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	rollback := &cobra.Command{
@@ -562,7 +635,10 @@ With a release, as tifa deploy status lists it (such as 20261120T110000Z), rollb
 current at that release instead, older or newer than the current one. The release must still be
 on the server and have passed its health check when it was deployed. Otherwise rollback changes
 nothing and lists the releases it can go to. If that release is the current one, rollback says so
-and changes nothing. The restart and the health check are the same as without a release.`,
+and changes nothing. The restart and the health check are the same as without a release.
+
+With several servers it picks the release on the first one, checks that every server has it, and
+moves them one at a time.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			release := ""
@@ -572,11 +648,11 @@ and changes nothing. The restart and the health check are the same as without a 
 					return fmt.Errorf("%q is not a release ID: use one as tifa deploy status lists it, such as 20261120T110000Z", release)
 				}
 			}
-			t, err := loadDeployTarget(dir, host, cmd.ErrOrStderr())
+			ts, err := loadDeployTargets(dir, host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			return deployRollback(cmd.Context(), t, release, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deployRollbackAll(cmd.Context(), ts, release, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	setup.Flags().BoolVarP(&sf.yes, "yes", "y", false, "apply the plan without asking")
@@ -596,63 +672,210 @@ func maskHost(w io.Writer, t deployTarget) {
 	}
 }
 
-func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err error) {
-	maskHost(stdout, t)
+// deploy puts a new release on the servers of ts. The steps that run once per deploy and those that
+// run on each server are apart: each server is read (and gets the app when it has none), the app
+// is built once and gets one release ID, the program goes to each server, deploy.release_command runs
+// once on the first, and then the servers switch one at a time, each with its health check. A
+// server that fails its check goes back by itself, and the ones that switched before it are moved
+// back, so all run one release. Then, once: ~/.tifa, the CDN cache and where visitors go.
+func deploy(ctx context.Context, ts []deployTarget, stdout, stderr io.Writer) (err error) {
+	first := ts[0]
+	for _, t := range ts {
+		maskHost(stdout, t)
+	}
 	started := time.Now()
-	sum := deploySummary{App: t.app, Action: "deploy"}
+	sum := deploySummary{App: first.app, Action: "deploy"}
 	health := &healthCapture{w: stdout}
 	defer func() { finishSummary(&sum, started, health, err, stderr) }()
-	s, err := t.state(ctx, stderr)
-	if err != nil {
-		return err
-	}
-	machine := s.Machine
-	if s.Port == 0 {
-		if s, err = t.createApp(ctx, s, stdout, stderr); err != nil {
+
+	// Each server: what runs there, and the app where it has none yet.
+	states := make([]serverState, len(ts))
+	machines := make([]string, len(ts))
+	for i, t := range ts {
+		s, err := t.state(ctx, stderr)
+		if err != nil {
 			return err
 		}
+		machines[i] = s.Machine
+		switch {
+		case s.Port == 0 && t.several():
+			// The app needs one port on every server, which setup picks with all of them in view.
+			return fmt.Errorf("%s is not set up on %s: run go tool tifa deploy setup, which sets up every server of %[1]s", t.app, t.host)
+		case s.Port == 0:
+			if s, err = t.createApp(ctx, s, stdout, stderr); err != nil {
+				return err
+			}
+		case i > 0 && s.Port != states[0].Port:
+			return fmt.Errorf("%s has port %d on %s and %d on %s: run go tool tifa deploy setup, which gives it one port on every server", t.app, states[0].Port, first.host, s.Port, t.host)
+		}
+		states[i] = s
 	}
-	goos, goarch, err := serverTarget(s.OS, s.Arch)
+	goos, goarch, err := serverTarget(states[0].OS, states[0].Arch)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "deploying %s to %s (%s/%s, port %d)\n", t.app, t.host, goos, goarch, s.Port)
+	for i, t := range ts[1:] {
+		if os, arch, err := serverTarget(states[i+1].OS, states[i+1].Arch); err != nil {
+			return fmt.Errorf("%s: %w", t.host, err)
+		} else if os != goos || arch != goarch {
+			return fmt.Errorf("%s is %s/%s and %s is %s/%s: one build runs on every server of an app, so they need the same system", first.host, goos, goarch, t.host, os, arch)
+		}
+	}
+	if first.several() {
+		fmt.Fprintf(stdout, "deploying %s to %s (%s/%s)\n", first.app, hostNames(ts), goos, goarch)
+	} else {
+		fmt.Fprintf(stdout, "deploying %s to %s (%s/%s, port %d)\n", first.app, first.host, goos, goarch, states[0].Port)
+	}
+
+	// Once: the build and the release ID.
 	tmp, err := os.MkdirTemp("", "tifa-deploy-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	program := filepath.Join(tmp, t.app)
-	if err := buildForServer(ctx, t.root, goos, goarch, program, stdout, stderr); err != nil {
+	program := filepath.Join(tmp, first.app)
+	if err := buildForServer(ctx, first.root, goos, goarch, program, stdout, stderr); err != nil {
 		return fmt.Errorf("build for %s/%s: %w", goos, goarch, err)
 	}
 	id := deployNow().UTC().Format("20060102T150405Z")
 	sum.Release = id
-	if err := t.upload(ctx, program, id, stdout, stderr); err != nil {
-		return err
+	commit := gitCommit(first.root)
+	sum.Commit = commit
+
+	// Each server: the upload.
+	for _, t := range ts {
+		if t.several() {
+			fmt.Fprintf(stdout, "to %s%s: ", t.host, t.serverNote())
+		}
+		if err := t.upload(ctx, program, id, stdout, stderr); err != nil {
+			return pickErr(t.several(), fmt.Errorf("%s: %w", t.host, err), err)
+		}
 	}
-	a := activation{App: t.app, ID: id, Commit: gitCommit(t.root), Port: s.Port, Action: "deploy",
-		Back: fallback(s), Prune: pruneReleases(s.Releases, s.Current, id, keepReleases), Tries: t.healthTries()}
-	sum.Commit = a.Commit
-	if len(t.releaseCmd) > 0 {
-		if err := t.releaseCommand(ctx, id, a.Commit, s.Current, stdout, stderr); err != nil {
+
+	// Once: deploy.release_command, on the first server, before any switch.
+	if len(first.releaseCmd) > 0 {
+		if err := first.releaseCommand(ctx, id, commit, states[0].Current, stdout, stderr); err != nil {
 			return err
 		}
 	}
-	if err := t.activate(ctx, a, health, stderr); err != nil {
-		return err
+
+	// Each server, one at a time: the switch and its health check.
+	for i, t := range ts {
+		if t.several() {
+			fmt.Fprintf(stdout, "switching %s%s\n", t.host, t.serverNote())
+		}
+		s := states[i]
+		a := activation{App: t.app, ID: id, Commit: commit, Port: s.Port, Action: "deploy",
+			Back: fallback(s), Prune: pruneReleases(s.Releases, s.Current, id, keepReleases), Tries: t.healthTries()}
+		if runs, err := t.switchTo(ctx, a, health, stderr); err != nil {
+			if i == 0 {
+				return err
+			}
+			return moveBack(ctx, ts, states, i, id, runs, health, stdout, stderr)
+		}
 	}
-	fmt.Fprintf(stdout, "deployed %s release %s (commit %s) in %s\n", t.app, id, a.Commit, time.Since(started).Round(100*time.Millisecond))
-	// The release is live and passed its check, so the server goes into ~/.tifa as setup puts it
+	fmt.Fprintf(stdout, "deployed %s release %s (commit %s) in %s\n", first.app, id, commit, time.Since(started).Round(100*time.Millisecond))
+
+	// Once: ~/.tifa, the CDN cache, and where visitors reach the app.
+	// The release is live and passed its check, so the servers go into ~/.tifa as setup puts them
 	// there: a server set up from another machine, or before the file was there, gets its entry.
 	// CI never reads the file.
-	if os.Getenv(envGitHubActions) != "true" && machine != "" {
-		rememberAndSay(machine, t.dest.raw, knownApp{Name: t.app, Path: t.root}, stdout, stderr)
+	if os.Getenv(envGitHubActions) != "true" && !slices.Contains(machines, "") {
+		group := make([]groupServer, len(ts))
+		for i, t := range ts {
+			group[i] = groupServer{id: machines[i], host: t.dest.raw}
+		}
+		rememberGroupAndSay(group, knownApp{Name: first.app, Path: first.root}, stdout, stderr)
 	}
-	sum.Cache = clearCache(ctx, t, stderr)
+	sum.Cache = clearCache(ctx, first, stderr)
 	printCache(stdout, sum.Cache)
-	t.printVisitors(ctx, stdout, s)
+	printVisitorsAll(ctx, ts, states, stdout)
 	return nil
+}
+
+// pickErr is a when cond holds, else b.
+func pickErr(cond bool, a, b error) error {
+	if cond {
+		return a
+	}
+	return b
+}
+
+// switchTo runs the activation a on the server and says which release runs there afterwards: a.ID
+// when it passed, a.Back when it failed and the server went back to it, none when nothing runs,
+// and "?" when the script did not finish, so it is not known.
+func (t deployTarget) switchTo(ctx context.Context, a activation, stdout, stderr io.Writer) (runs string, err error) {
+	err = t.ssh(ctx, deployUser, activateScript(a), nil, stdout, stderr)
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return a.ID, nil
+	case !errors.As(err, &exit):
+		return "?", err
+	case exit.ExitCode() == activateFailedBack:
+		return a.Back, &exitError{code: 1, err: fmt.Errorf("release %s failed its health check, and %s runs again", a.ID, a.Back)}
+	case exit.ExitCode() == activateFailed:
+		return "", &exitError{code: 1, err: fmt.Errorf("release %s failed its health check, and no release runs: look at the log above, then deploy again", a.ID)}
+	}
+	return "?", err
+}
+
+// stopScript stops the service of the app, for a server moved back to no release.
+func stopScript(app string) string {
+	return script("export XDG_RUNTIME_DIR=\"/run/user/$(id -u)\"\nsystemctl --user stop \"tifa-$app.service\"\n", "app", app)
+}
+
+// moveBack ends a switch that failed on the server failed of ts, which now runs runs: the servers
+// before it switched to release id and passed, so each goes back to the release it ran before,
+// the latest first. A server that fails its check with that release runs id again. It says
+// which server runs which release, and always returns an error, the deploy having failed.
+func moveBack(ctx context.Context, ts []deployTarget, states []serverState, failed int, id, runs string, health, stdout, stderr io.Writer) error {
+	now := make([]string, len(ts))
+	now[failed] = runs
+	for i := failed + 1; i < len(ts); i++ {
+		now[i] = states[i].Current
+	}
+	for i := failed - 1; i >= 0; i-- {
+		t, s := ts[i], states[i]
+		back := fallback(s)
+		if back == "" {
+			fmt.Fprintf(stdout, "stopping %s on %s%s: it ran no release that passed its check before %s\n", t.app, t.host, t.serverNote(), id)
+			if err := t.ssh(ctx, deployUser, stopScript(t.app), nil, stdout, stderr); err != nil {
+				fmt.Fprintf(stderr, "%s: %v\n", t.host, err)
+				now[i] = id
+				continue
+			}
+			now[i] = ""
+			continue
+		}
+		fmt.Fprintf(stdout, "moving %s back to %s\n", t.host, back)
+		a := activation{App: t.app, ID: back, Commit: s.latest(back).Commit, Port: s.Port, Action: "rollback", Back: id, Tries: t.healthTries()}
+		r, err := t.switchTo(ctx, a, health, stderr)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: %v\n", t.host, err)
+		}
+		now[i] = r
+	}
+	t := ts[failed]
+	if same := slices.Compact(slices.Clone(now)); len(same) == 1 {
+		what := "every server runs " + same[0] + " again"
+		if same[0] == "" {
+			what = "no server runs a release: look at the log above, then deploy again"
+		}
+		return &exitError{code: 1, err: fmt.Errorf("release %s failed its health check on %s%s, so the servers before it went back: %s", id, t.host, t.serverNote(), what)}
+	}
+	var parts []string
+	for i, r := range now {
+		switch r {
+		case "":
+			r = "no release"
+		case "?":
+			r = "a release tifa could not tell"
+		}
+		parts = append(parts, ts[i].host+" runs "+r)
+	}
+	return &exitError{code: 1, err: fmt.Errorf("release %s failed its health check on %s%s, and the servers run different releases now: %s. Deploy again, or bring them to one release with go tool tifa deploy rollback <release>",
+		id, t.host, t.serverNote(), strings.Join(parts, ", "))}
 }
 
 // portAnswers says whether the app answers this machine on port of host within a few seconds:
@@ -811,6 +1034,77 @@ func deployRollback(ctx context.Context, t deployTarget, release string, stdout,
 	return nil
 }
 
+// deployRollbackAll rolls the app back on every server of ts, one at a time. Without a release it
+// goes to the release the first server would go back to, on all of them, so all run one release.
+// Every server is checked first: one that cannot go there stops the rollback before any change.
+// A server that fails the check of that release goes back by itself, and the ones before it are
+// moved back to what they ran.
+func deployRollbackAll(ctx context.Context, ts []deployTarget, release string, stdout, stderr io.Writer) (err error) {
+	if len(ts) == 1 {
+		return deployRollback(ctx, ts[0], release, stdout, stderr)
+	}
+	first := ts[0]
+	for _, t := range ts {
+		maskHost(stdout, t)
+	}
+	started := time.Now()
+	sum := deploySummary{App: first.app, Action: "rollback"}
+	health := &healthCapture{w: stdout}
+	defer func() { finishSummary(&sum, started, health, err, stderr) }()
+	states := make([]serverState, len(ts))
+	for i, t := range ts {
+		if states[i], err = t.state(ctx, stderr); err != nil {
+			return err
+		}
+	}
+	if release == "" {
+		r, err := rollbackTarget(states[0])
+		if err != nil {
+			return fmt.Errorf("%s: %w", first.host, err)
+		}
+		release = r.ID
+	}
+	targets := make([]deployRecord, len(ts))
+	todo := false
+	for i, t := range ts {
+		r, current, err := rollbackTo(states[i], release)
+		if err != nil {
+			return fmt.Errorf("%s: %w. Nothing was changed", t.host, err)
+		}
+		if !current {
+			targets[i], todo = r, true
+		}
+	}
+	sum.Release = release
+	if !todo {
+		fmt.Fprintf(stdout, "%s already runs release %s on %s: nothing to change\n", first.app, release, hostNames(ts))
+		return nil
+	}
+	for i, t := range ts {
+		s := states[i]
+		if targets[i].ID == "" {
+			continue
+		}
+		sum.Commit = targets[i].Commit
+		way := "back"
+		if release > s.Current {
+			way = "forward"
+		}
+		fmt.Fprintf(stdout, "rolling %s on %s%s %s from %s to %s (commit %s)\n", t.app, t.host, t.serverNote(), way, s.Current, release, targets[i].Commit)
+		a := activation{App: t.app, ID: release, Commit: targets[i].Commit, Port: s.Port, Action: "rollback", Back: s.Current, Tries: t.healthTries()}
+		if runs, err := t.switchTo(ctx, a, health, stderr); err != nil {
+			if i == 0 {
+				return err
+			}
+			return moveBack(ctx, ts, states, i, release, runs, health, stdout, stderr)
+		}
+	}
+	fmt.Fprintf(stdout, "rolled %s to %s on %s in %s\n", first.app, release, hostNames(ts), time.Since(started).Round(100*time.Millisecond))
+	sum.Cache = clearCache(ctx, first, stderr)
+	printCache(stdout, sum.Cache)
+	return nil
+}
+
 // finishSummary writes the summary of a run of GitHub Actions, when there is one to write.
 func finishSummary(sum *deploySummary, started time.Time, health *healthCapture, err error, stderr io.Writer) {
 	sum.Elapsed, sum.Health, sum.Err = time.Since(started), health.line, err
@@ -852,17 +1146,7 @@ func (t deployTarget) upload(ctx context.Context, program, id string, stdout, st
 
 // activate runs activateScript and turns its exit status into an error.
 func (t deployTarget) activate(ctx context.Context, a activation, stdout, stderr io.Writer) error {
-	err := t.ssh(ctx, deployUser, activateScript(a), nil, stdout, stderr)
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) {
-		return err
-	}
-	switch exit.ExitCode() {
-	case activateFailedBack:
-		return &exitError{code: 1, err: fmt.Errorf("release %s failed its health check, and %s runs again", a.ID, a.Back)}
-	case activateFailed:
-		return &exitError{code: 1, err: fmt.Errorf("release %s failed its health check, and no release runs: look at the log above, then deploy again", a.ID)}
-	}
+	_, err := t.switchTo(ctx, a, stdout, stderr)
 	return err
 }
 
@@ -878,4 +1162,35 @@ func gitCommit(root string) string {
 		commit += "-dirty"
 	}
 	return commit
+}
+
+// printVisitorsAll says, once per deploy, where visitors reach the app: through the load balancer of
+// the user, the targets to give it, else what printVisitors says for the first server.
+func printVisitorsAll(ctx context.Context, ts []deployTarget, states []serverState, w io.Writer) {
+	if ts[0].front == "loadbalancer" {
+		printBalancerTargets(ctx, ts, states, w)
+		return
+	}
+	ts[0].printVisitors(ctx, w, states[0])
+}
+
+// printBalancerTargets prints what the load balancer of the user needs: each server's address and
+// the port of the app, the protocol, and the health check. A port that answers this machine may be
+// open to everyone, which lets visitors past the balancer: it says so.
+func printBalancerTargets(ctx context.Context, ts []deployTarget, states []serverState, w io.Writer) {
+	fmt.Fprintf(w, "load balancer: send plain HTTP to %s, and check %s with GET %s, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a %s route):\n",
+		pick(len(ts) > 1, "these targets", "this target"), pick(len(ts) > 1, "each", "it"), healthPath, healthPath)
+	var open []string
+	for i, t := range ts {
+		addr := t.serverAddress(ctx)
+		target := net.JoinHostPort(addr, strconv.Itoa(states[i].Port))
+		fmt.Fprintf(w, "  %-24s %s\n", target, t.host)
+		if portAnswers(ctx, addr, states[i].Port) {
+			open = append(open, target)
+		}
+	}
+	if len(open) > 0 {
+		fmt.Fprintf(w, "%s %s this machine, so %s may be open to anyone, who would then reach the app past the balancer: let only the load balancer reach the port of the app, in the firewall of your provider (or ufw)\n",
+			strings.Join(open, " and "), pick(len(open) > 1, "answer", "answers"), pick(len(open) > 1, "they", "it"))
+	}
 }

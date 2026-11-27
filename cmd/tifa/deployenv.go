@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -259,7 +260,7 @@ func changeEnv(ctx context.Context, t deployTarget, s serverState, old, next, su
 
 var errRestartFailed = errors.New("the app failed its health check")
 
-func newDeployEnvCmd(dir, host *string) *cobra.Command {
+func newDeployEnvCmd(dir *string, host *[]string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "env",
 		Short: "Set, remove and list the names in the .env of the app on the server",
@@ -269,8 +270,8 @@ environment of the process or of systemd. A value is never an argument and never
 change the app restarts through its socket and must pass the same health check as a deploy, or the
 old file comes back.`,
 	}
-	load := func(cmd *cobra.Command) (deployTarget, error) {
-		return loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
+	load := func(cmd *cobra.Command) ([]deployTarget, error) {
+		return loadDeployTargets(*dir, *host, cmd.ErrOrStderr())
 	}
 	state := func(ctx context.Context, t deployTarget, stderr io.Writer) (serverState, string, error) {
 		s, err := t.state(ctx, stderr)
@@ -282,6 +283,23 @@ old file comes back.`,
 		}
 		old, err := t.readEnv(ctx, stderr)
 		return s, old, err
+	}
+	// each changes the .env of every server in turn, with change. It stops at a server where that
+	// fails, and says which servers have the change already.
+	each := func(cmd *cobra.Command, ts []deployTarget, change func(t deployTarget, s serverState, old string) error) error {
+		for i, t := range ts {
+			s, old, err := state(cmd.Context(), t, cmd.ErrOrStderr())
+			if err == nil {
+				err = change(t, s, old)
+			}
+			if err != nil && i > 0 {
+				return fmt.Errorf("%s: %w. %s %s the change already", t.host, err, hostNames(ts[:i]), pick(i > 1, "have", "has"))
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	checkName := func(name string) error {
 		if strings.Contains(name, "=") {
@@ -298,25 +316,25 @@ old file comes back.`,
 		Long: `set reads the value from a hidden prompt on a terminal, else from a pipe or a file on the
 standard input, empty or not. With neither, such as /dev/null, which is what an agent gives, it
 opens a page on 127.0.0.1 in the browser and prints its URL: the value is typed there and never
-passes through the agent.`,
+passes through the agent. An app on several servers gets the value on each, one at a time.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkName(args[0]); err != nil {
 				return err
 			}
-			t, err := load(cmd)
+			ts, err := load(cmd)
 			if err != nil {
 				return err
 			}
-			value, err := readEnvValue(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), args[0], t)
+			page := ts[0]
+			page.host = hostNames(ts)
+			value, err := readEnvValue(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), args[0], page)
 			if err != nil {
 				return err
 			}
-			s, old, err := state(cmd.Context(), t, cmd.ErrOrStderr())
-			if err != nil {
-				return err
-			}
-			return changeEnv(cmd.Context(), t, s, old, withEnv(old, args[0], value), "set "+args[0], cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return each(cmd, ts, func(t deployTarget, s serverState, old string) error {
+				return changeEnv(cmd.Context(), t, s, old, withEnv(old, args[0], value), "set "+args[0], cmd.OutOrStdout(), cmd.ErrOrStderr())
+			})
 		},
 	}
 	unset := &cobra.Command{
@@ -327,39 +345,50 @@ passes through the agent.`,
 			if err := checkName(args[0]); err != nil {
 				return err
 			}
-			t, err := load(cmd)
+			ts, err := load(cmd)
 			if err != nil {
 				return err
 			}
-			s, old, err := state(cmd.Context(), t, cmd.ErrOrStderr())
-			if err != nil {
-				return err
-			}
-			next, found := withoutEnv(old, args[0])
-			if !found {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s is not set in the .env of %s\n", args[0], t.app)
-				return nil
-			}
-			return changeEnv(cmd.Context(), t, s, old, next, "removed "+args[0], cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return each(cmd, ts, func(t deployTarget, s serverState, old string) error {
+				next, found := withoutEnv(old, args[0])
+				if !found {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s is not set in the .env of %s%s\n", args[0], t.app, pick(t.several(), " on "+t.host, ""))
+					return nil
+				}
+				return changeEnv(cmd.Context(), t, s, old, next, "removed "+args[0], cmd.OutOrStdout(), cmd.ErrOrStderr())
+			})
 		},
 	}
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "Print the names set in .env, never the values",
+		Long:  "list prints the names set in .env, never the values. For an app on several servers it prints them once, and when the servers differ, the names of each and an error.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := load(cmd)
+			ts, err := load(cmd)
 			if err != nil {
 				return err
 			}
-			_, old, err := state(cmd.Context(), t, cmd.ErrOrStderr())
-			if err != nil {
-				return err
+			all := make([][]string, len(ts))
+			for i, t := range ts {
+				_, old, err := state(cmd.Context(), t, cmd.ErrOrStderr())
+				if err != nil {
+					return pickErr(t.several(), fmt.Errorf("%s: %w", t.host, err), err)
+				}
+				all[i] = envNames(old)
 			}
-			names := envNames(old)
+			for _, names := range all[1:] {
+				if !slices.Equal(names, all[0]) {
+					for i, t := range ts {
+						fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", t.host, strings.Join(all[i], " "))
+					}
+					return fmt.Errorf("the .env of the servers of %s set different names: set or unset them with tifa deploy env, which changes every server", ts[0].app)
+				}
+			}
+			names := all[0]
 			if len(names) == 0 {
 				// On stderr: a script that reads the names gets none.
-				fmt.Fprintf(cmd.ErrOrStderr(), "no names are set in the .env of %s. To add one: tifa deploy env set NAME\n", t.app)
+				fmt.Fprintf(cmd.ErrOrStderr(), "no names are set in the .env of %s. To add one: tifa deploy env set NAME\n", ts[0].app)
 			}
 			for _, n := range names {
 				fmt.Fprintln(cmd.OutOrStdout(), n)

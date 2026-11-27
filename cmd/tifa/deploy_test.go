@@ -171,7 +171,7 @@ func TestDeployPrune(t *testing.T) {
 // The units listen on the loopback port of the app and run the program of the current release
 // in the shared folder, which holds .env and the data.
 func TestDeployUnits(t *testing.T) {
-	socket, service := unitsOf("shop", 9531, "").socket, unitsOf("shop", 9531, "").service
+	socket, service := unitsOf("shop", 9531, "", false).socket, unitsOf("shop", 9531, "", false).service
 	for _, want := range []string{"[Socket]\nListenStream=127.0.0.1:9531\n", "WantedBy=sockets.target"} {
 		if !strings.Contains(socket, want) {
 			t.Errorf("socket unit lacks %q:\n%s", want, socket)
@@ -288,6 +288,20 @@ var fakeServerArgv func() string
 // on the server, so the scripts run on this machine with home as the home of the deploy user.
 // health holds what GET /healthz answers for a release, 404 when it is not listed. calls returns
 // the ssh and systemctl calls so far.
+// fakeServerBin is the folder of the programs of the last fakeServer.
+var fakeServerBin string
+
+// addFakeHost makes ssh to host log in to the fake server at home, with the address addr, which
+// ssh -G prints for it, and the host name name, which the machine ID starts with. It needs a
+// fakeServer first, whose programs it shares.
+func addFakeHost(t *testing.T, host, home, addr, name string) {
+	t.Helper()
+	writeFile(t, filepath.Join(fakeServerBin, "home-"+host), home)
+	writeFile(t, filepath.Join(fakeServerBin, "addr-"+host), addr)
+	writeFile(t, filepath.Join(home, ".run", "hostname"), name+"\n")
+	writeFile(t, filepath.Join(home, ".run", "lowport"), "80\n")
+}
+
 func fakeServer(t *testing.T, home string, health map[string]string) (calls func() string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -311,12 +325,19 @@ func fakeServer(t *testing.T, home string, health map[string]string) (calls func
 		return string(data)
 	}
 	// Every argument of ssh is logged whole, so a test can tell no secret is on a command line.
-	// ssh -G says the alias vps is at 203.0.113.7.
-	tool("ssh", `if [ "$1" = -G ]; then echo "hostname 203.0.113.7"; exit 0; fi
+	// ssh -G says the alias vps is at 203.0.113.7. addFakeHost adds more servers, each a home of
+	// its own with its own address.
+	fakeServerBin = bin
+	tool("ssh", `if [ "$1" = -G ]; then a=$(cat `+shellQuote(bin)+`/addr-"$3" 2>/dev/null || echo 203.0.113.7); echo "hostname $a"; exit 0; fi
 printf '%s\n' "$*" >> `+shellQuote(argv)+`
 while [ "$1" != "--" ]; do if [ "$1" = -l ]; then user=$2; fi; shift; done
 echo "ssh $user $2" >> `+shellQuote(log)+`
-HOME=`+shellQuote(home)+` XDG_RUNTIME_DIR=`+shellQuote(filepath.Join(home, ".run"))+` PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
+h=`+shellQuote(home)+`
+if [ -f `+shellQuote(bin)+`/home-"$2" ]; then h=$(cat `+shellQuote(bin)+`/home-"$2"); fi
+HOME="$h" XDG_RUNTIME_DIR="$h/.run" PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
+	// hostname says what a test wrote in .run/hostname of the home, else what the machine says.
+	realHostname, _ := exec.LookPath("hostname")
+	tool("hostname", `if [ -f "$HOME/.run/hostname" ]; then cat "$HOME/.run/hostname"; else exec `+shellQuote(realHostname)+` "$@"; fi`)
 	// show answers with the file .run/show-<unit> of the home, else .run/show, which a test writes.
 	tool("systemctl", `echo "systemctl $*" >> `+shellQuote(log)+`
 case " $* " in *" show "*)
@@ -326,7 +347,7 @@ case " $* " in *" show "*)
 	cat "$f" 2>/dev/null ;; esac`)
 	tool("curl", `echo "curl $*" >> `+shellQuote(log)+`
 rel=$(basename "$(readlink "$HOME/shop/current")")
-cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
+cat "$HOME/.run/health-$rel" 2>/dev/null || cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 	tool("loginctl", `cat `+shellQuote(filepath.Join(home, ".run", "linger"))+` 2>/dev/null || echo no`)
 	tool("flock", `echo "flock $*" >> `+shellQuote(log))
 	// sudo runs the command after its options, unless the test wrote .run/nosudo: then it wants a
@@ -354,7 +375,7 @@ echo the app said goodbye`)
 	// This machine reaches a port of the server when the test wrote .run/open-<port>.
 	oldAnswers := portAnswers
 	portAnswers = func(_ context.Context, host string, port int) bool {
-		if host != "203.0.113.7" && !strings.HasSuffix(host, ".example.com") {
+		if !strings.HasPrefix(host, "203.0.113.") && !strings.HasSuffix(host, ".example.com") {
 			t.Errorf("asked %s for port %d", host, port)
 		}
 		_, err := os.Stat(filepath.Join(home, ".run", fmt.Sprintf("open-%d", port)))
@@ -539,7 +560,7 @@ func TestDeployCreatesTheApp(t *testing.T) {
 		t.Errorf(".env: %v", err)
 	}
 	socket, _ := os.ReadFile(filepath.Join(home, ".config", "systemd", "user", "tifa-shop.socket"))
-	if string(socket) != unitsOf("shop", 80, "").socket {
+	if string(socket) != unitsOf("shop", 80, "", false).socket {
 		t.Errorf("socket unit %q", socket)
 	}
 	for _, want := range []string{"ssh tifa vps", "systemctl --user enable --now tifa-shop.socket"} {
@@ -755,7 +776,7 @@ func TestDeployRemembersTheServer(t *testing.T) {
 	}
 	servers, err := readServers()
 	if err != nil || len(servers) != 1 || servers[0].ID == "" || servers[0].Host != "ubuntu@vps" ||
-		len(servers[0].Apps) != 1 || servers[0].Apps[0] != (knownApp{Name: "shop", Path: root, Host: "ubuntu@vps"}) {
+		len(servers[0].Apps) != 1 || !reflect.DeepEqual(servers[0].Apps[0], knownApp{Name: "shop", Path: root, Host: "ubuntu@vps"}) {
 		t.Fatalf("remembered %+v, %v", servers, err)
 	}
 	if want := "Remembered " + servers[0].name() + " (ubuntu@vps) in " + shownServersPath() + ", so the next app on this machine needs no " + deployHostEnv + "."; !strings.Contains(out, want) {

@@ -374,6 +374,14 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 			return p, r, nil
 		}
 	}
+	// The round of GitHub Actions for an app on several servers, once each server is set up.
+	if g := f.group; g != nil && g.github {
+		r.progress("the server")
+		if err := r.refresh(ctx); err != nil {
+			return p, r, err
+		}
+		return p, r, r.githubSteps(ctx, &p)
+	}
 	// A server that is named by its ssh host is reached through the tunnel: this machine needs
 	// cloudflared, its place in the ssh config and its Access policy first, also once cf and gh
 	// were made ready by the round before.
@@ -550,6 +558,15 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		serves = fmt.Sprintf("serving visitors itself on ports 80 and 443, with HTTPS for %s and its certificate from Let's Encrypt kept in %s/%s/certs", domain, deployHome, app)
 	case port == httpPort:
 		serves = "serving visitors itself on port 80, over plain HTTP since site.url names no domain"
+	case t.open:
+		serves = fmt.Sprintf("port %d on every address of the server, for the load balancer", port)
+		p.firewall = fmt.Sprintf("The load balancer needs port %d of the server. Let only the load balancer reach port %[1]d, in the firewall or security groups of your provider (or ufw): a port open to everyone lets visitors past the balancer. Tifa opens no port for it.", port)
+		if r.st.UFW == "on" {
+			p.notes = append(p.notes, planNote{
+				what: fmt.Sprintf("firewall: let the load balancer reach port %d through ufw", port),
+				why:  fmt.Sprintf("ufw is on, and blocks port %d unless a rule allows it. Run sudo ufw allow from <addresses of the load balancer> to any port %[1]d proto tcp on the server", port),
+			})
+		}
 	}
 	if servesVisitors(port) {
 		p.firewall = fmt.Sprintf("Visitors need %s of the server open. Tifa does not change your provider's firewall or security groups: if they block %s, open %[2]s there.",
@@ -564,7 +581,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 			})
 		}
 	}
-	u := unitsOf(app, port, domain)
+	u := unitsOf(app, port, domain, t.open)
 	httpSum := ""
 	if u.http != "" {
 		httpSum = sha(u.http)
@@ -587,7 +604,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		}
 		r.port = port
 		var out strings.Builder
-		if err := t.ssh(ctx, deployUser, appScript(app, port, t.ownFor(port), move, restart, t.healthTries()), nil, &out, r.stderr); err != nil {
+		if err := t.ssh(ctx, deployUser, appScript(app, port, t.ownFor(port), t.open, move, restart, t.healthTries()), nil, &out, r.stderr); err != nil {
 			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
 		}
 		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
@@ -631,8 +648,17 @@ func (r *setupRun) rootListeners(ctx context.Context) []listener {
 // printVisitors ends a setup of an app that serves visitors itself: which ports they need, and
 // that Tifa does not open them at the provider. Once a release runs, this machine asks each port.
 func (r *setupRun) printVisitors(ctx context.Context, w io.Writer) {
-	if r.t.front == "nginx" {
+	switch {
+	case r.group != nil:
+		// deploySetupAll says it once for every server.
+		return
+	case r.t.front == "nginx":
 		r.printNginxVisitors(ctx, w)
+		return
+	case r.t.front == "loadbalancer":
+		if r.haveServer && r.st.Port != 0 {
+			printBalancerTargets(ctx, []deployTarget{r.t}, []serverState{r.st}, w)
+		}
 		return
 	}
 	if !r.haveServer || !servesVisitors(r.port) {
@@ -853,6 +879,10 @@ func hasMarker(path string) (text string, marked bool, err error) {
 
 func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	t := r.t
+	// With several servers GitHub Actions gets every one at once, in a round of its own.
+	if t.github && r.group != nil && !r.group.github {
+		return nil
+	}
 	workflow := filepath.Join(t.root, filepath.FromSlash(githubWorkflowPath))
 	have, marked, err := hasMarker(workflow)
 	if err != nil {
@@ -891,38 +921,56 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 		p.cannot("github: deploys from GitHub Actions on "+r.branch+" after "+t.auto.Needs+" passed", err.Error())
 		return nil
 	}
-	if r.haveServer && len(r.st.HostKeys) == 0 {
-		p.cannot("github: deploys from GitHub Actions", "the server has no /etc/ssh/ssh_host_*_key.pub file, so tifa cannot tell CI which server to trust")
-		return nil
+	// The servers CI deploys to: this one, or each of several, with what setup read of them.
+	servers := []ciServer{{t: t}}
+	if r.group != nil {
+		servers = make([]ciServer, len(r.group.ts))
+		for i, gt := range r.group.ts {
+			servers[i] = ciServer{t: gt, st: r.group.states[i]}
+		}
 	}
-	var resolved sshResolved
-	if t.connectMode != connCloudflare {
-		if resolved, err = resolveSSH(ctx, t.host); err != nil {
-			p.cannot("github: deploys from GitHub Actions", err.Error())
+	servers[0].st = r.st
+	for _, s := range servers {
+		if r.haveServer && len(s.st.HostKeys) == 0 {
+			p.cannot("github: deploys from GitHub Actions", pick(r.group != nil, s.t.host, "the server")+" has no /etc/ssh/ssh_host_*_key.pub file, so tifa cannot tell CI which server to trust")
 			return nil
 		}
 	}
 	// connect is the text of the secret TIFA_DEPLOY_HOST: with a direct login the whole target, port
 	// included, so the workflow needs no Port line and shows no address. port goes with the host
 	// name into the host keys. With tailscale the host is the one the runner reaches on the tailnet.
-	connect, hostName, port := "", "", 22
 	if t.connectMode != connCloudflare {
-		connect, hostName, port = deployHostURL(resolved.Host, resolved.Port), resolved.Host, resolved.Port
-	}
-	if t.connectMode == connCloudflare {
+		for i := range servers {
+			resolved, err := resolveSSH(ctx, servers[i].t.host)
+			if err != nil {
+				p.cannot("github: deploys from GitHub Actions", err.Error())
+				return nil
+			}
+			servers[i].connect, servers[i].hostName, servers[i].port = deployHostURL(resolved.Host, resolved.Port), resolved.Host, resolved.Port
+		}
+	} else {
+		servers[0].port = 22
 		if !r.useCF(ctx) {
 			p.cannot(sshAccessWhat, cfNeed())
 		} else if err := r.accessSteps(ctx, p); err != nil {
 			return err
 		}
 		if r.sshName != "" {
-			connect, hostName = r.sshName, r.sshName
+			servers[0].connect, servers[0].hostName = r.sshName, r.sshName
 		}
 	}
+	var connects []string
+	for _, s := range servers {
+		connects = append(connects, s.connect)
+	}
+	connect := strings.Join(connects, ",")
 	repoName := repo.Name
 
-	// The key of the repository.
-	keyOnServer := slices.Contains(r.st.GitHubKeys, repoName)
+	// The key of the repository, on every server.
+	keyOnServer := true
+	for i := range servers {
+		keyOnServer = keyOnServer && slices.Contains(servers[i].st.GitHubKeys, repoName)
+	}
 	switch {
 	case keyOnServer && r.ghNames[secretSSHKey]:
 		p.ok(fmt.Sprintf("github: the key of %s may log in as %s", repoName, deployUser))
@@ -936,8 +984,10 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 			if err != nil {
 				return "", err
 			}
-			if err := t.ssh(ctx, deployUser, authorizeScript(repoName), strings.NewReader(key.authorizedLine(repoName)+"\n"), io.Discard, r.stderr); err != nil {
-				return "", err
+			for _, s := range servers {
+				if err := s.t.ssh(ctx, deployUser, authorizeScript(repoName), strings.NewReader(key.authorizedLine(repoName)+"\n"), io.Discard, r.stderr); err != nil {
+					return "", err
+				}
 			}
 			return "", r.ghSecret(ctx, secretSSHKey, key.Private)
 		})
@@ -946,15 +996,27 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	// The connection: where CI logs in and the host keys it trusts. Both are secrets: a repository
 	// that is public must not show where the server is. The marker below says they are current.
 	if r.haveServer && len(r.st.HostKeys) > 0 || !r.haveServer {
+		servers[0].st = r.st
 		secrets := func(ctx context.Context) ([]secret, error) {
-			if len(r.st.HostKeys) == 0 {
-				return nil, errors.New("the server has no ssh host keys tifa can read")
+			// The first server is read again once the steps before ran.
+			servers[0].st = r.st
+			var lines []string
+			for _, s := range servers {
+				if len(s.st.HostKeys) == 0 {
+					return nil, errors.New(pick(r.group != nil, s.t.host, "the server") + " has no ssh host keys tifa can read")
+				}
+				lines = append(lines, knownHostsLines(s.hostName, s.port, s.st.HostKeys)...)
 			}
-			hosts := strings.Join(knownHostsLines(hostName, port, r.st.HostKeys), "\n")
+			hosts := strings.Join(lines, "\n")
 			return []secret{{secretKnownHosts, hosts}, {secretHost, connect}}, nil
 		}
 		fingerprint := func() string {
-			return sha(strings.Join(append([]string{t.connectMode, connect, strconv.Itoa(port)}, r.st.HostKeys...), "|"))
+			servers[0].st = r.st
+			parts := []string{t.connectMode}
+			for _, s := range servers {
+				parts = append(append(parts, s.connect, strconv.Itoa(s.port)), s.st.HostKeys...)
+			}
+			return sha(strings.Join(parts, "|"))
 		}
 		names := []string{secretHost, secretKnownHosts}
 		current := r.ghVars[varMarker] == fingerprint() && r.haveServer
@@ -1014,6 +1076,15 @@ func (r *setupRun) githubSteps(ctx context.Context, p *setupPlan) error {
 	p.steps = append(p.steps, r.afterConnection...)
 	r.tailscaleVariableSteps(p)
 	return r.removeAccessIfUnwanted(ctx, p)
+}
+
+// ciServer is a server GitHub Actions deploys to: connect is its part of the secret
+// TIFA_DEPLOY_HOST, and hostName and port what its host keys go with.
+type ciServer struct {
+	t                 deployTarget
+	st                serverState
+	connect, hostName string
+	port              int
 }
 
 // writeWorkflow writes the text the workflow has once the steps before it ran.
@@ -1478,24 +1549,128 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 	return nil
 }
 
+// deploySetupAll sets up every server of ts. With one it is deploySetup. With several, behind a load
+// balancer, it gives the app one port free on all of them, sets up each in turn, the first first,
+// and stops at the first that fails or needs the developer: setup again goes on from there, as
+// each step checks what is there. GitHub Actions comes last, with every server.
+func deploySetupAll(ctx context.Context, ts []deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) error {
+	if len(ts) == 1 {
+		return deploySetup(ctx, ts[0], f, in, stdout, stderr)
+	}
+	states := make([]serverState, len(ts))
+	for i, t := range ts {
+		states[i] = readGroupState(ctx, t)
+	}
+	port, err := groupPort(states)
+	if err != nil {
+		return err
+	}
+	g := &setupGroup{ts: ts, states: make([]serverState, len(ts))}
+	f.group = g
+	for i := range ts {
+		ts[i].port = port
+	}
+	for i, t := range ts {
+		run, err := deploySetupOne(ctx, t, f, in, stdout, stderr)
+		if err != nil {
+			if i == 0 {
+				return err
+			}
+			return fmt.Errorf("%w. Setup stopped at %s: %s %s set up, run go tool tifa deploy setup again once that is fixed", err, t.host, hostNames(ts[:i]), pick(i > 1, "are", "is"))
+		}
+		g.states[i] = run.st
+		fmt.Fprintln(stdout)
+	}
+	if ts[0].github {
+		g.github = true
+		run, err := deploySetupOne(ctx, ts[0], f, in, stdout, stderr)
+		if err != nil {
+			return err
+		}
+		g.states[0] = run.st
+	}
+	group := make([]groupServer, len(ts))
+	for i, t := range ts {
+		group[i] = groupServer{id: g.states[i].Machine, host: t.dest.raw}
+		if group[i].id == "" {
+			return nil
+		}
+	}
+	if ts[0].front == "loadbalancer" {
+		// Each server has the port of the group now.
+		states := slices.Clone(g.states)
+		for i := range states {
+			states[i].Port = port
+		}
+		printBalancerTargets(ctx, ts, states, stdout)
+	}
+	rememberGroupAndSay(group, knownApp{Name: ts[0].app, Path: ts[0].root}, stdout, stderr)
+	return nil
+}
+
+// readGroupState reads what deploySetupAll needs of a server before setup changes it: the ports
+// taken and the port of the app. A server without the user tifa is read as root. What cannot be
+// read stays empty: the setup of that server says why.
+func readGroupState(ctx context.Context, t deployTarget) serverState {
+	st, err := t.state(ctx, io.Discard)
+	var login *sshLoginError
+	if errors.As(err, &login) && login.user == deployUser {
+		var out strings.Builder
+		if t.ssh(ctx, "root", setupProbeScript(), nil, &out, io.Discard) == nil {
+			st, _ = parseServerState(out.String())
+		}
+	}
+	return st
+}
+
+// groupPort is the port of an app on several servers: the first port one of them gives it that
+// is free on all, else the first port free on all.
+func groupPort(states []serverState) (int, error) {
+	var used []int
+	for _, st := range states {
+		used = append(used, st.Used...)
+	}
+	for _, st := range states {
+		if st.Port >= firstPort && st.Port <= lastPort && !slices.Contains(used, st.Port) {
+			return st.Port, nil
+		}
+	}
+	p, err := pickPort(used)
+	if err != nil {
+		return 0, fmt.Errorf("every port from %d to %d is taken on one of the servers", firstPort, lastPort)
+	}
+	return p, nil
+}
+
 // deploySetup plans, asks and applies. It fails when something needs the developer, after it did
 // all it could.
 func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) error {
+	_, err := deploySetupOne(ctx, t, f, in, stdout, stderr)
+	return err
+}
+
+// deploySetupOne is deploySetup, and returns the run of its last plan.
+func deploySetupOne(ctx context.Context, t deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) (*setupRun, error) {
 	switch {
 	case f.purgeToken && t.domain == "":
-		return errors.New("--cache-purge-token is for the token that clears the CDN cache at each deploy, which needs deploy.front: cloudflare in tifa.yaml")
+		return nil, errors.New("--cache-purge-token is for the token that clears the CDN cache at each deploy, which needs deploy.front: cloudflare in tifa.yaml")
 	case f.tailscaleClientID != "" && (t.connectMode != connTailscale || !t.github):
-		return errors.New("--tailscale-client-id is for the identity CI joins your tailnet with, which needs deploy.connect: tailscale and the block deploy.auto in tifa.yaml")
+		return nil, errors.New("--tailscale-client-id is for the identity CI joins your tailnet with, which needs deploy.connect: tailscale and the block deploy.auto in tifa.yaml")
 	case f.tailscaleClientID != "":
 		if err := checkTailscaleClientID(strings.TrimSpace(f.tailscaleClientID)); err != nil {
-			return fmt.Errorf("--tailscale-client-id: %w", err)
+			return nil, fmt.Errorf("--tailscale-client-id: %w", err)
 		}
 	}
 	plan, run, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {
-		return err
+		return run, err
 	}
-	title := fmt.Sprintf("Plan for %s on %s%s", t.app, t.host, t.dest.fromHomeNote())
+	where := t.host + t.serverNote()
+	title := fmt.Sprintf("Plan for %s on %s%s", t.app, where, t.dest.fromHomeNote())
+	if g := f.group; g != nil && g.github {
+		where = "GitHub Actions"
+		title = fmt.Sprintf("Plan for %s on GitHub Actions, which deploys it to %s", t.app, hostNames(g.ts))
+	}
 	// toolWarnings counts the steps on this machine that failed: they need the developer too.
 	toolWarnings := 0
 	for round := 0; plan.then != ""; round++ {
@@ -1504,35 +1679,35 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 		// steps may fail without stopping setup, and what failed shows again in the next plan.
 		plan.print(stdout, title, f.all)
 		if err := confirm(in, stdout, f.yes); err != nil {
-			return err
+			return run, err
 		}
 		warnings, err := plan.apply(ctx, stdout)
 		if err != nil {
-			return err
+			return run, err
 		}
 		toolWarnings += warnings
 		fmt.Fprintln(stdout)
 		next := f
 		next.skipMachine = round >= 1
 		if plan, run, err = buildSetupPlan(ctx, t, next, false, in, stdout, stderr); err != nil {
-			return err
+			return run, err
 		}
 	}
 	cannot := plan.count(opCannot)
 	if plan.todo() == 0 && cannot == 0 && len(plan.notes) == 0 && !f.all {
-		fmt.Fprintf(stdout, "%s on %s matches tifa.yaml: %d things checked (--all lists them).\n", t.app, t.host, plan.count(opOK))
+		fmt.Fprintf(stdout, "%s on %s matches tifa.yaml: %d things checked (--all lists them).\n", t.app, where, plan.count(opOK))
 		run.printVisitors(ctx, stdout)
 		run.remember(stdout, stderr)
-		return needsYou(toolWarnings)
+		return run, needsYou(toolWarnings)
 	}
 	plan.print(stdout, title, f.all)
 	warnings := 0
 	if plan.todo() > 0 {
 		if err := confirm(in, stdout, f.yes); err != nil {
-			return err
+			return run, err
 		}
 		if warnings, err = plan.apply(ctx, stdout); err != nil {
-			return err
+			return run, err
 		}
 		if run.hostAdvice != "" {
 			fmt.Fprintln(stdout, run.hostAdvice)
@@ -1540,7 +1715,7 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	}
 	run.printVisitors(ctx, stdout)
 	run.remember(stdout, stderr)
-	return needsYou(cannot + warnings + toolWarnings)
+	return run, needsYou(cannot + warnings + toolWarnings)
 }
 
 // remember records the server in ~/.tifa after a setup that reached it and prepared it: the host
@@ -1548,6 +1723,10 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 // the app. Either keeps the admin user the host names. It says so when that changed the file. A file it cannot write is a warning: the server
 // is set up all the same, and the next deploy only needs the host named.
 func (r *setupRun) remember(stdout, stderr io.Writer) {
+	if r.group != nil {
+		// deploySetupAll remembers every server at once.
+		return
+	}
 	if !r.haveServer || !r.st.Prepared() || r.st.Machine == "" {
 		return
 	}
@@ -1586,4 +1765,16 @@ type setupFlags struct {
 	tailscaleClientID string
 	// skipMachine leaves out the first plan for this machine: setup already made it twice.
 	skipMachine bool
+	// group is what the setups of an app on several servers share, nil for one server.
+	group *setupGroup
+}
+
+// setupGroup is what the setups of an app on several servers share. Each server is set up in turn,
+// the first first, and then GitHub Actions for all of them in a round of its own.
+type setupGroup struct {
+	ts []deployTarget
+	// states are what each server's setup left, read once its steps ran.
+	states []serverState
+	// github says this is the round of GitHub Actions.
+	github bool
 }

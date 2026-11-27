@@ -189,27 +189,55 @@ func deployHostURL(host string, port int) string {
 	return "ssh://" + host + ":" + strconv.Itoa(port)
 }
 
-// readDeployHost finds the server of the app: the flag, else TIFA_DEPLOY_HOST in the environment,
-// else TIFA_DEPLOY_HOST in the .env file at the root of the app, else the servers tifa deploy
-// setup and deploy remembered in ~/.tifa (see deployservers.go). It says where the value came from in an
-// error. A server taken from ~/.tifa is announced with one line on notice.
-func readDeployHost(root, app, flagValue string, notice io.Writer) (deployHost, error) {
-	value, from, err := readDeployInput(root, "--host", flagValue, deployHostEnv)
+// parseDeployHosts checks the values that name the servers of an app: each value is one host or
+// several separated by commas, and the flag may be given more than once. The first host is the
+// first server, which runs deploy.before_start and, with deploy.front nginx, the nginx visitors
+// come through. An empty entry, and a server named twice (with or without a user), are refused.
+func parseDeployHosts(values []string) ([]deployHost, error) {
+	var hosts []deployHost
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				return nil, fmt.Errorf("%q has an empty entry: separate the hosts with one comma, such as vps1,vps2", v)
+			}
+			h, err := parseDeployHost(part)
+			if err != nil {
+				return nil, err
+			}
+			for _, o := range hosts {
+				if o.addr() == h.addr() || (o.name == h.name && o.port == h.port) {
+					return nil, fmt.Errorf("%q names the server %s twice: name each server once", v, h.name)
+				}
+			}
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts, nil
+}
+
+// readDeployHosts finds the servers of the app as readDeployHost finds one: the flags, else
+// TIFA_DEPLOY_HOST in the environment, else in .env, else ~/.tifa. Each of the first three may
+// name several servers separated by commas.
+func readDeployHosts(root, app string, flagValues []string, notice io.Writer) ([]deployHost, error) {
+	value, from, err := readDeployInput(root, "--host", strings.Join(flagValues, ","), deployHostEnv)
 	if err != nil {
-		return deployHost{}, err
+		return nil, err
 	}
 	if value == "" {
 		if os.Getenv(envGitHubActions) == "true" {
-			return deployHost{}, fmt.Errorf("%s is empty: the secret %[1]s is missing in the repository. Run go tool tifa deploy setup on your machine to set it", deployHostEnv)
+			return nil, fmt.Errorf("%s is empty: the secret %[1]s is missing in the repository. Run go tool tifa deploy setup on your machine to set it", deployHostEnv)
 		}
-		return homeDeployHost(root, app, notice)
+		return homeDeployHosts(root, app, notice)
 	}
-	h, err := parseDeployHost(value)
+	hosts, err := parseDeployHosts([]string{value})
 	if err != nil {
-		return deployHost{}, fmt.Errorf("%s: %w", from, err)
+		return nil, fmt.Errorf("%s: %w", from, err)
 	}
-	h.from = from
-	return h, nil
+	for i := range hosts {
+		hosts[i].from = from
+	}
+	return hosts, nil
 }
 
 // noServerError is what the commands say when nothing names the server. It says where to name
@@ -221,6 +249,38 @@ func noServerError() error {
 		"  3. a line in the file .env at the root of the app (git ignores it, so the address stays out of the repository): %[1]s=ssh://203.0.113.7:22\n"+
 		"The value is an ssh alias (a Host of ~/.ssh/config) or ssh://host[:port]. When root cannot log in, put the user you log in with in front, such as ubuntu@203.0.113.7: it needs passwordless sudo.\n"+
 		"go tool tifa deploy setup and each deploy that works remember the server in %[2]s, and the next app of this machine needs no line", deployHostEnv, shownServersPath())
+}
+
+// homeDeployHosts takes the servers from the file of ~/.tifa when nothing else names one: the
+// servers that list the app with the same list of hosts, in that order, else what homeDeployHost
+// finds.
+func homeDeployHosts(root, app string, notice io.Writer) ([]deployHost, error) {
+	servers, err := readServers()
+	if err == nil {
+		if group, ok := groupOf(servers, root); ok {
+			var hosts []deployHost
+			for _, g := range group {
+				h, err := parseDeployHost(g.host)
+				if err != nil {
+					return nil, fmt.Errorf("%s: the host of %s: %w", shownServersPath(), g.id, err)
+				}
+				h.from, h.fromHome, h.knownID = shownServersPath(), true, g.id
+				hosts = append(hosts, h)
+			}
+			names := make([]string, len(group))
+			for i, g := range group {
+				names[i] = g.host
+			}
+			fmt.Fprintf(notice, "%s is set up on %s, from %s. To use other servers for it, put %s=<host>,<host> in the .env at the root of the app, or pass --host.\n",
+				app, strings.Join(names, ", "), shownServersPath(), deployHostEnv)
+			return hosts, nil
+		}
+	}
+	h, err := homeDeployHost(root, app, notice)
+	if err != nil {
+		return nil, err
+	}
+	return []deployHost{h}, nil
 }
 
 // homeDeployHost takes the server from the file of ~/.tifa when nothing else names one: the server

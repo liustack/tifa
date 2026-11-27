@@ -77,9 +77,11 @@ echo "$did"
 `
 
 // buildRemovePlan reads the server, Cloudflare and GitHub, and plans to remove what tifa made for
-// the app there. It changes nothing.
+// the app there. It changes nothing. For a server of an app on several but the first, it plans the
+// server alone: the first one's plan takes back what is in GitHub.
 func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (setupPlan, error) {
 	r := &setupRun{t: t, stdout: stdout, stderr: stderr, removing: true}
+	member := t.index > 0
 	p := setupPlan{who: "remove"}
 	// The plan reads each thing once. The steps run later with the context of the caller.
 	ctx = withReadMemo(ctx)
@@ -128,7 +130,17 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			viaTunnel = t.connectMode == connCloudflare && isSSHHost(t.dest.name, t.domain, zone.Name)
 		}
 	}
-	if t.github {
+	switch {
+	case t.github && member:
+		// The key of the repository on this server. The secrets go with the first server.
+		if _, repo, err := findGitHub(ctx, t.root); err != nil {
+			p.cannot("server: the key of the repository in authorized_keys of "+deployUser, err.Error())
+		} else if slices.Contains(st.GitHubKeys, repo.Name) {
+			p.add(opRemove, fmt.Sprintf("server: the key of %s in authorized_keys of %s", repo.Name, deployUser), func(ctx context.Context) (string, error) {
+				return "", t.ssh(ctx, deployUser, revokeScript(repo.Name), nil, io.Discard, r.stderr)
+			})
+		}
+	case t.github:
 		r.progress("GitHub")
 		api, repo, err := findGitHub(ctx, t.root)
 		if err != nil {
@@ -389,6 +401,65 @@ func deployRemove(ctx context.Context, t deployTarget, yes bool, in io.Reader, s
 	return nil
 }
 
+// deployRemoveAll removes the app from every server of ts. With one it is deployRemove. With
+// several it reads them all, prints a plan for each, the first last, asks once, and removes the app
+// from the others before the first, whose plan takes back what is in GitHub.
+func deployRemoveAll(ctx context.Context, ts []deployTarget, yes bool, in io.Reader, stdout, stderr io.Writer) error {
+	if len(ts) == 1 {
+		return deployRemove(ctx, ts[0], yes, in, stdout, stderr)
+	}
+	order := append(slices.Clone(ts[1:]), ts[0])
+	plans := make([]setupPlan, len(order))
+	for i, t := range order {
+		var err error
+		if plans[i], err = buildRemovePlan(ctx, t, stdout, stderr); err != nil {
+			return fmt.Errorf("%s: %w", t.host, err)
+		}
+	}
+	todo, cannot := 0, 0
+	for i, t := range order {
+		todo += plans[i].todo()
+		cannot += plans[i].count(opCannot)
+		if plans[i].todo() > 0 || plans[i].count(opCannot) > 0 {
+			plans[i].print(stdout, fmt.Sprintf("Plan to remove %s from %s%s%s", t.app, t.host, t.serverNote(), t.dest.fromHomeNote()), false)
+		}
+	}
+	if todo == 0 && cannot == 0 {
+		fmt.Fprintf(stdout, "Nothing of %s is left to remove on %s.\n", ts[0].app, hostNames(ts))
+		for _, p := range plans {
+			forgetApp(p.machine, ts[0].root, stderr)
+		}
+		return nil
+	}
+	warnings := 0
+	if todo > 0 {
+		if err := confirmName(in, stdout, ts[0].app, yes); err != nil {
+			return err
+		}
+		for i, t := range order {
+			if plans[i].todo() == 0 {
+				continue
+			}
+			fmt.Fprintf(stdout, "%s%s:\n", t.host, t.serverNote())
+			w, err := plans[i].apply(ctx, stdout)
+			if err != nil {
+				return err
+			}
+			warnings += w
+		}
+		if _, err := os.Stat(filepath.Join(ts[0].root, filepath.FromSlash(githubWorkflowPath))); err == nil {
+			fmt.Fprintf(stdout, "Kept %s, a file of your repository: the next push fails to deploy until you delete it.\n", githubWorkflowPath)
+		}
+	}
+	if n := cannot + warnings; n > 0 {
+		return fmt.Errorf("%d %s, see above", n, plural(n, "thing needs you", "things need you"))
+	}
+	for _, p := range plans {
+		forgetApp(p.machine, ts[0].root, stderr)
+	}
+	return nil
+}
+
 // forgetApp takes the app off the entry of the server in ~/.tifa, once the server no longer has
 // it. The entry goes with its last app. A file that cannot be written is a warning: remove did
 // what it was asked to.
@@ -401,7 +472,7 @@ func forgetApp(machine, path string, stderr io.Writer) {
 	}
 }
 
-func newDeployRemoveCmd(dir, host *string) *cobra.Command {
+func newDeployRemoveCmd(dir *string, host *[]string) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:   "remove",
@@ -416,14 +487,17 @@ marked, and keeps the workflow file, which is a file of your repository.
 
 Like setup it prints a plan first. On a terminal it then asks you to type the name of the app.
 Without a terminal, pass --yes. What it cannot remove, such as without a login of cf or gh, is
-listed at the end, the rest is removed, and it exits with an error. Running it again is safe.`,
+listed at the end, the rest is removed, and it exits with an error. Running it again is safe.
+
+With several servers it prints a plan for each, asks once, and removes the app from the others
+first and from the first last.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
+			ts, err := loadDeployTargets(*dir, *host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			return deployRemove(cmd.Context(), t, yes, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deployRemoveAll(cmd.Context(), ts, yes, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "remove without a terminal to ask on (on a terminal the name of the app is always asked)")

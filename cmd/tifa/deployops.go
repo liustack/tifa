@@ -81,6 +81,43 @@ func deployStatus(ctx context.Context, t deployTarget, asJSON bool, stdout, stde
 	return nil
 }
 
+// deployStatusEach is deployStatus for every server of ts: the text of each in turn, or with
+// asJSON one list of the objects of deployStatus. A server that cannot be asked, or that does not
+// have the app, is an error after the others printed.
+func deployStatusEach(ctx context.Context, ts []deployTarget, asJSON bool, stdout, stderr io.Writer) error {
+	if len(ts) == 1 {
+		return deployStatus(ctx, ts[0], asJSON, stdout, stderr)
+	}
+	list := []appStatus{}
+	var errs []error
+	for i, t := range ts {
+		s, err := t.probe(ctx, statusScript(t.app), stderr)
+		if err == nil && s.Port == 0 {
+			err = fmt.Errorf("%s is not on %s yet: run go tool tifa deploy first", t.app, t.host)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", t.host, err))
+			continue
+		}
+		if asJSON {
+			list = append(list, appStatusOf(t, s))
+			continue
+		}
+		if i > 0 {
+			fmt.Fprintln(stdout)
+		}
+		fmt.Fprint(stdout, deployStatusText(t, s, deployNow()))
+	}
+	if asJSON {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(list); err != nil {
+			return err
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // releaseOrder lists the releases of s as status shows them: the current one first, then the
 // others from the newest.
 func releaseOrder(s serverState) []string {
@@ -156,7 +193,7 @@ func ago(d time.Duration) string {
 	return strings.TrimSuffix(d.Round(time.Minute).String(), "0s")
 }
 
-func newDeployStatusCmd(dir, host *string) *cobra.Command {
+func newDeployStatusCmd(dir *string, host *[]string) *cobra.Command {
 	var all, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "status",
@@ -181,11 +218,11 @@ are covered.`,
 				}
 				return deployStatusAll(cmd.Context(), asJSON, cmd.OutOrStdout())
 			}
-			t, err := loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
+			ts, err := loadDeployTargets(*dir, *host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			return deployStatus(cmd.Context(), t, asJSON, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return deployStatusEach(cmd.Context(), ts, asJSON, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "look at every server in ~/.tifa/config.yaml once, with no app checkout")
@@ -193,7 +230,7 @@ are covered.`,
 	return cmd
 }
 
-func newDeployLogsCmd(dir, host *string) *cobra.Command {
+func newDeployLogsCmd(dir *string, host *[]string) *cobra.Command {
 	var lines int
 	var follow bool
 	cmd := &cobra.Command{
@@ -201,14 +238,30 @@ func newDeployLogsCmd(dir, host *string) *cobra.Command {
 		Short: "Print the log of the app on the server",
 		Long: `logs prints the last lines of the journal of the app on the server, what it printed and what
 systemd said about it, over ssh as the user tifa. With -f it then keeps printing new lines until
-Ctrl-C.`,
+Ctrl-C. An app on several servers gets the lines of each in turn, and -f needs one named with --host.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			t, err := loadDeployTarget(*dir, *host, cmd.ErrOrStderr())
+			ts, err := loadDeployTargets(*dir, *host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			return deployLogs(cmd.Context(), t, lines, follow, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			if len(ts) == 1 {
+				return deployLogs(cmd.Context(), ts[0], lines, follow, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			}
+			if follow {
+				return fmt.Errorf("-f follows the log of one server, and %s runs on %s: name one with --host", ts[0].app, hostNames(ts))
+			}
+			var errs []error
+			for i, t := range ts {
+				if i > 0 {
+					fmt.Fprintln(cmd.OutOrStdout())
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "--- %s%s ---\n", t.host, t.serverNote())
+				if err := deployLogs(cmd.Context(), t, lines, false, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+					errs = append(errs, fmt.Errorf("%s: %w", t.host, err))
+				}
+			}
+			return errors.Join(errs...)
 		},
 	}
 	cmd.Flags().IntVarP(&lines, "lines", "n", 100, "print this many of the last lines")

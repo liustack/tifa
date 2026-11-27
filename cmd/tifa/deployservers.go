@@ -47,6 +47,9 @@ type knownApp struct {
 	// Host is what ssh took as the destination for this app, the one that last worked. With ssh
 	// through the tunnel it is the ssh host name of the app's domain, which differs per app.
 	Host string `yaml:"host"`
+	// Hosts are all the servers of the app in order, when it runs on several: every server that
+	// lists the app keeps the same list. Empty for an app on one server.
+	Hosts []string `yaml:"hosts,omitempty"`
 }
 
 // knownServer is one entry of the file.
@@ -169,6 +172,99 @@ func pickServer(servers []knownServer, path string) (s knownServer, host string,
 		return servers[0], servers[0].Host, true
 	}
 	return knownServer{}, "", false
+}
+
+// groupServer is a server of an app on several, as the file keeps it.
+type groupServer struct{ id, host string }
+
+// groupOf finds the servers of the app whose checkout is at path when it runs on several: every
+// server that lists the folder, which all keep the same list of hosts, in that order. It reports
+// false for an app on one server or none, and when the entries do not agree.
+func groupOf(servers []knownServer, path string) ([]groupServer, bool) {
+	var hosts []string
+	byHost := map[string]string{}
+	for _, s := range servers {
+		a, ok := s.appAt(path)
+		if !ok {
+			continue
+		}
+		if len(a.Hosts) < 2 || (hosts != nil && !slices.Equal(hosts, a.Hosts)) {
+			return nil, false
+		}
+		hosts = a.Hosts
+		byHost[a.Host] = s.ID
+	}
+	if hosts == nil || len(byHost) != len(hosts) {
+		return nil, false
+	}
+	group := make([]groupServer, len(hosts))
+	for i, h := range hosts {
+		id, ok := byHost[h]
+		if !ok {
+			return nil, false
+		}
+		group[i] = groupServer{id: id, host: h}
+	}
+	return group, true
+}
+
+// rememberGroup records that app runs on the servers of group, in that order, and on no other.
+// Each server's host becomes the one of its entry, as rememberServer does. With one server it is
+// rememberServer.
+func rememberGroup(group []groupServer, app knownApp) (changed bool, err error) {
+	if len(group) == 1 {
+		return rememberServer(group[0].id, group[0].host, app)
+	}
+	hosts := make([]string, len(group))
+	for i, g := range group {
+		hosts[i] = g.host
+	}
+	return changeServers(true, func(list []knownServer) []knownServer {
+		var out []knownServer
+		seen := map[string]bool{}
+		for _, s := range list {
+			i := slices.IndexFunc(group, func(g groupServer) bool { return g.id == s.ID })
+			if i < 0 && slices.ContainsFunc(group, func(g groupServer) bool { return g.host == s.Host }) {
+				continue
+			}
+			s.Apps = slices.DeleteFunc(slices.Clone(s.Apps), func(a knownApp) bool { return samePath(a.Path, app.Path) })
+			if i < 0 {
+				if len(s.Apps) > 0 {
+					out = append(out, s)
+				}
+				continue
+			}
+			seen[s.ID] = true
+			s.Host = group[i].host
+			s.Apps = append(s.Apps, knownApp{Name: app.Name, Path: app.Path, Host: group[i].host, Hosts: hosts})
+			out = append(out, s)
+		}
+		for _, g := range group {
+			if !seen[g.id] {
+				out = append(out, knownServer{ID: g.id, Host: g.host, Apps: []knownApp{{Name: app.Name, Path: app.Path, Host: g.host, Hosts: hosts}}})
+			}
+		}
+		return out
+	})
+}
+
+// rememberGroupAndSay is rememberGroup with the line rememberAndSay prints.
+func rememberGroupAndSay(group []groupServer, app knownApp, stdout, stderr io.Writer) {
+	if len(group) == 1 {
+		rememberAndSay(group[0].id, group[0].host, app, stdout, stderr)
+		return
+	}
+	changed, err := rememberGroup(group, app)
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "Could not remember the servers in %s: %v\n", shownServersPath(), err)
+	case changed:
+		names := make([]string, len(group))
+		for i, g := range group {
+			names[i] = g.host
+		}
+		fmt.Fprintf(stdout, "Remembered the servers of %s (%s) in %s.\n", app.Name, strings.Join(names, ", "), shownServersPath())
+	}
 }
 
 // rememberServer records that app is set up on the server id, reached by host. The server's host
@@ -417,8 +513,16 @@ func (t *serversTree) apply(list []knownServer) {
 		apps := field(item, "apps")
 		*apps = yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", LineComment: apps.LineComment}
 		for _, a := range s.Apps {
-			apps.Content = append(apps.Content, &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle,
-				Content: []*yaml.Node{str("name"), str(a.Name), str("path"), str(a.Path), str("host"), str(a.Host)}})
+			item := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle,
+				Content: []*yaml.Node{str("name"), str(a.Name), str("path"), str(a.Path), str("host"), str(a.Host)}}
+			if len(a.Hosts) > 0 {
+				hosts := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+				for _, h := range a.Hosts {
+					hosts.Content = append(hosts.Content, str(h))
+				}
+				item.Content = append(item.Content, str("hosts"), hosts)
+			}
+			apps.Content = append(apps.Content, item)
 		}
 		content = append(content, item)
 	}
