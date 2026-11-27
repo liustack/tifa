@@ -631,6 +631,9 @@ func (r *setupRun) rootListeners(ctx context.Context) []listener {
 // printVisitors ends a setup of an app that serves visitors itself: which ports they need, and
 // that Tifa does not open them at the provider. Once a release runs, this machine asks each port.
 func (r *setupRun) printVisitors(ctx context.Context, w io.Writer) {
+	if r.haveServer && r.st.SSHPassword {
+		fmt.Fprintln(w, "The server accepts ssh passwords. go tool tifa deploy harden turns that off.")
+	}
 	if r.t.front == "nginx" {
 		r.printNginxVisitors(ctx, w)
 		return
