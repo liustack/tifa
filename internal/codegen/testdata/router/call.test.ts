@@ -184,10 +184,18 @@ assert(savedThenMoved === undefined && navigations.at(-1) === '/notes/9' && inva
 // The result type says a redirect resolves to undefined: tsc refuses this line otherwise.
 const redirectedResult: Awaited<ReturnType<typeof POST>> = undefined
 assert(redirectedResult === savedThenMoved, 'redirect result')
-// A redirect to the page that shows neither reloads nor navigates: the page stays as it is.
+// A redirect to the page that shows loads its data again and does not navigate, as a browser
+// that follows a 303 to the address it is on and TanStack Router navigating to the current
+// address both do. A query in another order is the same page.
 answer = redirected('/notes/1')
 await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
-assert(navigations.length === 2 && invalidated() === 0, `redirect to the same page ${navigations}`)
+assert(navigations.length === 2 && invalidated() === 1, `redirect to the same page: navigations ${navigations}, reloads ${invalidated()}`)
+router.state.location = { pathname: '/notes/1', search: { a: '1', b: '2' }, hash: '' }
+answer = redirected('/notes/1?b=2&a=1')
+await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })
+assert(navigations.length === 2 && invalidated() === 2, `redirect to the same page, query in another order: navigations ${navigations}, reloads ${invalidated()}`)
+router.state.location = { pathname: '/notes/1', search: {}, hash: '' }
+refreshes = 0
 // A GET navigates the same way.
 answer = redirected('/notes/12')
 await POST({ params: { note: '1' }, input: { text: 'hi', next: null } })

@@ -26,9 +26,11 @@ interface Location {
 }
 
 // Router is what a handler function needs of the router of the page: going to the target of a
-// redirect. A call never reloads the data of the page.
+// redirect, and loading the page that shows again when the redirect goes to it. A call that is
+// not redirected never reloads the data of the page.
 interface Router {
   navigate(options: { href: string }): Promise<void>
+  invalidate(): Promise<void>
   parseLocation(location: { href: string; pathname: string; search: string; hash: string; state: object }): Location
   state: { location: Location }
   options: { rewrite?: unknown }
@@ -128,7 +130,10 @@ export async function call(
 // follow goes to the target of a redirect: through the router for a URL of this site, so the
 // page does not reload, and as a whole page for another site or before the router took over.
 // What the target shows follows the router's defaults, as after any navigation. A redirect to the
-// page that is showing stays where it is and loads nothing.
+// page that is showing loads its data and the data of its Layouts again and keeps the page, as a
+// browser that follows a 303 to the address it is on, and TanStack Router asked to navigate to the
+// current address, both do. Without it a write that redirects to the page it was sent from, such
+// as one that leaves a message in a cookie, would show nothing until a reload.
 async function follow(location: string, method: string) {
   const target = webTarget(location, method)
   const href = target.pathname + target.search + target.hash
@@ -140,7 +145,10 @@ async function follow(location: string, method: string) {
   // The router reads the URL, so a query spelled another way, in another order or encoding,
   // is the same page.
   const parsed = router.parseLocation({ href, pathname: target.pathname, search: target.search, hash: target.hash, state: {} })
-  if (samePage(parsed, router.state.location)) return
+  if (samePage(parsed, router.state.location)) {
+    await router.invalidate()
+    return
+  }
   await router.navigate({ href })
 }
 
