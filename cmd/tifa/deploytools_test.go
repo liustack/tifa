@@ -399,8 +399,8 @@ func TestSetupToolsYesOnATerminal(t *testing.T) {
 	}
 }
 
-// An install that fails is reported with the way to do it by hand, the login of that tool is
-// skipped, and setup goes on with what does not need it.
+// An install that fails is reported with the way to do it by hand and the login of that tool is
+// skipped. With front: cloudflare setup then stops before changing the server or GitHub.
 func TestSetupToolInstallFails(t *testing.T) {
 	for _, c := range []struct {
 		name, pnpmBin, why string
@@ -424,7 +424,7 @@ func TestSetupToolInstallFails(t *testing.T) {
 			m.install(t)
 
 			out, err := runSetup(t, root, true, "y\ny\n")
-			if err == nil || !strings.Contains(err.Error(), "2 things need you") {
+			if err == nil || !strings.Contains(err.Error(), "stopped before changing anything") {
 				t.Fatalf("%v\n%s", err, out)
 			}
 			for _, want := range []string{
@@ -445,8 +445,8 @@ func TestSetupToolInstallFails(t *testing.T) {
 			if !c.fail && slices.Contains(m.ran, "pnpm add --global cf") {
 				t.Errorf("pnpm add ran without a global bin directory: %v", m.ran)
 			}
-			if gh.vars[varMarker] == "" {
-				t.Errorf("the GitHub part did not run")
+			if gh.vars[varMarker] != "" {
+				t.Errorf("the GitHub part ran, though the front could not go on")
 			}
 		})
 	}

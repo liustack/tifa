@@ -2,7 +2,7 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: d47d23b936df
+translatedFrom: 06e0f0e66a37
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -112,13 +112,13 @@ deploy:
 
 ### cloudflare 走不通时 {#when-cloudflare-cannot-go-on}
 
-setup 从不悄悄换成别的 front。从 Tunnel 退到 `none`，会把一台不开端口的服务器变成 80 和 443 对所有人开放的服务器，这该由你来决定。setup 按从便宜到贵的顺序检查，在第一个失败的地方停下，并说明怎么办：
+setup 从不悄悄换成别的 front，也不会在没有 Cloudflare 的情况下接着做其他步骤：检查失败时它先打印方案，让你看到它本来要做什么，然后在改动任何东西之前停下，加了 `--yes` 也一样，退出状态是 1。从 Tunnel 退到 `none`，会把一台不开端口的服务器变成 80 和 443 对所有人开放的服务器，这该由你来决定。setup 按从便宜到贵的顺序检查，在第一个失败的地方停下，并说明怎么办：
 
 1. **`site.url` 里有域名。** Tunnel 按域名路由，所以 IP 地址、`localhost` 或没写 `site.url` 都会让 setup 停下。请设置 `site.url`。只有 IP 地址的话，写 `front: none`（80 端口上的明文 HTTP）或 `front: external`。
 2. **cf 装了并且已登录。** 在终端里，setup 会帮你安装并打开登录。没有终端时它停下并列出步骤，你只需要在浏览器里点。
 3. **域名在 cf 登录的那个账号里。** 把域名加进那个账号（把域名的 name server 改成 Cloudflare 给你的那两个），或者让 cf 登录到有这个域名的账号。
 
-没有 cf，或者不想让 Tifa 管 Cloudflare，不等于不用 Cloudflare。如果你不想安装 cf、让 Tifa 管理 Cloudflare（包括你自己在 Cloudflare 后台管理 DNS 和代理），就写 `front: none` 或 `front: external`，按上面的表选哪一个。setup 从不改 `tifa.yaml`：它只会说出要加或要改的那一行。
+没有 cf，或者不想让 Tifa 管 Cloudflare，不等于不用 Cloudflare。如果你不想让 Tifa 通过 cf 管理 Cloudflare，比如因为你自己在 Cloudflare 后台管理 DNS 和代理，就写 `front: none` 或 `front: external`，按上面的表选哪一个。setup 从不改 `tifa.yaml`：它只会说出要加或要改的那一行。
 
 ## root 登录不了时 {#when-root-cannot-log-in}
 

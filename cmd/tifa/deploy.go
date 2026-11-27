@@ -174,9 +174,9 @@ func needFront(d config.Deploy) error {
 Leaving it out used to mean none, so write front: none to keep things as they were. See %s`, frontChoicesText, frontDocs)
 }
 
-// noCFWays is what setup adds when front: cloudflare cannot go on. Not wanting cf, or not wanting
-// Tifa to manage Cloudflare, is a choice of front, not a choice to leave Cloudflare.
-const noCFWays = "If you do not want to install cf and let Tifa manage Cloudflare (this includes managing DNS and the proxy yourself in the Cloudflare dashboard), write deploy.front: none or deploy.front: external in tifa.yaml. " + frontDocs + " says which one fits your Cloudflare setup. Setup does not change tifa.yaml for you"
+// noCFWays is what setup adds when front: cloudflare cannot go on. Not wanting Tifa to manage
+// Cloudflare is a choice of front, not a choice to leave Cloudflare.
+const noCFWays = "If you would rather not have Tifa manage Cloudflare through cf, for example because you manage DNS and the proxy yourself in the Cloudflare dashboard, write deploy.front: none or deploy.front: external in tifa.yaml. " + frontDocs + " says which one fits. Setup does not change tifa.yaml for you"
 
 // needDomain stops a deploy command with front: cloudflare when site.url has no domain: a Tunnel
 // routes a host name, and an IP address has none.

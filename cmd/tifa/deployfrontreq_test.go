@@ -80,9 +80,9 @@ func TestSetupCloudflareWithoutCFSaysTheWays(t *testing.T) {
 	}
 	for _, want := range []string{
 		"cf is not installed: pnpm add --global cf, then cf auth login",
-		"If you do not want to install cf and let Tifa manage Cloudflare",
-		"managing DNS and the proxy yourself in the Cloudflare dashboard",
-		"write deploy.front: none or deploy.front: external in tifa.yaml",
+		"If you would rather not have Tifa manage Cloudflare through cf, for example because you manage DNS and the proxy yourself in the Cloudflare dashboard, write deploy.front: none or deploy.front: external in tifa.yaml",
+		"says which one fits",
+		"Setup does not change tifa.yaml for you",
 		"docs/build-and-deploy/deploy.md",
 	} {
 		if !strings.Contains(out, want) {
@@ -109,7 +109,7 @@ func TestSetupCloudflareDomainNotInAccount(t *testing.T) {
 		"add the domain to that account",
 		"https://dash.cloudflare.com/",
 		"log cf in to the account that has it",
-		"If you do not want to install cf and let Tifa manage Cloudflare",
+		"If you would rather not have Tifa manage Cloudflare through cf, for example because you manage DNS and the proxy yourself in the Cloudflare dashboard, write deploy.front: none or deploy.front: external in tifa.yaml",
 		"front: none",
 		"front: external",
 	} {
@@ -357,5 +357,39 @@ func TestAppScriptWritesTheListenAddress(t *testing.T) {
 	}
 	if !strings.Contains(appBody, `"$d/ip"`) {
 		t.Error("appBody does not write the file ip")
+	}
+}
+
+// When the Cloudflare part of front: cloudflare cannot be done, setup prints the plan and stops
+// before it changes anything, with --yes too: going on would leave the app with no way in.
+func TestSetupCloudflareThatCannotGoOnChangesNothing(t *testing.T) {
+	facts := "os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nmachine vps-1234\nlowport 1024\n" + hostKeysFact
+	for name, prepare := range map[string]func(t *testing.T){
+		"cf missing": func(t *testing.T) {
+			oldHave := haveCF
+			t.Cleanup(func() { haveCF = oldHave })
+			haveCF = func() bool { return false }
+		},
+		"zone missing": func(t *testing.T) { cfSetup(t, "other.org") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n", nil)
+			fakePorts(t)
+			srv := newSetupServer(t, "", facts)
+			prepare(t)
+			out, err := runSetup(t, root, false, "", "--yes")
+			if err == nil || !strings.Contains(err.Error(), "stopped before changing anything") {
+				t.Fatalf("got %v\n%s", err, out)
+			}
+			// The plan shows what setup would do and what is missing.
+			for _, want := range []string{"add     app: /srv/tifa/shop", "domain: shop.example.com through the Cloudflare Tunnel"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("plan lacks %q:\n%s", want, out)
+				}
+			}
+			if strings.Contains(srv.calls(), "app tifa") || strings.Contains(srv.calls(), "root") {
+				t.Errorf("setup changed the server:\n%s", srv.calls())
+			}
+		})
 	}
 }

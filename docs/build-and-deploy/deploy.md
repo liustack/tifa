@@ -111,13 +111,13 @@ An app on several servers uses `external`. `connect: cloudflare` goes only with 
 
 ### When cloudflare cannot go on
 
-Setup never falls back to another front. Going from a Tunnel to `none` would turn a server with no open port into one with ports 80 and 443 open to everyone, and you should decide that. Setup checks, cheapest first, and stops at the first failure with what to do:
+Setup never falls back to another front, and it does not go on without Cloudflare either: when a check fails it prints the plan, so you see what it would do, and stops before changing anything, with `--yes` too. It exits with status 1. Going from a Tunnel to `none` would turn a server with no open port into one with ports 80 and 443 open to everyone, and you should decide that. Setup checks, cheapest first, and stops at the first failure with what to do:
 
 1. **`site.url` has a domain.** A Tunnel routes a domain, so an IP address, `localhost` or a missing `site.url` stops setup. Set `site.url`. With only an IP address, write `front: none` (plain HTTP on port 80) or `front: external`.
 2. **cf is installed and logged in.** On a terminal, setup installs it and opens the login. Without a terminal it stops and lists the steps, and you only click in the browser.
 3. **The domain is in the account cf is logged in to.** Add the domain to that account (change the name servers of the domain to the ones Cloudflare gives you), or log cf in to the account that has it.
 
-Not having cf, or not wanting Tifa to manage Cloudflare, is not the same as not using Cloudflare. If you do not want to install cf and let Tifa manage Cloudflare, which includes managing DNS and the proxy yourself in the Cloudflare dashboard, write `front: none` or `front: external`, and pick the one from the table above. Setup never edits `tifa.yaml`: it names the line to add or change.
+Not having cf, or not wanting Tifa to manage Cloudflare, is not the same as not using Cloudflare. If you would rather not have Tifa manage Cloudflare through cf, for example because you manage DNS and the proxy yourself in the Cloudflare dashboard, write `front: none` or `front: external`, and pick the one from the table above. Setup never edits `tifa.yaml`: it names the line to add or change.
 
 ## When root cannot log in
 

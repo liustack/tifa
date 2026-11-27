@@ -48,6 +48,10 @@ type planStep struct {
 	do func(ctx context.Context) (string, error)
 	// soft makes a failure a warning: setup goes on with the steps after it.
 	soft bool
+	// blocks marks a step that setup cannot do and that front: cloudflare cannot go on without:
+	// setup prints the plan and stops before it changes anything, since going on would take the
+	// way in from the app.
+	blocks bool
 	// done is the text of the step once it ran, when it knows more than the plan did: a name
 	// that is made only when the step runs shows as a placeholder in text.
 	done func() string
@@ -77,6 +81,16 @@ func (p *setupPlan) add(op planOp, text string, do func(context.Context) (string
 func (p *setupPlan) ok(text string) { p.steps = append(p.steps, planStep{op: opOK, text: text}) }
 func (p *setupPlan) cannot(text, why string) {
 	p.steps = append(p.steps, planStep{op: opCannot, text: text, why: why})
+}
+
+// cannotBlock is cannot for a step of the front itself.
+func (p *setupPlan) cannotBlock(text, why string) {
+	p.steps = append(p.steps, planStep{op: opCannot, text: text, why: why, blocks: true})
+}
+
+// blocked says a step of the front cannot be done.
+func (p setupPlan) blocked() bool {
+	return slices.ContainsFunc(p.steps, func(s planStep) bool { return s.blocks })
 }
 
 // todo counts the steps that change something.
@@ -737,21 +751,21 @@ func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 	}
 	what := "domain: " + t.domain + " through the Cloudflare Tunnel of the server (route, DNS, cache rules)"
 	if !r.useCF(ctx) {
-		p.cannot(what, cfNeed()+". "+noCFWays)
+		p.cannotBlock(what, cfNeed()+". "+noCFWays)
 		return nil
 	}
 	if r.haveServer && r.st.Cloudflared == "" && !r.st.Apt && r.st.TunnelID == "" {
-		p.cannot(what, "the server has neither cloudflared nor apt: install cloudflared from the packages of the system, https://pkg.cloudflare.com/")
+		p.cannotBlock(what, "the server has neither cloudflared nor apt: install cloudflared from the packages of the system, https://pkg.cloudflare.com/")
 		return nil
 	}
 	zone, err := findZone(ctx, t.domain)
 	if err != nil {
 		var nz *noZoneError
 		if errors.As(err, &nz) {
-			p.cannot(what, err.Error()+". "+noCFWays)
+			p.cannotBlock(what, err.Error()+". "+noCFWays)
 			return nil
 		}
-		p.cannot(what, err.Error())
+		p.cannotBlock(what, err.Error())
 		return nil
 	}
 	r.zone = zone
@@ -1753,6 +1767,10 @@ func deploySetupOne(ctx context.Context, t deployTarget, f setupFlags, in io.Rea
 		return run, needsYou(toolWarnings)
 	}
 	plan.print(stdout, title, f.all)
+	if plan.blocked() {
+		// The plan above shows what setup would do and what is missing.
+		return run, fmt.Errorf("deploy.front is cloudflare and its Cloudflare part cannot be done (see above): setup stopped before changing anything, with --yes too. Do what the list says, or write another front in tifa.yaml")
+	}
 	warnings := 0
 	if plan.todo() > 0 {
 		if err := confirm(in, stdout, f.yes); err != nil {
