@@ -1060,7 +1060,7 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 - Downloading `gh` or `cf` by itself. Setup installs them only with a package manager the machine already has, only when `tifa.yaml` needs them, and as a line of the plan the user agrees to.
 - wrangler, which `cf` replaces.
-- A reverse proxy of Tifa's own for several apps on one server. Tifa ships none. A Cloudflare Tunnel or `front: nginx` shares a server: [An nginx of Tifa for several apps on one server](#an-nginx-of-tifa-for-several-apps-on-one-server).
+- A reverse proxy of Tifa's own for several apps on one server, or in front of several servers. Tifa ships none. A Cloudflare Tunnel or `front: nginx` shares a server: [An nginx of Tifa for several apps on one server](#an-nginx-of-tifa-for-several-apps-on-one-server).
 - A local `tifa deploy` that hands over to GitHub Actions by itself, which would change what a command does without a word.
 - A GitHub App in place of the `gh` sign-in. Put off as too early.
 
@@ -1079,6 +1079,24 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 **Turned down.** Plugging into an nginx the user already has (2026-11-26): writing sites into it and reloading it. The same reason, and an app of Tifa would then depend on a server that other people also edit.
 
 **Reopen when** many users ask to run Tifa apps behind an nginx they cannot give up, and a way is found that leaves its configuration to the user.
+
+### Several servers for one app
+
+**Settled (2026-11-27).** One app can run on several servers, behind a load balancer of the user: `deploy.front: loadbalancer`. The servers are a list in `TIFA_DEPLOY_HOST` (or `--host` given again, or with commas), and one server is the same as before. One process per machine.
+
+- Setup sets up each server in turn, the first first, gives the app one port that is free on all of them, and lets it listen on every address of the server, not only the loopback. GitHub Actions gets every server in one round after them: one key on each, the host keys of each, and the list in the secret `TIFA_DEPLOY_HOST`. `~/.tifa/config.yaml` keeps the list with each server.
+- A deploy builds once, uploads to every server, runs `deploy.release_command` once on the first, then switches one server at a time, each once the one before passed its health check. When one fails, it goes back by itself, and the servers before it are moved back, so all of them run one release. `rollback`, `status`, `logs`, `env` and `remove` work on every server, `run` on the first unless `--host` names another.
+- Setup prints the targets, the port, `GET /healthz` and the statuses that pass, for the user to enter in the balancer. It opens the port in no firewall, and says to let only the balancer reach it.
+- The app's storage is the app's choice. Tifa checks nothing about it, and the docs say what works: a database all servers reach, a session store of their own, and no SQLite, which is one file on one machine.
+
+**Why.** One VPS is where an app starts, not a limit. A load balancer is what every provider sells for this, and the user knows the network between its servers.
+
+**Turned down (2026-11-27).**
+- `front: none` on several servers: each server would serve its own HTTPS with its own certificate, with nothing to spread the load.
+- Tifa setting up the load balancer, or calling any cloud API: Tifa calls no cloud API, and the user sets up the balancer. Every provider has its own, and they change.
+- A balancer node of Tifa's own in front of the servers: a reverse proxy of Tifa's own, turned down above in [Tifa downloading programs, wrangler, and a front door of its own](#tifa-downloading-programs-wrangler-and-a-front-door-of-its-own).
+- An nginx entry server for several servers, with `front: nginx`: the network between the servers (their addresses, private networks, firewalls) is the user's and varies too much for deploy to set up safely. **Reopen when** deploy manages a private network between servers.
+- Several servers behind a Cloudflare Tunnel, with `front: cloudflare`: a tunnel run on several machines has a replica on each, and Cloudflare sends each request to the replica closest to it, trying another only when that one fails, so the servers do not share the load ([Tunnel availability](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-availability/)). `none`, `nginx` and `cloudflare` with several servers are refused when the command reads its settings, and the error names `loadbalancer`.
 
 ### A secret that passes through the agent
 

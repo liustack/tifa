@@ -1,16 +1,17 @@
 ---
-summary: 'Put nginx, a CDN or a reverse proxy in front of a Tifa app: `deploy.front: nginx`, the CDN settings and cross-origin 403s behind a proxy'
+summary: 'Put nginx, a load balancer, a CDN or a reverse proxy in front of a Tifa app: `deploy.front: nginx` and `loadbalancer`, the CDN settings and cross-origin 403s behind a proxy'
 audience: app
 order: 14
 read_when:
   - Putting several Tifa apps on one server without Cloudflare, with `deploy.front: nginx`, or setup stopped because the server has an nginx that Tifa did not install
+  - Putting a load balancer of your provider in front of a Tifa app, with `deploy.front: loadbalancer`, and entering the targets and the health check in it
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
 ---
 
 # Put nginx or a CDN in front
 
-Visitors can reach the program through nginx that `tifa deploy setup` installs, or through a proxy or CDN of your own. This page covers both.
+Visitors can reach the program through nginx that `tifa deploy setup` installs, through a load balancer you set up at your provider, or through a proxy or CDN of your own. This page covers all three.
 
 ## Behind nginx
 
@@ -81,6 +82,68 @@ Without a domain there is one server, with `listen 80 default_server;`. A server
 **Moves.** Setup plans a move between `none`, `cloudflare` and `nginx` like any other change. An app that moves to nginx first moves to a loopback port, which frees port 80 for nginx, so visitors wait for a moment. An app that moves away takes its site and certificate out of nginx, and nginx and certbot with it when no other app has a site. An app cannot move to `front: none` while other apps are behind nginx: nginx holds the ports, and setup stops and says so.
 
 `tifa deploy remove` takes the site and the certificate of the app out of nginx, and with the last app uninstalls nginx, and certbot when setup installed it, with their configuration, and deletes `/etc/tifa/nginx`. When setup only added the nginx plugin to a certbot that was there, remove takes the plugin and leaves certbot, its timer and your certificates alone. A site that nginx will not let go stays, and so do its certificate and nginx: the error says what nginx said, and the next remove goes on. The other apps keep answering. To take nginx off Tifa by hand, run `apt-get purge` on the packages named in `/etc/tifa/nginx`, delete `/etc/nginx`, `/etc/letsencrypt` and that file, and delete the ufw rules with the comment `tifa nginx front`.
+
+## Behind your load balancer
+
+With `front: loadbalancer`, a load balancer you set up at your provider, such as an AWS Application Load Balancer, sends visitors to the app. It ends HTTPS with its own certificate and sends plain HTTP to the port of the app on each server. Tifa only deploys: it sets up no balancer, calls no API of your provider, and installs no nginx or certificate. It works with one server and is the front for [several servers](deploy-several-servers.md).
+
+```yaml
+site:
+  url: https://shop.example.com
+deploy:
+  front: loadbalancer
+```
+
+**The port.** The app listens on its own port, from 9527 up, on every address of the server, not only on the loopback as behind the tunnel or nginx. With several servers it has the same port on all of them, which setup picks free on each. The plan names it: `port 9527 on every address of the server, for the load balancer`.
+
+**What to enter in the balancer.** Setup and each deploy end with the targets:
+
+```text
+load balancer: send plain HTTP to these targets, and check each with GET /healthz, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a /healthz route):
+  203.0.113.7:9527         vps
+  203.0.113.8:9527         vps2
+```
+
+- **Targets**: the address of each server and the port of the app. When the balancer and the servers share a private network, use the private addresses instead.
+- **Protocol to the targets**: HTTP. The balancer ends HTTPS.
+- **Health check**: `GET /healthz` on the same port. Write [a health check](deploy-by-hand.md#health-check) that answers 204 while the app can serve. An app without that route answers 404, which `tifa deploy` counts as up, but a balancer that wants 200 marks every server down. Leave the balancer's PROXY protocol off: the app reads plain HTTP.
+
+**Headers.** `tifa deploy` sets none: the balancer does, and the app reads them.
+
+- Keep `Host` as the browser sent it. The program compares `Host` and `Origin` to refuse writes from other sites, so a balancer that rewrites `Host` makes your own forms fail with 403 (see [Cross-site writes](headers-and-origins.md#cross-site-writes)).
+- `X-Forwarded-For` and `X-Forwarded-Proto` are what the balancer says about the visitor. Tifa does not read the address, and reads `X-Forwarded-Proto` only to not warn about a sign-in over plain HTTP. `c.Request().RemoteAddr` is the address of the balancer. To log or limit by visitor, read the header in `OnRequest`, and only from the last entry the balancer added: what is before it came from the visitor.
+- The rest of [Behind a CDN or proxy](#behind-a-cdn-or-proxy) holds too: compression, caching, `No-Gzip-Compression`.
+
+**The firewall.** The port answers anyone who can reach it, over plain HTTP, past the balancer. Setup opens it nowhere, neither in ufw nor at your provider, and the plan says so. Let only the balancer reach the port: in the security group or firewall of your provider, or with `sudo ufw allow from <addresses of the balancer> to any port 9527 proto tcp` when ufw is on. When the port answers from your own machine, setup and deploy say so after the targets.
+
+**During a deploy** the socket of the app keeps the connections while the new program starts, so a health check of the balancer waits instead of failing. It fails only when the start takes longer than the timeout of the check, and the balancer takes a server out only after several failed checks in a row. Keep the start under the timeout of the check, 5 seconds at AWS and Google Cloud unless you change it.
+
+### Balancer settings
+
+Checked against the vendors' documentation on 2026-11-27. Names change, so open the linked page if a field is missing.
+
+**AWS Application Load Balancer**
+
+- A target group with target type `instance` or `ip`, protocol HTTP, and the port of the app. A listener on HTTPS 443 with your certificate forwards to it.
+- Health check: protocol HTTP, path `/healthz`, port "traffic port". Success codes ("Matcher") take a range, so `200-499` matches `tifa deploy`, and the default is `200`. Timeout 5 seconds, two failures in a row take a target out, by default ([target group health checks](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)).
+- In the security group of the servers, allow the port of the app from the security group of the balancer only.
+
+**Google Cloud**
+
+- An external Application Load Balancer with a backend service on an instance group (or a zonal NEG) of the servers, protocol HTTP, and the named port set to the port of the app.
+- Health check: HTTP, request path `/healthz`, the serving port. It passes only on 200, so the app needs a `/healthz` route that answers 200: a redirect or a 204 counts as down. Interval and timeout are 5 seconds, two failures in a row take a server out ([health checks](https://docs.cloud.google.com/load-balancing/docs/health-check-concepts)).
+- Allow the port of the app in the VPC firewall from the ranges of the load balancer and its health checks, which that page lists, and from nothing else.
+
+**DigitalOcean**
+
+- A forwarding rule from HTTPS 443, with your certificate, to HTTP on the port of the app.
+- Health check: protocol HTTP, the port of the app (the default is 80), path `/healthz`. A status from 200 to 399 passes ([manage load balancers](https://docs.digitalocean.com/products/networking/load-balancers/how-to/manage/)).
+- The balancer reaches Droplets in its VPC on their private addresses. Allow the port of the app in the Cloud Firewall of the Droplets from the balancer only.
+
+**Hetzner Cloud**
+
+- A service with protocol HTTPS and a certificate, source port 443, and the port of the app as destination port. Its health check: HTTP, the port of the app, path `/healthz`.
+- Put the balancer and the servers in one Network to add the servers by their private addresses ([creating a load balancer](https://docs.hetzner.com/cloud/load-balancers/getting-started/creating-a-load-balancer/)). Allow the port of the app in the firewall of the servers from that Network only.
 
 ## Behind a CDN or proxy
 

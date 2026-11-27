@@ -2,7 +2,7 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: e9f9150283a9
+translatedFrom: 5c227d701f20
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -26,7 +26,7 @@ Tifa 应用就是一个可执行文件。服务器需要这个文件、环境里
 site:
   url: https://shop.example.com   # the domain is the host of this URL
 deploy:
-  front: none      # what visitors come through before the server: none (the app serves them itself on ports 80 and 443) | cloudflare | nginx
+  front: none      # what visitors come through before the server: none (the app serves them itself on ports 80 and 443) | cloudflare | nginx | loadbalancer
   connect: direct  # how deploys reach the server over ssh: direct | cloudflare | tailscale
   release_command: migrate  # a command of the app that each deploy runs once with the new release before it starts it. Left out: none
   start_timeout: 30s  # how long a new release may take to start and answer /healthz: 1s to 10m
@@ -47,7 +47,7 @@ deploy:
   ```
 
   这个值就是 `ssh` 接受的目标：可以是 `~/.ssh/config` 里的一个 Host（比如别名 `vps`，这样地址、端口、密钥和 `ProxyJump` 都由 `~/.ssh/config` 提供）、一个主机名，或者一个 `ssh://host[:port]` 的 URL。用户由 Tifa 自己选，改动系统的步骤用 root，其余用 `tifa`，所以除非 root 登录不了，否则不要写用户（见[root 登录不了时](#when-root-cannot-log-in)）。带路径、查询或别的协议的值会被拒绝。四种都没设置时，每个 `tifa deploy` 命令都会停下并说明。
-- `front` 是访客到达服务器之前经过的东西。选 `cloudflare` 时，就是 `site.url` 的主机上的一个 Cloudflare Tunnel，带它的 DNS 记录和规则，`deploy` 和 `rollback` 会清除那个主机名的 CDN 缓存。必须设置 `site.url`，并且不带端口。选 `none` 时，应用自己在 80 端口上接待访客，`site.url` 里有域名时还在 443 端口上用自己的 HTTPS，也不清缓存（见[应用自己接待访客](deploy-setup.zh-CN.md#the-app-serves-visitors-itself)）。选 `nginx` 时，setup 安装的一个 nginx 按 `site.url` 的主机把访客送到应用，并用 certbot 为它拿证书，这样几个应用不用 Cloudflare 也能共用一台服务器（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)）。
+- `front` 是访客到达服务器之前经过的东西。选 `cloudflare` 时，就是 `site.url` 的主机上的一个 Cloudflare Tunnel，带它的 DNS 记录和规则，`deploy` 和 `rollback` 会清除那个主机名的 CDN 缓存。必须设置 `site.url`，并且不带端口。选 `none` 时，应用自己在 80 端口上接待访客，`site.url` 里有域名时还在 443 端口上用自己的 HTTPS，也不清缓存（见[应用自己接待访客](deploy-setup.zh-CN.md#the-app-serves-visitors-itself)）。选 `nginx` 时，setup 安装的一个 nginx 按 `site.url` 的主机把访客送到应用，并用 certbot 为它拿证书，这样几个应用不用 Cloudflare 也能共用一台服务器（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)）。选 `loadbalancer` 时，你在服务商那里建的负载均衡器负责 HTTPS，用普通 HTTP 把请求发到应用的端口（见[在你的负载均衡器后面](deploy-proxy.zh-CN.md#behind-your-load-balancer)）。一个应用放在几台服务器上时就用它，服务器在 `TIFA_DEPLOY_HOST` 里用逗号隔开（见[在几台服务器上运行应用](deploy-several-servers.zh-CN.md#run-an-app-on-several-servers)）。
 - `connect` 是 ssh 连到服务器走的那一条路，从你的机器和从 GitHub Actions 的 runner 都一样。选 `direct` 时，ssh 用你给的地址。选 `cloudflare` 时，两边都经由 Cloudflare Tunnel，所以服务器不用开放 ssh 端口（见 [`connect: cloudflare`](deploy-cloudflare.zh-CN.md#connect-cloudflare)）。它需要 `front: cloudflare`，因为 ssh 的主机名是由域名生成的，有没有 `auto` 都行。选 `tailscale` 时，runner 加入你的 tailnet，它需要 `auto` 这个块（见 [`connect: tailscale`](deploy-github-actions.zh-CN.md#connect-tailscale)）。你自己的机器照常连到服务器，用 `TIFA_DEPLOY_HOST` 里的地址，tailnet 和服务器都由你自己设置。
 - `release_command` 是应用的一条命令和它的参数，比如 `migrate` 或 `migrate --verbose`。每次部署在服务器上用新发布的程序运行它一次，在启动这个发布之前，这时旧发布还在服务。这些词按空格拆开，每个词原样交给程序：没有引号，也不经过 shell。不写就什么也不运行。见[发布命令](#the-release-command)。
 - `start_timeout` 是新发布启动并通过健康检查最多可以花多长时间，写成 Go 的时长，比如 `45s` 或 `2m`。它是整秒数，从 `1s` 到 `10m`，不写就是 `30s`。部署失败后回退到的那个发布的检查，以及 `deploy rollback` 启动的发布的检查，用同样的时间。见[慢启动](#a-slow-start)。
@@ -102,7 +102,7 @@ go tool tifa deploy
 5. 在服务器上检查新程序：每秒一次 `GET /healthz`，最长 `start_timeout`（不设置就是 30 秒），直到它以低于 500 的状态回答。它在回环地址上访问，有自己 HTTPS 的应用则像访客一样，用它的域名走 HTTPS。没有 `/healthz` 路由的应用，一有响应就带着它的 404 通过。写一个会看数据库的[健康检查](deploy-by-hand.zh-CN.md#health-check)，让这项检查更有意义。`OnStart`（包括迁移）必须在这段时间内完成（见[慢启动](#a-slow-start)和[迁移能花多长时间](../guides/database.zh-CN.md#how-long-a-migration-may-take)）。
 6. 检查通过后，把这次部署记下来，并保留最近 5 个发布。检查失败时，它会打印应用日志的最后几行，重新启动之前运行的那个发布，并以 1 退出。如果从来没有通过的发布，它会停掉应用。
 7. 用 `front: cloudflare` 时，会清除那个主机名的 CDN 缓存（见[清除 CDN 缓存](deploy-cloudflare.zh-CN.md#clearing-the-cdn-cache)）。
-8. 说明访客从哪里访问应用：`visitors: https://shop.example.com`，没有域名时是 `http://<服务器的地址>`。用 `front: none` 或 `front: nginx` 时，它接着从你的机器访问应用的端口，有端口没回答时，会提示你服务商的防火墙或安全组可能挡住了它，这些 Tifa 不改。
+8. 说明访客从哪里访问应用：`visitors: https://shop.example.com`，没有域名时是 `http://<服务器的地址>`。用 `front: none` 或 `front: nginx` 时，它接着从你的机器访问应用的端口，有端口没回答时，会提示你服务商的防火墙或安全组可能挡住了它，这些 Tifa 不改。用 `front: loadbalancer` 时，它改为列出要填进负载均衡器的目标和健康检查，并在应用的端口能从你的机器访问到时说出来（见[在你的负载均衡器后面](deploy-proxy.zh-CN.md#behind-your-load-balancer)）。
 
 每次部署和回滚都是 `/srv/tifa/<app>/deploys.log` 里的一行：时间、发布、git 提交（应用有未提交的改动时带 `-dirty`）、`deploy` 或 `rollback`，以及 `ok`、`failed`（健康检查没通过）或 `failed-release-command`。上传从不包含 `.env`。一个应用同一时间只运行一次部署。
 
