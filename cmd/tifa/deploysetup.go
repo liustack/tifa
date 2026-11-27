@@ -438,7 +438,9 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 			return p, r, err
 		}
 	case t.connectMode != connCloudflare && t.domain != "":
-		if !r.accessRemovalPlanned && r.useCF(ctx) {
+		// A domain that no zone of the account holds is already a step setup cannot do: there is no
+		// Access application of it to take away.
+		if !r.accessRemovalPlanned && r.zone.Name != "" && r.useCF(ctx) {
 			if err := r.removeAccess(ctx, &p); err != nil {
 				return p, r, err
 			}
@@ -558,6 +560,9 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	switch {
 	case t.open:
 		serves = fmt.Sprintf("port %d on every address of the server, for the load balancer or proxy in front", port)
+		if t.listenIP != "" {
+			serves = fmt.Sprintf("port %d on %s, for the load balancer or proxy in front", port, t.listenIP)
+		}
 		p.firewall = fmt.Sprintf("The load balancer or proxy in front needs port %d of the server. Let only it reach port %[1]d, in the firewall or security groups of your provider (or ufw): a port open to everyone lets visitors past it. Tifa opens no port for it.", port)
 		if r.st.UFW == "on" {
 			p.notes = append(p.notes, planNote{
@@ -589,7 +594,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 			return strings.TrimSpace(out.String()), nil
 		})
 	}
-	u := unitsOf(app, port, domain, t.open, r.cert != nil)
+	u := unitsAt(app, port, domain, t.open, r.cert != nil, t.listenIP)
 	httpSum := ""
 	if u.http != "" {
 		httpSum = sha(u.http)
@@ -612,7 +617,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		}
 		r.port = port
 		var out strings.Builder
-		if err := t.ssh(ctx, deployUser, appScript(app, port, t.ownFor(port), t.open, r.cert != nil, move, restart, t.healthWait()), nil, &out, r.stderr); err != nil {
+		if err := t.ssh(ctx, deployUser, appScript(app, port, t.ownFor(port), t.listenIP, t.open, r.cert != nil, move, restart, t.healthWait()), nil, &out, r.stderr); err != nil {
 			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
 		}
 		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
@@ -669,6 +674,9 @@ func (r *setupRun) rootListeners(ctx context.Context) []listener {
 func (r *setupRun) printVisitors(ctx context.Context, w io.Writer) {
 	if r.haveServer && r.st.SSHPassword {
 		fmt.Fprintln(w, "The server accepts ssh passwords. go tool tifa deploy harden turns that off.")
+	}
+	if r.haveServer && r.st.EnvServerAddr {
+		fmt.Fprintf(w, "SERVER_ADDR is set in %s/%s/shared/.env on %s. The systemd socket of the app wins and the value is not used: where the app listens comes from deploy.front and server.addr in tifa.yaml. Remove it from that file.\n", deployHome, r.t.app, r.t.host)
 	}
 	switch {
 	case r.group != nil:
@@ -729,7 +737,7 @@ func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 	}
 	what := "domain: " + t.domain + " through the Cloudflare Tunnel of the server (route, DNS, cache rules)"
 	if !r.useCF(ctx) {
-		p.cannot(what, cfNeed())
+		p.cannot(what, cfNeed()+". "+noCFWays)
 		return nil
 	}
 	if r.haveServer && r.st.Cloudflared == "" && !r.st.Apt && r.st.TunnelID == "" {
@@ -738,6 +746,11 @@ func (r *setupRun) domainSteps(ctx context.Context, p *setupPlan) error {
 	}
 	zone, err := findZone(ctx, t.domain)
 	if err != nil {
+		var nz *noZoneError
+		if errors.As(err, &nz) {
+			p.cannot(what, err.Error()+". "+noCFWays)
+			return nil
+		}
 		p.cannot(what, err.Error())
 		return nil
 	}
@@ -1699,6 +1712,7 @@ func deploySetupOne(ctx context.Context, t deployTarget, f setupFlags, in io.Rea
 	if f.cert = cert; cert != nil {
 		sayOwnCertWins(t, stdout)
 	}
+	sayServerAddrUnused(t, stdout)
 	plan, run, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {
 		return run, err

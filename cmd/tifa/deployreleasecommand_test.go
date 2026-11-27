@@ -22,7 +22,7 @@ func releaseCommandApp(t *testing.T, command string) (root, home string, calls f
 	}
 	root, home, calls = serveApp(t, "9531", "", health)
 	if command != "" {
-		writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  release_command: "+command+"\n")
+		writeFile(t, filepath.Join(root, "tifa.yaml"), withFront("deploy:\n  release_command: "+command+"\n"))
 	}
 	writeFile(t, filepath.Join(home, "shop", "shared", ".env"), "A=1\n")
 	buildForServer = func(_ context.Context, _, _, _, out string, _, _ io.Writer) error {

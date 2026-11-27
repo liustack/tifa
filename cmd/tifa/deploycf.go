@@ -160,7 +160,14 @@ func findZone(ctx context.Context, domain string) (cfZone, error) {
 			return zones[0], nil
 		}
 	}
-	return cfZone{}, fmt.Errorf("no zone of your Cloudflare account holds %s: add the domain to Cloudflare first, or log cf in to the account that has it", domain)
+	return cfZone{}, &noZoneError{domain}
+}
+
+// noZoneError says no zone of the account cf is logged in to holds the domain.
+type noZoneError struct{ domain string }
+
+func (e *noZoneError) Error() string {
+	return fmt.Sprintf("no zone of the Cloudflare account cf is logged in to holds %s. Either add the domain to that account (https://dash.cloudflare.com/, Add a domain, then change the name servers of the domain at your registrar to the two Cloudflare gives you), or log cf in to the account that has it (cf auth login)", e.domain)
 }
 
 type cfTunnel struct {

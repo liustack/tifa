@@ -49,7 +49,7 @@ func TestEnvEditing(t *testing.T) {
 // envApp makes a deployed app on the fake server: one release that passes its check.
 func envApp(t *testing.T, health string) (root, home string, calls func() string) {
 	root = t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "vps")
 	home = t.TempDir()
 	writeFile(t, filepath.Join(home, "shop", "port"), "9531\n")
@@ -256,7 +256,7 @@ func TestEnvRollsBack(t *testing.T) {
 // An app that is not on the server yet has no .env to edit.
 func TestEnvNeedsTheApp(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "vps")
 	fakeServer(t, t.TempDir(), nil)
 	if _, err := runEnv(t, "", false, "deploy", "env", "list", "--dir", root); err == nil || !strings.Contains(err.Error(), "tifa deploy first") {

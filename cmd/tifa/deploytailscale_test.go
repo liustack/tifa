@@ -116,7 +116,7 @@ func TestSetupTailscaleClientIDChecks(t *testing.T) {
 	if _, err := runSetup(t, a.root, false, "", "--yes", "--tailscale-client-id", "no spaces"); err == nil || !strings.Contains(err.Error(), "not a client ID") || strings.Contains(err.Error(), "no spaces") {
 		t.Errorf("spaces: %v", err)
 	}
-	writeFile(t, filepath.Join(a.root, "tifa.yaml"), "deploy:\n  auto: {}\n")
+	writeFile(t, filepath.Join(a.root, "tifa.yaml"), withFront("deploy:\n  auto: {}\n"))
 	if _, err := runSetup(t, a.root, false, "", "--yes", "--tailscale-client-id", "k1"); err == nil || !strings.Contains(err.Error(), "deploy.connect") {
 		t.Errorf("ssh direct: %v", err)
 	}

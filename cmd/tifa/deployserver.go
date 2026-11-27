@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"path"
 	"regexp"
 	"slices"
@@ -186,6 +187,9 @@ type serverState struct {
 	// UFW is "on" when ufw is installed and on at boot, "off" when it is installed and off, and
 	// empty without it. Only root reads its rules: see deployufw.go.
 	UFW string
+	// EnvServerAddr says the .env of the app on the server sets SERVER_ADDR, which the socket of
+	// systemd overrides.
+	EnvServerAddr bool
 	// Listen are the TCP ports something listens on, with the programs ss names: all of them as
 	// root, only those of the deploy user as the deploy user. UserSockets are the sockets the
 	// systemd of the deploy user holds, with the service each one starts.
@@ -334,6 +338,8 @@ func parseServerState(out string) (serverState, error) {
 			s.LowPort = p
 		case "ports-conf":
 			s.PortsConf = true
+		case "env-server-addr":
+			s.EnvServerAddr = true
 		case "ufw":
 			if v := strings.TrimSpace(value); v == "on" || v == "off" {
 				s.UFW = v
@@ -531,10 +537,18 @@ type appUnits struct{ socket, http, service string }
 // HTTPS the program gets two, each named by the setting it serves, and the settings of the
 // built-in HTTPS in its environment: the certificates stay in certs, next to the releases.
 func unitsOf(app string, port int, domain string, open, cert bool) appUnits {
+	return unitsAt(app, port, domain, open, cert, "")
+}
+
+// unitsAt is unitsOf with ip, the one address of the server an app that is open listens on: empty
+// for every address. FreeBind lets the socket start at boot before the address is up.
+func unitsAt(app string, port int, domain string, open, cert bool, ip string) appUnits {
 	unit := unitName(app)
 	itself := !open && servesVisitors(port)
 	listen := fmt.Sprintf("ListenStream=127.0.0.1:%d\n", port)
 	switch {
+	case open && ip != "":
+		listen = fmt.Sprintf("ListenStream=%s\nFreeBind=true\n", net.JoinHostPort(ip, strconv.Itoa(port)))
 	case open:
 		listen = fmt.Sprintf("ListenStream=%d\n", port)
 	case port == httpPort:
@@ -648,7 +662,7 @@ ss -Hltnp | sed 's/^/listen /'
 
 // portsBody runs as root. It lets users other than root listen on ports from 80, so the systemd
 // of the deploy user can open ports below 1024 for the apps that need them: 80 and 443 for the app
-// that serves visitors itself, deploy.port behind something of the user's. No right goes to the
+// that serves visitors itself, server.addr behind something of the user's. No right goes to the
 // app. The value it found goes into the file, so remove can put it back.
 const portsBody = `set -eu
 # tifa: open ports 80 and 443 to the systemd of the deploy user
@@ -785,10 +799,10 @@ exit 3
 `
 
 // appScript is appBody for app on port, with domain for HTTPS, and with open on every address of
-// the server. move says its sockets listen elsewhere than before, restart that its units changed. It
+// the server, or on ip only. move says its sockets listen elsewhere than before, restart that its units changed. It
 // checks the restarted app for up to wait seconds.
-func appScript(app string, port int, domain string, open, cert, move, restart bool, wait int) string {
-	u := unitsOf(app, port, domain, open, cert)
+func appScript(app string, port int, domain, ip string, open, cert, move, restart bool, wait int) string {
+	u := unitsAt(app, port, domain, open, cert, ip)
 	flag := map[bool]string{true: "1"}
 	return script(appBody, "app", app, "port", strconv.Itoa(port), "domain", domain,
 		"move", flag[move], "restart", flag[restart], "health", healthPath, "wait", strconv.Itoa(wait),
@@ -808,6 +822,7 @@ if [ -e "$rt/bus" ]; then echo "bus yes"; fi
 echo "linger $(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || echo no)"
 if [ -d "$d" ]; then echo "appdir yes"; fi
 if [ -f "$d/port" ]; then echo "port $(cat "$d/port")"; fi
+if [ -f "$d/shared/.env" ] && grep -Eq '^[[:space:]]*(export[[:space:]]+)?SERVER_ADDR=' "$d/shared/.env"; then echo "env-server-addr yes"; fi
 for f in "$HOME"/*/port; do
 	if [ -f "$f" ] && [ "$f" != "$d/port" ]; then
 		echo "taken $(cat "$f")"

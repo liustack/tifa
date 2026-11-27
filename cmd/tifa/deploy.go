@@ -84,9 +84,12 @@ type deployTarget struct {
 	// port is the port setup gives the app on each of several servers, the same on every one: a
 	// target group of a load balancer names one port. 0 picks it per server.
 	port int
-	// fixedPort is deploy.port: the port of the app with front external on every server, 0 when
-	// not set.
+	// fixedPort is the port of server.addr for the app with front external, the same on every
+	// server, 0 for the other fronts.
 	fixedPort int
+	// listenIP is the address the app with front external listens on, from server.addr: empty for
+	// every address of the server.
+	listenIP string
 	// newConn makes ssh open a connection of its own, never one that ControlMaster keeps open, and
 	// never ask for a password: a login that proves the keys work must not ride on one that is
 	// there already, or on a password typed.
@@ -120,33 +123,99 @@ func hostNames(ts []deployTarget) string {
 func (t deployTarget) healthWait() int { return int(t.startTimeout / time.Second) }
 
 // deployDomain checks the deploy settings against each other and returns the domain of the app:
-// the host of site.url when deploy.front is cloudflare, else empty.
+// the host of site.url when deploy.front is cloudflare, else empty. A missing site.url or one
+// without a domain is for needDomain, which only a deploy asks: a new app has front: cloudflare
+// before it has a site.url, and builds.
 func deployDomain(d config.Deploy, siteURL string) (string, error) {
 	domain := ""
-	if d.Front == "cloudflare" {
-		if siteURL == "" {
-			return "", errors.New("deploy.front is cloudflare, which needs site.url: set it in tifa.yaml, such as https://shop.example.com")
-		}
+	if d.Front == "cloudflare" && siteURL != "" {
 		u, err := url.Parse(siteURL)
 		if err != nil {
 			return "", fmt.Errorf("site.url: %w", err)
 		}
-		if u.Port() != "" {
+		if u.Port() != "" && !isIPOrLocal(u.Hostname()) {
 			return "", fmt.Errorf("site.url has the port %s, and Cloudflare serves the host name only: write https://%s, or set deploy.front to none", u.Port(), u.Hostname())
 		}
 		domain = u.Hostname()
 	}
 	switch {
-	case d.Port != 0 && d.Front != "external":
-		return "", fmt.Errorf("deploy.port is %d, and deploy.front is %s: deploy.port is for deploy.front external, where the app listens on that port for the load balancer or proxy in front. Remove deploy.port, or set deploy.front to external", d.Port, d.Front)
-	case d.Port != 0 && d.Port < httpPort:
-		return "", fmt.Errorf("deploy.port is %d, below 80: setup lets the user %s open ports from 80 only. Use port 80 or a higher one", d.Port, deployUser)
 	case d.Connect == "cloudflare" && d.Front != "cloudflare":
 		return "", errors.New("deploy.connect is cloudflare, and the ssh host name is made from the domain of site.url: set deploy.front to cloudflare")
 	case d.Connect == "tailscale" && !d.Auto.On:
 		return "", errors.New("deploy.connect is tailscale, which is how GitHub Actions reaches the server: add the block deploy.auto (auto: {}), or set deploy.connect to direct")
 	}
 	return domain, nil
+}
+
+// isIPOrLocal says host is an IP address or localhost, which no Cloudflare zone holds.
+func isIPOrLocal(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	return host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") || net.ParseIP(host) != nil
+}
+
+// frontChoicesText lists the values of deploy.front, named by what sits between visitors and the
+// app, each with when to use it.
+const frontChoicesText = `  cloudflare  Cloudflare, through a Tunnel (recommended). The server opens no port, and Cloudflare does HTTPS, the CDN and DDoS protection. Needs a domain on Cloudflare and cf logged in
+  none        nothing: the app faces visitors itself on ports 80 and 443, with HTTPS from Let's Encrypt (plain HTTP on port 80 with only an IP address). One app per server
+  external    something of yours: a load balancer, a CDN or proxy you run, your own Cloudflare, or a private network. Set server.addr to the address and port it connects to. The only front for several servers
+  nginx       an nginx that Tifa installs, to share ports 80 and 443 between several apps on one server without Cloudflare`
+
+// frontDocs is where the table of fronts is.
+const frontDocs = "docs/build-and-deploy/deploy.md"
+
+// needFront stops a deploy command when tifa.yaml names no deploy.front: there is no default,
+// so what tifa.yaml says is what runs. An app that never wrote it is told what it meant before.
+func needFront(d config.Deploy) error {
+	if d.Front != "" {
+		return nil
+	}
+	return fmt.Errorf(`deploy.front is not set in tifa.yaml. Write one of these under deploy:, named by what sits between visitors and the app:
+%s
+Leaving it out used to mean none, so write front: none to keep things as they were. See %s`, frontChoicesText, frontDocs)
+}
+
+// noCFWays is what setup adds when front: cloudflare cannot go on. Not wanting cf, or not wanting
+// Tifa to manage Cloudflare, is a choice of front, not a choice to leave Cloudflare.
+const noCFWays = "If you do not want to install cf and let Tifa manage Cloudflare (this includes managing DNS and the proxy yourself in the Cloudflare dashboard), write deploy.front: none or deploy.front: external in tifa.yaml. " + frontDocs + " says which one fits your Cloudflare setup. Setup does not change tifa.yaml for you"
+
+// needDomain stops a deploy command with front: cloudflare when site.url has no domain: a Tunnel
+// routes a host name, and an IP address has none.
+func needDomain(d config.Deploy, siteURL, domain string) error {
+	if d.Front != "cloudflare" || (siteURL != "" && !isIPOrLocal(domain)) {
+		return nil
+	}
+	return fmt.Errorf("deploy.front is cloudflare, which needs a domain in site.url, such as https://shop.example.com, and site.url is %s. A Tunnel routes a domain, and an IP address or localhost has none. Set site.url in tifa.yaml. With only an IP address, write deploy.front: none (the app answers in plain HTTP on port 80) or deploy.front: external. %s says which fits", pick(siteURL == "", "not set", siteURL), frontDocs)
+}
+
+// externalListen reads server.addr for deploy.front external: the address and port the systemd
+// socket of the app listens on, for the load balancer or proxy in front. ip is empty for every
+// address of the server. With several servers only a port is accepted, since an address that
+// fits one server is not the address of the others.
+func externalListen(addr string, several bool) (ip string, port int, err error) {
+	host, ps, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", 0, fmt.Errorf("server.addr is %q, which is not host:port: write the port you want to open, such as \":9527\", or an address and port, such as \"10.0.0.5:9527\"", addr)
+	}
+	port, err = strconv.Atoi(ps)
+	switch {
+	case err != nil || port <= 0 || port > 65535:
+		return "", 0, fmt.Errorf("server.addr is %s, and %q is not a port from 1 to 65535", addr, ps)
+	case port < httpPort:
+		return "", 0, fmt.Errorf("server.addr is %s, with the port below 80: setup lets the user %s open ports from 80 only. Use port 80 or a higher one", addr, deployUser)
+	}
+	switch h := strings.ToLower(host); {
+	case addr == config.DefaultAddr:
+		return "", 0, fmt.Errorf("server.addr is %s, the default, which only this machine reaches, and with deploy.front external the load balancer or proxy in front connects from another machine. Set server.addr in tifa.yaml to the port it connects to, such as \":9527\" (every address of the server), or an address and port, such as \"10.0.0.5:9527\" (only that address)", addr)
+	case h == "localhost" || strings.HasSuffix(h, ".localhost") || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()):
+		return "", 0, fmt.Errorf("server.addr is %s, a loopback address that only this machine reaches, and the load balancer or proxy in front connects from another machine. Write \":%d\", or the address of the server's own network", addr, port)
+	case h == "" || net.ParseIP(host) != nil && net.ParseIP(host).IsUnspecified():
+		return "", port, nil
+	case net.ParseIP(host) == nil:
+		return "", 0, fmt.Errorf("server.addr is %s, and the systemd socket of the app listens on an IP address, not a host name. Write an IP address, or only the port, such as \":%d\"", addr, port)
+	case several:
+		return "", 0, fmt.Errorf("server.addr is %s, and the app runs on several servers: an address that fits one server is not the address of the others. Write only the port, such as \":%d\", so each server listens on all its addresses", addr, port)
+	}
+	return net.ParseIP(host).String(), port, nil
 }
 
 // ownDomain is the domain an app with deploy.front none serves HTTPS for itself, and the host
@@ -227,8 +296,14 @@ func loadDeployTargets(dir string, hostFlags []string, notice io.Writer) ([]depl
 	if err != nil {
 		return nil, err
 	}
+	if err := needFront(settings.Deploy); err != nil {
+		return nil, err
+	}
 	domain, err := deployDomain(settings.Deploy, settings.Site.URL)
 	if err != nil {
+		return nil, err
+	}
+	if err := needDomain(settings.Deploy, settings.Site.URL, domain); err != nil {
 		return nil, err
 	}
 	own, err := ownDomain(settings.Deploy, settings.Site.URL)
@@ -247,11 +322,18 @@ func loadDeployTargets(dir string, hostFlags []string, notice io.Writer) ([]depl
 	if why, ok := oneServerFronts[d.Front]; ok && len(hosts) > 1 {
 		return nil, fmt.Errorf("%s names %d servers, and deploy.front is %s, %s: set deploy.front to external in tifa.yaml, and put the servers behind a load balancer of yours", hosts[0].fromText(), len(hosts), d.Front, why)
 	}
+	// With front external the app listens where server.addr says. The other fronts do not read it.
+	fixedPort, listenIP := 0, ""
+	if d.Front == "external" {
+		if listenIP, fixedPort, err = externalListen(settings.Server.Addr, len(hosts) > 1); err != nil {
+			return nil, err
+		}
+	}
 	ts := make([]deployTarget, len(hosts))
 	for i, h := range hosts {
 		ts[i] = deployTarget{root: root, app: app, host: h.addr(), dest: h, domain: domain, front: d.Front, own: own,
 			connectMode: d.Connect, startTimeout: d.StartTimeout, releaseCmd: d.ReleaseCommand, github: d.Auto.On, auto: d.Auto,
-			index: i, count: len(hosts), open: d.Front == "external", fixedPort: d.Port}
+			index: i, count: len(hosts), open: d.Front == "external", fixedPort: fixedPort, listenIP: listenIP}
 	}
 	return ts, nil
 }
@@ -468,7 +550,7 @@ func (t deployTarget) checkMachine(got string) error {
 }
 
 // visitorPort is the port the app on s listens on: with front none 80, or 443 with a domain, with
-// deploy.port that port, and else the port it has, which it keeps, or the first one free.
+// front external the port of server.addr, and else the port it has, which it keeps, or the first one free.
 func (t deployTarget) visitorPort(s serverState) (int, error) {
 	switch {
 	case t.front == "none" && t.own != "":
@@ -488,7 +570,7 @@ func (t deployTarget) visitorPort(s serverState) (int, error) {
 }
 
 // fixedPorts are the ports the app on port needs for itself, whoever else wants them: those of an
-// app that serves visitors itself, and deploy.port. Nil for a port setup picks free.
+// app that serves visitors itself, and the port of server.addr. Nil for a port setup picks free.
 func (t deployTarget) fixedPorts(port int) []int {
 	switch {
 	case t.open && t.fixedPort != 0:
@@ -517,7 +599,7 @@ func (t deployTarget) portsFree(s serverState, port int, programs func() []liste
 	ports := t.fixedPorts(port)
 	instead := fmt.Sprintf("or put %s behind Cloudflare with deploy.front: cloudflare in tifa.yaml", t.app)
 	if t.open {
-		instead = "or set another deploy.port in tifa.yaml"
+		instead = "or set another port in server.addr in tifa.yaml"
 	}
 	for _, p := range ports {
 		other, names, taken := s.holder(t.app, p)
@@ -533,7 +615,7 @@ func (t deployTarget) portsFree(s serverState, port int, programs func() []liste
 		case !taken:
 			continue
 		case other != "" && t.open:
-			return fmt.Errorf("port %d of %s is taken by %s, an app Tifa set up there: set another deploy.port in tifa.yaml, or remove %s from the server (go tool tifa deploy remove in its folder). Nothing was changed", p, t.host, other, other)
+			return fmt.Errorf("port %d of %s is taken by %s, an app Tifa set up there: set another port in server.addr in tifa.yaml, or remove %s from the server (go tool tifa deploy remove in its folder). Nothing was changed", p, t.host, other, other)
 		case other != "":
 			return fmt.Errorf("port %d of %s is taken by %s, an app Tifa set up there. Only one app on a server can serve visitors on ports 80 and 443 itself: remove %s from the server (go tool tifa deploy remove in its folder), %s. Nothing was changed", p, t.host, other, other, instead)
 		}
@@ -546,7 +628,7 @@ func (t deployTarget) portsFree(s serverState, port int, programs func() []liste
 		}
 		if s.NginxTifa && (len(names) == 0 || slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "nginx ") })) {
 			if apps := slices.DeleteFunc(slices.Clone(s.NginxSites), func(a string) bool { return a == t.app }); (len(apps) > 0 || !gone) && t.open {
-				return fmt.Errorf("port %d of %s is held by the nginx of Tifa, which serves %s: set another deploy.port in tifa.yaml, or remove its apps from the server first (go tool tifa deploy remove in their folders). Nothing was changed",
+				return fmt.Errorf("port %d of %s is held by the nginx of Tifa, which serves %s: set another port in server.addr in tifa.yaml, or remove its apps from the server first (go tool tifa deploy remove in their folders). Nothing was changed",
 					p, t.host, pick(len(s.NginxSites) == 0, "no app", strings.Join(s.NginxSites, ", ")))
 			} else if len(apps) > 0 || !gone {
 				return fmt.Errorf("port %d of %s is held by the nginx of Tifa, which serves %s. Only one program can listen on a port, so %s cannot serve visitors itself while it runs: set deploy.front: nginx (or cloudflare) in tifa.yaml, or remove its apps from the server first (go tool tifa deploy remove in their folders). Nothing was changed",
@@ -582,7 +664,7 @@ func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stde
 		}
 		return s, fmt.Errorf("%s serves visitors on %s itself, which only root may open on %s yet: run go tool tifa deploy setup", t.app, portsText(port), t.host)
 	}
-	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), t.open, false, false, false, t.healthWait()), nil, io.Discard, stderr); err != nil {
+	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), t.listenIP, t.open, false, false, false, t.healthWait()), nil, io.Discard, stderr); err != nil {
 		return s, err
 	}
 	fmt.Fprintf(stdout, "created %s on %s: %s/%s, %s, empty shared/.env\n", t.app, t.host, s.Home, t.app, t.portsText(port))
@@ -768,7 +850,7 @@ func deploy(ctx context.Context, ts []deployTarget, stdout, stderr io.Writer) (e
 				return err
 			}
 		case t.fixedPort != 0 && s.Port != t.fixedPort:
-			return fmt.Errorf("%s has port %d on %s, and deploy.port is %d: run go tool tifa deploy setup, which moves it", t.app, s.Port, t.host, t.fixedPort)
+			return fmt.Errorf("%s has port %d on %s, and server.addr says port %d: run go tool tifa deploy setup, which moves it", t.app, s.Port, t.host, t.fixedPort)
 		case i > 0 && s.Port != states[0].Port:
 			return fmt.Errorf("%s has port %d on %s and %d on %s: run go tool tifa deploy setup, which gives it one port on every server", t.app, states[0].Port, first.host, s.Port, t.host)
 		}
@@ -1316,6 +1398,10 @@ func printBalancerTargets(ctx context.Context, ts []deployTarget, states []serve
 	var open []string
 	for i, t := range ts {
 		addr := t.serverAddress(ctx)
+		if t.listenIP != "" {
+			// The app listens on that address only, so it is the one the balancer connects to.
+			addr = t.listenIP
+		}
 		target := net.JoinHostPort(addr, strconv.Itoa(states[i].Port))
 		fmt.Fprintf(w, "  %-24s %s\n", target, t.host)
 		if portAnswers(ctx, "http", addr, states[i].Port) {
