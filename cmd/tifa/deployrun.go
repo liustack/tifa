@@ -14,26 +14,36 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// runBody runs as the deploy user with the arguments of the command in $@. It runs the program of
-// the current release in the folder of the service, where the program reads its .env, with the
-// variables unitsOf gives the service besides: those of HTTPS when the app serves it itself.
-const runBody = `d="$HOME/$app"
-cd "$d/shared" || exit 1
+// serviceEnvBody goes into the folder of the service, where the program reads its .env, and sets
+// the variables unitsOf gives the service besides: those of HTTPS when the app serves it itself.
+// It needs $d, the folder of the app.
+const serviceEnvBody = `cd "$d/shared" || exit 1
 if [ -s "$d/https" ]; then
 	SERVER_TLS_DOMAINS=$(cat "$d/https")
 	SERVER_TLS_CACHE="$d/certs"
 	export SERVER_TLS_DOMAINS SERVER_TLS_CACHE
 fi
-exec "$d/current/$app" "$@"
 `
 
-// runScript is runBody for app with args, each a word of its own whatever it holds.
-func runScript(app string, args []string) string {
+// runBody runs as the deploy user with the arguments of the command in $@. It runs the program of
+// the current release as the service runs it.
+const runBody = `d="$HOME/$app"
+` + serviceEnvBody + `exec "$d/current/$app" "$@"
+`
+
+// commandArgs is "set --" with args, each a word of its own whatever it holds, for a script that
+// runs the program with "$@".
+func commandArgs(args []string) string {
 	words := make([]string, len(args))
 	for i, a := range args {
 		words[i] = shellQuote(a)
 	}
-	return script("set -- "+strings.Join(words, " ")+"\n"+runBody, "app", app)
+	return "set -- " + strings.Join(words, " ") + "\n"
+}
+
+// runScript is runBody for app with args.
+func runScript(app string, args []string) string {
+	return script(commandArgs(args)+runBody, "app", app)
 }
 
 // deployRun runs the program of the current release of the app with args, over ssh as the deploy

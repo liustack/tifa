@@ -121,7 +121,7 @@ type deployRecord struct {
 	ID     string // the release
 	Commit string // git commit of the app, with -dirty for uncommitted changes, or none
 	Action string // deploy or rollback
-	Result string // ok, or failed when the health check failed
+	Result string // ok, failed when the health check failed, or beforeStartFailed
 }
 
 // serverState is what the probe script prints about the server and the app, as the deploy user.
@@ -460,7 +460,10 @@ func rollbackTo(s serverState, id string) (target deployRecord, current bool, er
 		}
 	}
 	why := "is not kept on the server"
-	if slices.Contains(s.Releases, id) {
+	switch {
+	case slices.Contains(s.Releases, id) && s.latest(id).Result == beforeStartFailed:
+		why = "failed deploy.before_start when it was deployed"
+	case slices.Contains(s.Releases, id):
 		why = "did not pass its health check when it was deployed"
 	}
 	if len(options) == 0 {
@@ -920,6 +923,11 @@ const healthCheckFunc = askFunc + `check() {
 }
 `
 
+// recordFunc is the shell function that adds a line to deploys.log: the time, the release in $1,
+// the commit in $2, $action and the result in $3. It needs $d and $action.
+const recordFunc = `record() { printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$action" "$3" >> "$d/deploys.log"; }
+`
+
 // activateBody runs as the deploy user. It points current at a release, restarts the program
 // through its socket and asks the new program for healthPath until it answers below 500. Then it
 // records the release as ok and deletes the old releases in prune. Otherwise it records the
@@ -935,8 +943,7 @@ cd "$d" || exit 1
 exec 9>"$d/.lock"
 if ! flock -n 9; then echo "tifa: another deploy of $app runs on the server" >&2; exit 1; fi
 if [ ! -x "releases/$id/$app" ]; then echo "tifa: the server has no release $id of $app" >&2; exit 1; fi
-record() { printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$action" "$3" >> deploys.log; }
-start() {
+` + recordFunc + `start() {
 	ln -sfn "releases/$1" current
 	systemctl --user reset-failed "$unit.socket" "$unit.service" >/dev/null 2>&1
 	systemctl --user start "$unit.socket" && systemctl --user restart "$unit.service"

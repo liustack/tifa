@@ -665,6 +665,31 @@ func (v startTimeoutValue) Set(s string) error {
 func (v startTimeoutValue) String() string { return v.p.String() }
 func (v startTimeoutValue) kind() string   { return "duration" }
 
+// commandValue is deploy.before_start: a command of the app with its arguments, split at spaces
+// and tabs, empty for none. Each word reaches the program as it is written, so quotes, which a
+// shell would take away, are refused. So are a first word that is a flag and serve, with which the
+// program serves instead of running a command that ends.
+type commandValue struct{ p *[]string }
+
+func (v commandValue) Set(s string) error {
+	words := strings.Fields(s)
+	switch {
+	case strings.ContainsAny(s, `"'`):
+		return fmt.Errorf("%q: write the words with spaces between them and no quotes, such as migrate --to 3: it is no shell line, and each word goes to the program as it is", s)
+	case len(words) > 0 && strings.HasPrefix(words[0], "-"):
+		return fmt.Errorf("%q: the first word must be a command of the app, such as migrate, not a flag", s)
+	case len(words) > 0 && words[0] == "serve":
+		return fmt.Errorf("%q: serve starts the server and does not end: name a command of the app that does, such as migrate", s)
+	}
+	if len(words) == 0 {
+		words = nil
+	}
+	*v.p = words
+	return nil
+}
+func (v commandValue) String() string { return strings.Join(*v.p, " ") }
+func (v commandValue) kind() string   { return "string" }
+
 // branchValue is deploy.auto.branch: one branch name. Empty means the default branch of the repository.
 type branchValue struct{ p *string }
 

@@ -73,6 +73,8 @@ type deployTarget struct {
 	github       bool
 	auto         config.Auto
 	startTimeout time.Duration
+	// beforeStartCmd is deploy.before_start: the command of the app and its arguments, nil for none.
+	beforeStartCmd []string
 }
 
 // healthTries is how many times, a second apart, the server asks for healthPath before a release
@@ -192,7 +194,7 @@ func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, err
 		return deployTarget{}, err
 	}
 	return deployTarget{root: root, app: app, host: h.addr(), dest: h, domain: domain, front: settings.Deploy.Front, own: own,
-		connectMode: settings.Deploy.Connect, startTimeout: settings.Deploy.StartTimeout, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
+		connectMode: settings.Deploy.Connect, startTimeout: settings.Deploy.StartTimeout, beforeStartCmd: settings.Deploy.BeforeStart, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
 }
 
 // sshWaitDelay is how long ssh may leave its output open once it has ended.
@@ -632,6 +634,11 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err 
 	a := activation{App: t.app, ID: id, Commit: gitCommit(t.root), Port: s.Port, Action: "deploy",
 		Back: fallback(s), Prune: pruneReleases(s.Releases, s.Current, id, keepReleases), Tries: t.healthTries()}
 	sum.Commit = a.Commit
+	if len(t.beforeStartCmd) > 0 {
+		if err := t.beforeStart(ctx, id, a.Commit, s.Current, stdout, stderr); err != nil {
+			return err
+		}
+	}
 	if err := t.activate(ctx, a, health, stderr); err != nil {
 		return err
 	}

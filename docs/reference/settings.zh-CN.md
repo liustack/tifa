@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的每一项设置：名称、默认值、参数、环境变量和作用'
 audience: app
 order: 7
-translatedFrom: 1d05a5bd66a6
+translatedFrom: 88671e682d48
 read_when:
   - '修改会话的有效时长、会话 Cookie 名，或者默认会话存储可以用多少内存'
   - '部署 Tifa 应用，或者修改它的端口、请求体上限、读写超时、压缩、虚拟机数量、虚拟机栈深度、渲染超时、渲染队列、渲染记忆，或者带 `Cache` 的页面发出的 Cache-Control'
@@ -58,6 +58,7 @@ read_when:
 | `session.memory_limit` | `64MiB` | `--session-memory-limit`、`SESSION_MEMORY_LIMIT` | 内存会话存储最多能保存的字节数，在 `OnStart` 没有用 `tifa.SetSessionStore` 设置存储时使用。存储满了会丢掉最先过期的会话 |
 | `deploy.front` | `none` | 仅项目文件 | 访客在到达服务器之前经过什么：`none`、`cloudflare` 或 `nginx`。选 `none` 时，应用自己在 80 端口上接待访客，`site.url` 里有域名时还在 443 端口上用自己的 HTTPS。选 `cloudflare` 时，`tifa deploy setup` 会用 `cf` 把应用放在 Cloudflare Tunnel 后面，主机是 `site.url` 的主机，`deploy` 和 `rollback` 会清除那个主机名的 CDN 缓存。需要不带端口的 `site.url`。选 `nginx` 时，`tifa deploy setup` 会安装一个由它自己管的 nginx，按 `site.url` 的主机把访客送到应用，证书来自 certbot，这样几个应用可以共用一台服务器。见[按方案设置](../build-and-deploy/deploy-setup.zh-CN.md#set-up-with-a-plan)和[在 nginx 后面](../build-and-deploy/deploy-proxy.zh-CN.md#behind-nginx) |
 | `deploy.connect` | `direct` | 仅项目文件 | 部署如何经 ssh 连到服务器，从你的机器和从 CI 都一样：`direct`、`cloudflare`（经 Cloudflare Tunnel）或 `tailscale`（CI 的 runner 加入你的 tailnet）。`cloudflare` 需要 `deploy.front: cloudflare`，`tailscale` 需要 `deploy.auto` 这个块 |
+| `deploy.before_start` | 无 | 仅项目文件 | 应用的一条命令和它的参数，比如 `migrate`。每次部署在服务器上用新发布的程序运行它一次，在启动新发布之前，这时旧发布还在服务，运行方式和 `tifa deploy run` 一样。这些词按空格拆开，没有引号，也不经过 shell。以 0 以外的状态退出时部署停下，什么都不变。回滚从不运行它。见[启动前的命令](../build-and-deploy/deploy.zh-CN.md#a-command-before-the-start) |
 | `deploy.start_timeout` | `30s` | 仅项目文件 | 新发布启动并回答 `/healthz` 最多可以花多长时间，写成 Go 的时长，整秒数，从 `1s` 到 `10m`。部署失败后回退到的那个发布的检查，以及 `deploy rollback` 的检查，用同样的时间。发布启动期间访客的请求在 socket 上等着，所以等得越久，站点停住得越久。发布没在时间内起来，部署就失败，旧的继续运行。见[慢启动](../build-and-deploy/deploy.zh-CN.md#a-slow-start) |
 | `deploy.auto.branch` | 仓库的默认分支 | 仅项目文件 | 有 `deploy.auto` 块时：从 GitHub Actions 部署的分支。见[从 GitHub Actions 部署](../build-and-deploy/deploy-github-actions.zh-CN.md#deploy-from-github-actions) |
 | `deploy.auto.needs` | `ci.yml` | 仅项目文件 | 有 `deploy.auto` 块时：`.github/workflows` 里必须先通过才会部署的那个文件，比如 `ci.yml`，写 `none` 就什么也不等 |

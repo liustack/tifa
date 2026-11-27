@@ -5,6 +5,7 @@ order: 19
 read_when:
   - Adding a command to the program of an app, such as one that fills the database with sample data or makes a user an admin
   - Changing data on the server once, by hand or from an agent
+  - Running a command with the new release before a deploy starts it, such as migrate with deploy.before_start
   - Testing a command with tifatest.Command
   - A command writes the SQLite database while the app serves, or the app backs its database up with db.backup
 ---
@@ -17,7 +18,7 @@ The code is from an app made with `tifa new` (module `example.com/notes`) that k
 
 ## Add a command
 
-`OnCommand` in `hooks.go` gets the root command of the program and adds the commands of the app to it:
+`OnCommand` in `hooks.go` gets the root command of the program and adds the commands of the app to it. An app from `tifa new` has one already, `migrate`, which runs the migrations as `OpenDB` does (see [At start or before the switch](database.md#at-start-or-before-the-switch)). Add yours next to it:
 
 ```go
 // hooks.go
@@ -25,7 +26,7 @@ import "github.com/spf13/cobra"
 
 // OnCommand adds the commands of the app to its program, next to serve, config and version.
 func OnCommand(root *cobra.Command) {
-	root.AddCommand(seedCmd(), promoteCmd())
+	root.AddCommand(migrateCmd(), seedCmd(), promoteCmd())
 }
 ```
 
@@ -217,6 +218,7 @@ go tool tifa deploy run --host vps2 seed  # flags of deploy run go before the co
 - The output, the error output and the exit status are those of the command, so a script or an agent can read them.
 - On a terminal, the command gets a terminal on the server too, so it can ask a question and Ctrl-C reaches it. Without one, as an agent runs it, the input of `deploy run` is the input of the command: `go tool tifa deploy run import < todos.csv`.
 - It runs the release that is live. A command added in a new release runs on the server once that release is deployed.
+- To run a command with the new release on each deploy, before it starts and while the old one serves, name it in `deploy.before_start`, as `before_start: migrate` (see [A command before the start](../build-and-deploy/deploy.md#a-command-before-the-start)). A failure there stops the deploy.
 - To run a command after each good deploy, on your machine or in CI, see [After a deploy](../build-and-deploy/deploy-operate.md#after-a-deploy).
 
 ## While the app serves
@@ -226,4 +228,4 @@ A command on the server is a second program next to the service, and both open t
 - **Writes take turns.** SQLite lets one write in at a time, also across programs. A write waits up to 5 seconds for another by default, and `OpenDB` makes each transaction take the write lock as it starts, so the command and the service wait for each other instead of failing with `database is locked`. Keep each transaction short: `Seed` with a large `--count` holds the write lock until it commits, and requests that write wait meanwhile. Write thousands of rows in batches of a few hundred, one transaction each. See [When a write gets `database is locked`](database.md#when-a-write-gets-database-is-locked).
 - **The backup sends the whole database again.** With [`db.backup`](database.md#back-it-up), the copy in the service follows only the writes it sees. A write from another program makes it upload the whole database again, once. For a large database, run commands that write in one go rather than many small ones.
 - **No second backup.** A command does not run `OnStart`, so it does not start a copy of its own. Do not call `StartBackup` in a command: two programs that write to the same path in the bucket break the copy.
-- **Migrations ran already.** The service ran the migrations of the live release in its `OnStart`, so `OpenDB` in the command finds nothing to run.
+- **Migrations ran already.** The service ran the migrations of the live release in its `OnStart`, or `deploy.before_start` ran them before it started, so `OpenDB` in the command finds nothing to run.

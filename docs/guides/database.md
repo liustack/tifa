@@ -6,6 +6,7 @@ read_when:
   - Adding a database to a Tifa app, or growing the one `tifa new` wrote
   - Changing a table of an app that is already running
   - Writing a file in `migrations/`, or the app does not start because of one
+  - Choosing whether migrations run when the app starts or before a deploy starts it (deploy.before_start), or running them with several copies of the app
   - Deciding between SQLite and Postgres for a Tifa app, or using a migration library other than goose
   - Writing Go tests for code that reads or writes the database
   - A write fails with `database is locked` or `SQLITE_BUSY`
@@ -263,21 +264,50 @@ PRAGMA foreign_keys = ON;
 - The new table keeps every column, so older releases still work on it, unless the new constraint fails their writes.
 - The first line says what the rebuild keeps. `TestDropsSayWhy` asks for it, since the file holds a `DROP TABLE`.
 
+### At start or before the switch
+
+A deploy can run the migrations at one of two moments. Both run the same `migrate` of `db.go`.
+
+- **At start, the default.** `OnStart` of the new release runs them through `OpenDB`. `tifa deploy` has stopped the old program by then, so the site pauses while they run: requests wait on the socket and get their answer once the new release listens, none is lost. A short migration adds little to the pause of the restart itself.
+- **Before the switch, with `deploy.before_start: migrate` in `tifa.yaml`.** The deploy runs the command `migrate`, which `tifa new` writes into `hooks.go`, with the new release once, before it starts it, while the old release keeps serving (see [A command before the start](../build-and-deploy/deploy.md#a-command-before-the-start)). When it fails, nothing is switched. `OnStart` of the new release then finds nothing to run, so the pause is only the restart. On SQLite this keeps reads going during a long migration, but not writes: a migration holds the write lock until its file commits, so the writes of the old release wait `busy_timeout` (5 seconds) and then fail with `database is locked`. Split a long migration into short files, or run it at a quiet time.
+
+The rules are the same for both:
+
+- **Each release runs on the tables of the next.** Before the switch, the old release serves on the new tables while the command runs. At start, a rollback starts an older release on them. Either way, follow [Keep a rollback working](#keep-a-rollback-working).
+- **Neither rolls the database back.** A failed deploy or a rollback leaves the files that ran.
+
+Tifa promises a short pause per deploy and no lost request. No pause at all would need the old and the new program to serve at the same time, which `tifa deploy` does not do.
+
 ### How long a migration may take
 
-`tifa deploy` waits for a new release to answer its health check for `deploy.start_timeout`, 30 seconds unless you set it, and visitors wait while it starts (see [A slow start](../build-and-deploy/deploy.md#a-slow-start)). The migrations, the copy of the database when `db.backup` is empty, and the rest of `OnStart` must fit in that time. When they do not, the deploy counts the release as failed and starts the one before: the file that was running is undone, the files before it stay, and the next deploy of the same release goes on from there.
+When the migrations run at start, `tifa deploy` waits for a new release to answer its health check for `deploy.start_timeout`, 30 seconds unless you set it, and visitors wait while it starts (see [A slow start](../build-and-deploy/deploy.md#a-slow-start)). The migrations, the copy of the database when `db.backup` is empty, and the rest of `OnStart` must fit in that time. When they do not, the deploy counts the release as failed and starts the one before: the file that was running is undone, the files before it stay, and the next deploy of the same release goes on from there.
 
-Adding a column takes no time, whatever the size of the table. Building an index on a large table, or rebuilding one, can take longer. Raise `deploy.start_timeout` for it, or make it smaller: write such a file so that it can run twice, such as `CREATE INDEX IF NOT EXISTS todos_by_done ON todos (done);`, run that statement by hand on the server at a quiet time, then deploy, and the file finds the index and is done at once. Keep `db.backup` on for a large database, since the copy writes the whole file.
+Adding a column takes no time, whatever the size of the table. Building an index on a large table, or rebuilding one, can take longer. Raise `deploy.start_timeout` for it, run it before the switch as above, or make it smaller: write such a file so that it can run twice, such as `CREATE INDEX IF NOT EXISTS todos_by_done ON todos (done);`, run that statement by hand on the server at a quiet time, then deploy, and the file finds the index and is done at once. Keep `db.backup` on for a large database, since the copy writes the whole file.
 
 ### Postgres
 
 The same `migrate` runs a Postgres app: open the database with pgx (see [When to use Postgres](#when-to-use-postgres)) and pass `goose.DialectPostgres` to `goose.NewProvider`. Leave out the `VACUUM INTO` copy, which is SQLite's, and delete `TestSchema` and `schema.sql`, which read SQLite's tables. The files hold Postgres SQL and follow the same rules. Postgres changes a column type or a constraint with `ALTER TABLE`, in goose's transaction, so it needs no rebuild.
 
+With several copies of the app on one database, such as behind a load balancer, in containers or on Kubernetes, each copy runs `OnStart`. Give goose Postgres's lock, so one copy migrates and the others wait for it ([goose's locking](https://pkg.go.dev/github.com/pressly/goose/v3/lock)):
+
+```go
+// import "github.com/pressly/goose/v3/lock"
+// A copy waits up to 5 minutes for the lock by default. Here it waits up to 30 (every 5 seconds,
+// 360 times), for migrations that may take that long.
+locker, err := lock.NewPostgresSessionLocker(lock.WithLockTimeout(5, 360))
+if err != nil {
+	return err
+}
+p, err := goose.NewProvider(goose.DialectPostgres, db, dir, goose.WithSessionLocker(locker))
+```
+
+Before the switch fits several copies better: run `migrate` once, before the copies roll out, as a Kubernetes Job, a Helm `pre-upgrade` hook, the `release_command` of Fly or the release phase of Heroku. A rolling deploy runs old and new copies at the same time, so the rule that each release runs on the tables of the next holds on every deploy, not only after a rollback.
+
 ### Another migration library
 
 Any library works if it does three things `tifa deploy` counts on:
 
-- **It runs in `OnStart`**, before the app listens, and finishes within the start wait above.
+- **It runs in `OnStart`**, before the app listens, and finishes within the start wait above, or in a command that `deploy.before_start` runs.
 - **It starts on a database that ran files it does not have.** After a rollback, the older release finds the versions of the newer one. goose skips them. golang-migrate does not: its `Up` stops with `no migration found for version 5` when the database is at a version it has no file for, and with `Dirty database version 5. Fix and force version.` after a file failed halfway. The release a rollback goes back to then does not start, and the site stays down until someone fixes the database by hand.
 - **A failed run leaves tables the running release can use**: each file in a transaction, or all of them in one, as on SQLite and Postgres.
 
