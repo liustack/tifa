@@ -86,6 +86,16 @@ At 1.5 times its capacity, the shop rejected 34% of the requests and answered th
 
 How a VM is collected and replaced, and what each number was measured with: [Memory](../studies/capacity.md#memory).
 
+### A server with 512 MB
+
+The shop runs on a cloud server with 1 CPU and 512 MB (458 MB for the system, about 280 MB free after the start) with the default settings. With 64 requests in flight for 30 minutes over the 1,638 pages of its storefront, the process held 160 to 175 MB, the server kept about 150 MB free, and nothing was killed for want of memory (2026-11-28). On such a server:
+
+- **Keep `ssr.vms` at 1.** It is the default on 1 CPU. On 2 CPUs and 512 MB the default is 2 VMs: under the same load the process grew to about 190 MB and the kernel killed it. Set `ssr.vms: 1` there.
+- **Set `GOMEMLIMIT` as a ceiling**, such as `150MiB` with `go tool tifa deploy env set GOMEMLIMIT`. Go lets its heap grow to about twice what it holds before it collects, and the render memo is part of the heap, so a full memo of 64 MiB takes the process to about 180 MB. Below the limit nothing changes: the shop stayed under 150 MiB and ran as it did without one. Near the limit Go collects more often: with `120MiB` the shop held 153 MB in place of 173 MB and answered about a tenth fewer requests. See [.env](../build-and-deploy/config.md#env) for `GOMEMLIMIT` in `.env`.
+- **Keep `ssr.memo_size` big enough for the pages asked again and again.** With `32MiB` the memo held 1,086 of the 1,638 pages, a third of the requests rendered again, and the one VM answered 28% of them with 503. Lower it only when the memory still runs out with `GOMEMLIMIT`.
+- **Stop fwupd on a cloud server with Ubuntu.** Its timer starts the firmware update service a few times a day. It took 200 MB and kept it, and the kernel killed the app 9 times in 13 minutes. A virtual machine has no firmware for it to update: `sudo systemctl mask --now fwupd.service fwupd-refresh.timer`. Keep the automatic security updates: they ran during the test without trouble.
+- **Avoid plans with burstable CPU**, such as Amazon Lightsail and EC2 T instances. They give a share of each CPU (5% on the 512 MB Lightsail plan) and save credits to go above it. Under steady load the credits ran out within minutes, then every render ran past `ssr.timeout` and the program answered 503 until the load fell.
+
 ## Compression
 
 [`server.compress`](settings.md#settings) is on by default. Compressing a page costs 1% to 2% of its render time and makes it about 6 times smaller. The browser bundle goes out as the gzip files the build wrote, at no CPU. A page from the render memo is kept in its gzip form, so answering it compressed costs less than uncompressed. [The tables](../studies/capacity.md#compression).

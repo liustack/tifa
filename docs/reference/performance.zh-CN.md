@@ -2,7 +2,7 @@
 summary: 'Tifa 应用在一个核上能提供多少，以及怎样估算资源：Next.js、TanStack Start、`ssr.vms`、内存、过载、压缩'
 audience: app
 order: 3
-translatedFrom: 16ab900d1769
+translatedFrom: ed94fb276903
 read_when:
   - '决定 Tifa 应用需要多少 CPU 和内存，或者设置 `ssr.vms`'
   - '请求到达的速度比页面渲染的速度快，或者需要给渲染队列定大小'
@@ -86,6 +86,16 @@ shop 用三种方式构建：Tifa，以及 Next.js 和 TanStack Start 应用，�
 - **空闲的 VM 会把空闲内存还给系统**，在一秒没有渲染之后。
 
 VM 是怎么被回收和替换的，以及每个数字是用什么测的：[内存](../studies/capacity.md#memory)。
+
+### 512 MB 的服务器 {#a-server-with-512-mb}
+
+shop 用默认设置就能跑在 1 核 512 MB 的云服务器上（系统看到 458 MB，开机后空闲约 280 MB）。在店面的 1,638 个页面上保持 64 个请求同时进行，持续 30 分钟，进程占 160 到 175 MB，服务器始终留有约 150 MB 空闲，没有进程因为内存不够被杀（2026-11-28）。在这样的服务器上：
+
+- **`ssr.vms` 保持为 1。** 1 核时默认就是 1。2 核 512 MB 时默认是 2 个 VM：同样的负载下进程涨到约 190 MB，被内核杀掉。那种机器上设 `ssr.vms: 1`。
+- **用 `GOMEMLIMIT` 设一个上限**，比如用 `go tool tifa deploy env set GOMEMLIMIT` 设成 `150MiB`。Go 让堆长到它实际占用的大约两倍才回收，渲染记忆 memo 也在堆里，所以 64 MiB 的 memo 存满时，进程会到约 180 MB。没碰到上限时什么都不变：shop 一直低于 150 MiB，跑得和不设时一样。接近上限时 Go 回收得更勤：设成 `120MiB` 时，shop 占 153 MB（不设时 173 MB），每秒少答约一成请求。`.env` 里的 `GOMEMLIMIT` 见 [.env](../build-and-deploy/config.zh-CN.md#env)。
+- **`ssr.memo_size` 要装得下反复被访问的页面。** 设成 `32MiB` 时，memo 只装下 1,638 个页面里的 1,086 个，三分之一的请求要重新渲染，唯一的 VM 对其中 28% 回了 503。只有设了 `GOMEMLIMIT` 内存还是不够时，才调小它。
+- **Ubuntu 云服务器上停掉 fwupd。** 它的定时任务一天会拉起几次固件更新服务。这个服务占了 200 MB 一直不放，13 分钟里内核把应用杀了 9 次。虚拟机没有固件给它更新：`sudo systemctl mask --now fwupd.service fwupd-refresh.timer`。自动安全更新要留着：测试期间它照常运行，没有出问题。
+- **避开 CPU 按积分突发的套餐**，比如 Amazon Lightsail 和 EC2 的 T 系列。它们每个 CPU 只保证一个份额（512 MB 的 Lightsail 套餐是 5%），攒下积分才能超出。持续有负载时，积分几分钟就用完了，之后每次渲染都超过 `ssr.timeout`，程序一直回 503，直到负载降下来。
 
 ## 压缩 {#compression}
 
