@@ -5,6 +5,7 @@ package main
 // call, and plays the guarded scripts, which wait for the answer of this machine, as the real ones do.
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -703,5 +705,64 @@ func TestHardenSSHScriptKeepsOrUndoes(t *testing.T) {
 	file, record, log, err = run(t, "yes", "keep\n")
 	if err == nil || file != "" || record != "" || strings.Contains(log, "reload") && strings.Count(log, "reload") > 1 {
 		t.Errorf("err %v, file %q, record %q, log %q", err, file, record, log)
+	}
+}
+
+// A dropped ssh connection sends SIGHUP to the script while it waits for the answer. dash, which is
+// sh on Ubuntu, runs no EXIT trap when a signal kills it, so the change would stay: the guarded
+// scripts trap the signals too. Run under dash, with the connection still open as it is then.
+func TestHardenGuardedScriptsUndoOnSignals(t *testing.T) {
+	dash, err := exec.LookPath("dash")
+	if err != nil {
+		t.Skip("dash is not installed")
+	}
+	for _, sig := range []syscall.Signal{syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT} {
+		t.Run(sig.String(), func(t *testing.T) {
+			dir := t.TempDir()
+			bin := filepath.Join(dir, "bin")
+			writeFile(t, filepath.Join(bin, "sshd"), "#!/bin/sh\nif [ \"$1\" = -T ]; then echo 'passwordauthentication no'; fi\n")
+			writeFile(t, filepath.Join(bin, "systemctl"), "#!/bin/sh\nexit 0\n")
+			for _, n := range []string{"sshd", "systemctl"} {
+				if err := os.Chmod(filepath.Join(bin, n), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sshFile, rec := filepath.Join(dir, "sshd_config.d", "00-tifa-harden.conf"), filepath.Join(dir, "tifa", "harden")
+			body := script(hardenLib, "record", rec, "ssh_file", sshFile, "ufw_comment", hardenUFWComment, "root_login", "no") +
+				"PATH=" + shellQuote(bin) + ":$PATH\n" + hardenSSHBody
+			c := exec.Command(dash, "-c", body)
+			in, err := c.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := c.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer in.Close()
+			line, _ := bufio.NewReader(out).ReadString('\n')
+			if !strings.Contains(line, hardenReady) {
+				t.Fatalf("got %q", line)
+			}
+			if _, err := os.Stat(sshFile); err != nil {
+				t.Fatalf("the change is not there before the signal: %v", err)
+			}
+			if err := c.Process.Signal(sig); err != nil {
+				t.Fatal(err)
+			}
+			werr := c.Wait()
+			if werr == nil {
+				t.Error("exits 0 after a signal")
+			}
+			if _, err := os.Stat(sshFile); err == nil {
+				t.Error("the file stays after the signal")
+			}
+			if _, err := os.Stat(rec); err == nil {
+				t.Error("the record stays after the signal")
+			}
+		})
 	}
 }

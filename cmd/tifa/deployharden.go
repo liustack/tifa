@@ -143,6 +143,9 @@ undo_ssh() {
 	recdone
 }
 trap 'if [ "$ok" != 1 ]; then undo_ssh; fi' EXIT
+# dash runs no EXIT trap when a signal kills it, and a dropped connection sends SIGHUP: exit from the
+# trap of the signal, which runs the one above.
+trap 'exit 1' HUP TERM INT
 mkdir -p "$(dirname "$ssh_file")"
 recset sshd_file yes
 {
@@ -198,6 +201,7 @@ pick_dir() { if [ "$1" = in ]; then echo incoming; else echo outgoing; fi; }
 const hardenUFWBody = `# tifa: harden ufw
 ok=0
 ` + hardenUFWUndo + `trap 'if [ "$ok" != 1 ]; then undo_ufw; fi' EXIT
+trap 'exit 1' HUP TERM INT
 recset ufw_before "$before"
 if ! command -v ufw >/dev/null 2>&1; then
 	recset ufw_installed yes
