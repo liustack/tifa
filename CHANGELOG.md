@@ -11,6 +11,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- A VM that replaces one after a failed render now loads without a time limit. On a machine short of CPU, such as a small cloud server out of CPU credits, loading the bundle could take longer than the minute it had, and every try started over, so the pool could stay with no VM, and every page the render memo did not hold failed until the load eased. The VMs the program starts with keep the limit, which stops a bundle that never ends, and stopping the program interrupts a load still running.
 - `tifa deploy setup` of an app that moves off `front: cloudflare` to `external`, `none` or `nginx` now also removes the Cloudflare Tunnel of the server when no route of it is left: it stops cloudflared and the service `tifa-tunnel`, deletes their files (and cloudflared when setup installed it), and deletes the tunnel in your Cloudflare account, the way `tifa deploy remove` does. It reads the routes from Cloudflare, so a route of another app, or the ssh host name of any app, keeps the tunnel. Without cf logged in, or when the routes cannot be read, the tunnel stays and the plan says how to remove it. Before, it removed the route, DNS record and rules and left the tunnel running for nothing.
 
 ## [0.8.0] - 2026-11-28

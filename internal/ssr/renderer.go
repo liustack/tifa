@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/liustack/beastjs"
@@ -63,11 +64,13 @@ func Check(source string, sourceMap []byte) error {
 const (
 	checkMemory  = 1 << 30
 	checkTimeout = time.Minute
-	// startTimeout is how long compiling the bundle and loading a VM (the bundle's top level code)
-	// may take. ssr.timeout is the budget of a render, and a slow or busy machine can take longer
-	// than a short one to start, so it does not limit this. The limit only stops code that never ends.
-	startTimeout = time.Minute
 )
+
+// startTimeout is how long compiling the bundle and loading the first VMs (the bundle's top level
+// code) may take. ssr.timeout is the budget of a render, and a slow or busy machine can take longer
+// than a short one to start, so it does not limit this. The limit only stops code that never ends.
+// A VM that replaces another has no limit: the bundle has loaded already (see Pool.refill).
+var startTimeout = time.Minute
 
 // Load creates a VM, gives it Intl and Temporal and runs the bundle's top level code, which
 // defines startRender. A top-level await of the bundle finishes here: Load runs the jobs it
@@ -99,14 +102,49 @@ const (
 // code of its own: globalThis.startRender as the bundle left it, which a render calls even when
 // the bundle replaces it later.
 func Load(bytecode *beastjs.SharedBytecode, memory, stack uintptr, timeout time.Duration, dev bool) (*VM, error) {
+	return load(bytecode, memory, stack, timeout, dev, startTimeout, nil)
+}
+
+// load is Load with limit, how long the bundle's top level code may run, 0 for no limit, which the
+// finalizer callbacks after it get too, and stop, which ends the load with an interrupt once it is
+// closed. A nil stop never does.
+func load(bytecode *beastjs.SharedBytecode, memory, stack uintptr, timeout time.Duration, dev bool, limit time.Duration, stop <-chan struct{}) (*VM, error) {
 	js, err := beastjs.NewVM()
 	if err != nil {
 		return nil, err
 	}
+	if stop != nil {
+		loaded := make(chan struct{})
+		var watch sync.WaitGroup
+		watch.Go(func() {
+			select {
+			case <-loaded:
+				return
+			case <-stop:
+			}
+			// The next call into javascript drops an Interrupt asked between two calls, so it is
+			// asked again until the load ends.
+			tick := time.NewTicker(10 * time.Millisecond)
+			defer tick.Stop()
+			for {
+				js.Interrupt()
+				select {
+				case <-loaded:
+					return
+				case <-tick.C:
+				}
+			}
+		})
+		// No Interrupt reaches the VM once load has returned it.
+		defer func() { close(loaded); watch.Wait() }()
+	}
+	if limit == 0 {
+		timeout = 0
+	}
 	vm := &VM{VM: js}
 	vm.SetMemoryLimit(memory)
 	vm.SetMaxStackSize(stack)
-	if err = vm.SetEvalTimeout(startTimeout); err == nil {
+	if err = vm.SetEvalTimeout(limit); err == nil {
 		// The engine asks for url.Register after the eval timeout and before intl.Register.
 		err = registerURL(vm.VM)
 	}
