@@ -168,7 +168,7 @@ func TestNewAppBacksUpItsDatabase(t *testing.T) {
 }
 
 // TestNewAppMigrates runs testdata/newapp_migrate_test.go in the root package of a new app: what
-// migrate.go does beyond the tests the app has of it, with migrations of its own.
+// migrate in db.go does with goose, beyond the tests the app has, with migrations of its own.
 func TestNewAppMigrates(t *testing.T) {
 	skipUnlessEnabled(t)
 	dir := createNewApp(t)

@@ -93,7 +93,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		"app/about/page.tsx", "app/layout.tsx", "app/page.tsx", "app/route.go", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/page.tsx", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go",
 		"app/todos/todo.go", "app/todos/todo_test.go",
-		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "migrate.go", "migrate_test.go", "migrations/001_init.sql", "options.go", "package.json",
+		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "migrate_test.go", "migrations/001_init.sql", "options.go", "package.json",
 		"pnpm-workspace.yaml", "schema.sql",
 		"sessions.go", "sessions_test.go", "tifa.yaml", "tsconfig.json", "vite.config.ts",
 	}
@@ -108,7 +108,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		return string(data)
 	}
 	gomod := read("go.mod")
-	for _, line := range []string{"module My-App\n", "\tgithub.com/liustack/tifa v0.0.0\n", "\tgithub.com/liustack/sqlite v", "tool github.com/liustack/tifa/cmd/tifa\n", "\nignore node_modules\n"} {
+	for _, line := range []string{"module My-App\n", "\tgithub.com/liustack/tifa v0.0.0\n", "\tgithub.com/liustack/sqlite v", "\tgithub.com/pressly/goose/v3 v3.30.", "tool github.com/liustack/tifa/cmd/tifa\n", "\nignore node_modules\n"} {
 		if !strings.Contains(gomod, line) {
 			t.Errorf("go.mod has no line %q:\n%s", line, gomod)
 		}
@@ -149,9 +149,8 @@ func TestNewWritesAnApp(t *testing.T) {
 		}
 	}
 	// git on Windows, with its default core.autocrlf=true, would check the files out with CRLF line
-	// ends. The program embeds some of them (the files of migrations/, whose SHA-256 migrate.go
-	// checks, and the hashes of the files in .tifa/dist/inputs.json), so it would differ from one
-	// built from the same commit elsewhere.
+	// ends. The program embeds some of them (the files of migrations/, and the hashes of the files
+	// in .tifa/dist/inputs.json), so it would differ from one built from the same commit elsewhere.
 	if !strings.Contains(read(".gitattributes"), "* text=auto eol=lf\n") {
 		t.Errorf(".gitattributes does not keep LF line ends:\n%s", read(".gitattributes"))
 	}
@@ -744,7 +743,7 @@ func TestNewEmptyWritesTheSkeleton(t *testing.T) {
 	want := []string{
 		".gitattributes", ".github/workflows/ci.yml", ".gitignore", ".vscode/settings.json", "AGENTS.md", "CLAUDE.md", "README.md",
 		"app/layout.tsx", "app/page.tsx", "app/styles.css",
-		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "migrate.go", "migrate_test.go", "migrations/001_init.sql", "options.go", "package.json",
+		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "migrate_test.go", "migrations/001_init.sql", "options.go", "package.json",
 		"pnpm-workspace.yaml", "schema.sql",
 		"sessions.go", "sessions_test.go", "tifa.yaml", "tsconfig.json", "vite.config.ts",
 	}
@@ -761,7 +760,7 @@ func TestNewEmptyWritesTheSkeleton(t *testing.T) {
 	if schema := read("schema.sql"); strings.Contains(schema, "todos") || !strings.Contains(schema, "CREATE TABLE sessions") {
 		t.Errorf("schema.sql is not the sessions table alone:\n%s", schema)
 	}
-	if init := read("migrations/001_init.sql"); strings.Contains(init, "todos") || !strings.Contains(init, "CREATE TABLE IF NOT EXISTS sessions") {
+	if init := read("migrations/001_init.sql"); strings.Contains(init, "todos") || !strings.Contains(init, "CREATE TABLE IF NOT EXISTS sessions") || !strings.Contains(init, "-- +goose Up\n") {
 		t.Errorf("migrations/001_init.sql is not the sessions table alone:\n%s", init)
 	}
 	if page := read("app/page.tsx"); strings.Count(page, "\n") > 3 || !strings.Contains(page, "<h1>My-App</h1>") {
