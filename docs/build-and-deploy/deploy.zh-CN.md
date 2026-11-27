@@ -2,7 +2,7 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: 844e759122e7
+translatedFrom: d3e3e178295a
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -92,7 +92,7 @@ go tool tifa deploy
 1. 向服务器询问它的系统，并在你的机器上为它构建应用，做法和[为另一个系统构建](build.zh-CN.md#building-for-another-system)一样。服务器上什么也不构建。在 setup 已经准备好、但还没有这个应用的文件夹的服务器上，它先以 `tifa` 身份（不需要 root）创建文件夹、端口和单元。自己接待访客的应用，如果 `tifa` 还不能打开 80 端口，要先在那里运行 setup，部署会这样提示。在没有准备好的服务器上，它会停下，并说明要运行 `go tool tifa deploy setup`。
 2. 把程序压缩成 gzip，上传到 `/srv/tifa/<app>/releases/<id>/`，其中 `<id>` 是部署时的 UTC 时间，并在那里检查它的 SHA-256。
 3. 把 `/srv/tifa/<app>/current` 指向它，并重启服务。socket 保持打开，所以这期间到来的请求会等着，然后得到回答（见[重启而不丢请求](deploy-by-hand.zh-CN.md#restart-without-dropping-requests)）。
-4. 在服务器上检查新程序：每秒一次 `GET /healthz`，最长 30 秒，直到它以低于 500 的状态回答。它在回环地址上访问，有自己 HTTPS 的应用则像访客一样，用它的域名走 HTTPS。没有 `/healthz` 路由的应用，一有响应就带着它的 404 通过。写一个会看数据库的[健康检查](deploy-by-hand.zh-CN.md#health-check)，让这项检查更有意义。
+4. 在服务器上检查新程序：每秒一次 `GET /healthz`，最长 30 秒，直到它以低于 500 的状态回答。它在回环地址上访问，有自己 HTTPS 的应用则像访客一样，用它的域名走 HTTPS。没有 `/healthz` 路由的应用，一有响应就带着它的 404 通过。写一个会看数据库的[健康检查](deploy-by-hand.zh-CN.md#health-check)，让这项检查更有意义。`OnStart`（包括迁移）必须在这 30 秒内完成（见[迁移能花多长时间](../guides/database.zh-CN.md#how-long-a-migration-may-take)）。
 5. 检查通过后，把这次部署记下来，并保留最近 5 个发布。检查失败时，它会打印应用日志的最后几行，重新启动之前运行的那个发布，并以 1 退出。如果从来没有通过的发布，它会停掉应用。
 6. 用 `front: cloudflare` 时，会清除那个主机名的 CDN 缓存（见[清除 CDN 缓存](deploy-cloudflare.zh-CN.md#clearing-the-cdn-cache)）。
 7. 说明访客从哪里访问应用：`visitors: https://shop.example.com`，没有域名时是 `http://<服务器的地址>`。用 `front: none` 或 `front: nginx` 时，它接着从你的机器访问应用的端口，有端口没回答时，会提示你服务商的防火墙或安全组可能挡住了它，这些 Tifa 不改。
@@ -114,6 +114,8 @@ go tool tifa deploy rollback 20261120T110000Z
 ```
 
 那个发布可以比正在运行的更旧，也可以更新。它必须还在服务器上，并且部署时通过了健康检查。不满足时什么都不改，错误信息会列出能去的发布。它就是正在运行的那个时，也什么都不改，命令会说明这一点。
+
+数据库保持原样。回滚在更新的发布留下的表上启动更旧的发布，访客在这之后写的东西都还在，更旧的发布会记一条警告，列出它没有的迁移。只要每个发布都能在下一个发布的表上运行，这就行得通，见[让回滚一直能用](../guides/database.zh-CN.md#keep-a-rollback-working)。要连数据也撤销，就用备份回到更早的时间：[撤销一次错误的部署](../guides/database.zh-CN.md#undo-a-bad-deploy)。
 
 ## Tifa 记住的服务器 {#the-servers-tifa-remembers}
 
