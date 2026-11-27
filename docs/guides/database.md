@@ -41,6 +41,7 @@ package notes
 import (
 	"context"
 	"database/sql"
+	"io/fs"
 	"net/url"
 
 	_ "github.com/liustack/sqlite"
@@ -49,7 +50,13 @@ import (
 // DB is the database of the app. OnStart opens it and OnShutdown closes it.
 var DB *sql.DB
 
-func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
+// OpenDB opens the database at path and runs the files of migrations/ that it has not run yet.
+func OpenDB(path string) (*sql.DB, error) {
+	return openDB(path, migrationFiles)
+}
+
+// openDB is OpenDB with the migrations/ folder of files, which the tests of migrate.go replace.
+func openDB(path string, files fs.FS) (*sql.DB, error) {
 	// The pragmas run on every connection of the pool. WAL lets reads go on during a write, and
 	// SQLite checks foreign keys only when asked to. A write waits up to 5s for another one by
 	// default (change it with _pragma=busy_timeout(ms)). A transaction that reads first and then
@@ -64,7 +71,7 @@ func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
 		return nil, err
 	}
 	// migrate.go runs the files of migrations/ that the database has not run yet.
-	if err := migrate(ctx, db, path, migrationFiles); err != nil {
+	if err := migrate(context.Background(), db, path, files); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -75,7 +82,7 @@ func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
 ```go
 // hooks.go
 func OnStart(ctx context.Context) error {
-	db, err := OpenDB(ctx, DBPath)
+	db, err := OpenDB(DBPath)
 	if err != nil {
 		return err
 	}
@@ -518,7 +525,6 @@ Tests replace the variable ([Structuring an app](../start/structure.md#2-shared-
 package testdb
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -529,7 +535,7 @@ import (
 // tests that use it must not run in parallel, since notes.DB is shared.
 func Use(t *testing.T) {
 	t.Helper()
-	db, err := notes.OpenDB(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	db, err := notes.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -562,12 +568,12 @@ Stay on SQLite while the app runs as one program on one machine. Move to Postgre
 ```go
 import _ "github.com/jackc/pgx/v5/stdlib"
 
-func OpenDB(ctx context.Context, url string) (*sql.DB, error) {
+func OpenDB(url string) (*sql.DB, error) {
 	db, err := sql.Open("pgx", url)
 	if err != nil {
 		return nil, err
 	}
-	if err := db.PingContext(ctx); err != nil {
+	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, err
 	}
