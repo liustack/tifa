@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-11-27
+
 ### Added
 
 - `deploy.front: external` puts the app behind something of yours in front, such as a load balancer you set up at your provider (an AWS Application Load Balancer, say) or a proxy of your own, on one server or several. The balancer ends HTTPS and sends plain HTTP to the port of the app, which listens on every address of the server. Setup and each deploy print the targets, the port and the health check to enter in the balancer. Tifa sets up no balancer and opens the port in no firewall: let only the balancer reach it. See [Behind your load balancer](docs/build-and-deploy/deploy-proxy.md#behind-your-load-balancer).
