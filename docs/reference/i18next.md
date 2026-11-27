@@ -12,7 +12,7 @@ How an app uses i18next, and how Tifa makes it faster on the server.
 
 ## The i18next adapter
 
-`tifa/i18n` is the official i18next adapter. It bundles the translation files of the app, makes one i18next instance for all languages and gives pages the usual react-i18next hooks. The app installs `i18next` and `react-i18next` itself (the end-to-end tests run it with i18next 27.1.2 and react-i18next 18.0.1), and its tsconfig has `"tifa/*": ["./.tifa/tifa/*"]` in `paths`, as `tifa new` writes it. Tifa writes `tifa/i18n.ts` and `runtime/i18n.tsx` only for an app with a `_locales` folder, because TypeScript checks all of `.tifa/` and an app without translations has no i18next to import.
+`tifa/i18n` is the official i18next adapter. It bundles the translation files of the app, makes one i18next instance for all languages and gives pages the usual react-i18next hooks. The app installs `i18next` and `react-i18next` itself (the end-to-end tests run it with i18next 27.1.2 and react-i18next 18.0.3), and its tsconfig has `"tifa/*": ["./.tifa/tifa/*"]` in `paths`, as `tifa new` writes it. Tifa writes `tifa/i18n.ts` and `runtime/i18n.tsx` only for an app with a `_locales` folder, because TypeScript checks all of `.tifa/` and an app without translations has no i18next to import.
 
 Strings live in `_locales/<language>.json` in the folders of `app/`. A `<language>.draft.json` is not published, and no other file in the folder counts. The namespace of a folder is its path relative to `app/`: `app/store/_locales` is `store`, `app/admin/store/_locales` is `admin/store`, and `app/_locales` is the default namespace. The Vite plugin turns the files into one module, so the server render and the browser have every string and nothing is fetched.
 

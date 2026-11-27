@@ -30,12 +30,19 @@ globalThis.result = [html, seen.language, seen.__original === i].join('|')
 // the files of the second changed by change.
 func withReactI18next18(t *testing.T, change func(string) string) string {
 	t.Helper()
+	return withReactI18next18At(t, "react-i18next-18-0-0", change)
+}
+
+// withReactI18next18At is withReactI18next18 with the react-i18next of module, a package of
+// testdata such as react-i18next-18-0-3.
+func withReactI18next18At(t *testing.T, module string, change func(string) string) string {
+	t.Helper()
 	root := withI18next(t, "i18next-27-0-1", func(s string) string { return s })
 	target := filepath.Join(root, "node_modules", "react-i18next")
 	if err := os.Remove(target); err != nil {
 		t.Fatal(err)
 	}
-	real, err := filepath.EvalSymlinks(filepath.Join(testModules(t), "react-i18next-18-0-0"))
+	real, err := filepath.EvalSymlinks(filepath.Join(testModules(t), module))
 	if err != nil {
 		t.Fatal(err)
 	}

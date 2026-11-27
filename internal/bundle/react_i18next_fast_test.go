@@ -79,27 +79,35 @@ globalThis.result = [first, second, third, JSON.stringify(i.reportNamespaces.get
 // The plugin's useTranslation gives what the original gives for every call a server makes: the
 // page renders the same text, the same values come back, the instance reports the same namespaces
 // and the same warnings are printed. A file the plugin does not know, here with one more line, keeps
-// the original and prints the warning, which is how the two builds are compared.
+// the original and prints the warning, which is how the two builds are compared. Each version whose
+// file the plugin knows is checked: 18.0.0 (the file of 18.0.1 too) and 18.0.3 (that of 18.0.2 too).
 func TestReactI18nextFastUseTranslationMatchesTheOriginal(t *testing.T) {
-	render := func(root string) (string, string) {
-		writeTree(t, root, map[string]string{"react-i18n.tsx": reactI18nextFastPage})
-		code, printed := buildPrinting(t, root, "react-i18n.tsx")
-		return evalWithIntl(t, code), printed
-	}
-	fast, printed := render(withReactI18next18(t, func(s string) string { return s }))
-	if strings.Contains(printed, "react-i18next") {
-		t.Fatalf("the build of the known file prints:\n%s", printed)
-	}
-	original, printed := render(withReactI18next18(t, func(s string) string { return s + "\n// changed\n" }))
-	if strings.Count(printed, "react-i18next 18.0.0") != 1 || !strings.Contains(printed, "is no useTranslation the tifa plugin knows") {
-		t.Fatalf("the build of a changed file prints:\n%s", printed)
-	}
-	if fast != original {
-		t.Errorf("the plugin's useTranslation gives\n%s\n\nthe original gives\n%s", fast, original)
-	}
-	for _, want := range []string{"named=Warenkorb 3,ein Artikel,5 Artikel,missing/true", "Korb 3", "named=Cart 3", "Cart 6", "other=Boutique", "bare=", "<i>waiting</i>", "selector=Wort"} {
-		if !strings.Contains(fast, want) {
-			t.Errorf("the page has no %q:\n%s", want, fast)
-		}
+	for _, v := range []struct{ module, version string }{
+		{"react-i18next-18-0-0", "18.0.0"},
+		{"react-i18next-18-0-3", "18.0.3"},
+	} {
+		t.Run(v.version, func(t *testing.T) {
+			render := func(root string) (string, string) {
+				writeTree(t, root, map[string]string{"react-i18n.tsx": reactI18nextFastPage})
+				code, printed := buildPrinting(t, root, "react-i18n.tsx")
+				return evalWithIntl(t, code), printed
+			}
+			fast, printed := render(withReactI18next18At(t, v.module, func(s string) string { return s }))
+			if strings.Contains(printed, "react-i18next") {
+				t.Fatalf("the build of the known file prints:\n%s", printed)
+			}
+			original, printed := render(withReactI18next18At(t, v.module, func(s string) string { return s + "\n// changed\n" }))
+			if strings.Count(printed, "react-i18next "+v.version) != 1 || !strings.Contains(printed, "is no useTranslation the tifa plugin knows") {
+				t.Fatalf("the build of a changed file prints:\n%s", printed)
+			}
+			if fast != original {
+				t.Errorf("the plugin's useTranslation gives\n%s\n\nthe original gives\n%s", fast, original)
+			}
+			for _, want := range []string{"named=Warenkorb 3,ein Artikel,5 Artikel,missing/true", "Korb 3", "named=Cart 3", "Cart 6", "other=Boutique", "bare=", "<i>waiting</i>", "selector=Wort"} {
+				if !strings.Contains(fast, want) {
+					t.Errorf("the page has no %q:\n%s", want, fast)
+				}
+			}
+		})
 	}
 }

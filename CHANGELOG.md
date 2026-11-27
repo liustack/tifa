@@ -10,6 +10,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- The server render of an app on react-i18next 18.0.2 or 18.0.3 takes the quick `useTranslation` again, as on 18.0.0 and 18.0.1, and the build no longer prints `tifa rewrite not recognized: react-i18next`. Those releases changed only how a component in the browser counts the updates it subscribes to, which the server never runs. Pages render the same.
 - `tifa deploy run` without a terminal, as a coding agent or a script runs it, now ends the command on the server when the connection goes away, such as on Ctrl-C or when the agent stops it: the command gets SIGTERM within a second, which ends its context, and SIGKILL if it still runs 10 seconds later. It used to run on to its end with no one to read its output. Its input, output and exit status pass through as before. See [Run a command of the app](docs/build-and-deploy/deploy-operate.md#run-a-command-of-the-app).
 
 ## [0.7.3] - 2026-11-27
