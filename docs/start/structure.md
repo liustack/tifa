@@ -24,7 +24,8 @@ myapp/
   setup.ts                  top-level code of the JavaScript side: i18next formatters and other setup
   options.go                the options of the app: var DBPath = tifa.String(...)
   db.go                     var DB, opened in OnStart and closed in OnShutdown
-  schema.sql                the tables of every domain
+  migrate.go  migrations/   the tables of every domain, one numbered SQL file per change
+  schema.sql                the tables as the migrations leave them, written by a test
   content.go                the content collections: var Blog = content.Define[Post](...)
   content/                  the Markdown files of the collections
   app/

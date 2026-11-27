@@ -1,0 +1,150 @@
+package {{.Package}}
+
+import (
+	"flag"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+	"testing/fstest"
+)
+
+var update = flag.Bool("update", false, "write schema.sql from migrations/")
+
+// A second start on the same database runs no file again.
+func TestMigrateTwice(t *testing.T) {
+	names, err := fs.Glob(migrationFiles, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "app.db")
+	for range 2 {
+		db, err := OpenDB(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var n int
+		err = db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&n)
+		db.Close()
+		if err != nil || n != len(names) {
+			t.Fatalf("schema_migrations has %d rows, %v, want one per file of migrations/, %d", n, err, len(names))
+		}
+	}
+}
+
+// schema.sql shows the tables as the files of migrations/ leave them. This test writes it, so a
+// change made there by hand fails here instead of on the server.
+func TestSchema(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT sql FROM sqlite_schema
+		WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name <> 'schema_migrations'
+		ORDER BY tbl_name, type <> 'table', name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var statements []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		statements = append(statements, s+";\n")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	got := `-- Written by go test -run TestSchema -update from the files of migrations/. Do not edit it:
+-- to change a table, add the next numbered file to migrations/ and run that command again.
+
+` + strings.Join(statements, "\n")
+	if *update {
+		if err := os.WriteFile("schema.sql", []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile("schema.sql")
+	if err != nil {
+		t.Fatalf("%v: run go test -run TestSchema -update to write it", err)
+	}
+	if string(want) != got {
+		t.Fatal("schema.sql is not the tables the files of migrations/ make. It is written from them: to change a table, add the next numbered file to migrations/, then run go test -run TestSchema -update")
+	}
+}
+
+var (
+	// sqlNoise matches comments, strings and quoted names, which say nothing about what SQL does.
+	sqlNoise = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/|'(?:[^']|'')*'|"(?:[^"]|"")*"`)
+	// dropOrRename matches the statements that take a table or a column away from the code that
+	// uses it: DROP TABLE, and ALTER TABLE with DROP or RENAME.
+	dropOrRename = regexp.MustCompile(`(?i)\bDROP\s+TABLE\b|\bALTER\s+TABLE\b[^;]*\b(DROP|RENAME)\b`)
+)
+
+// A release that may still run, after tifa deploy rollback, breaks on a table or a column that a
+// later file dropped or renamed. A file that drops or renames one says, in a comment on its first
+// line, why no such release uses it. A table rebuild drops a table too: its comment says that the
+// new table keeps every column.
+func TestDropsSayWhy(t *testing.T) {
+	names, err := fs.Glob(migrationFiles, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		text, err := fs.ReadFile(migrationFiles, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !dropOrRename.MatchString(sqlNoise.ReplaceAllString(string(text), " x ")) {
+			continue
+		}
+		first, _, _ := strings.Cut(string(text), "\n")
+		if why, ok := strings.CutPrefix(first, "--"); !ok || strings.TrimSpace(why) == "" {
+			t.Errorf("%s drops or renames a table or a column. Its first line must be a comment that says why no release that may still run uses it (drop or rename only in a release after every release you could roll back to stopped using it), or, for a table rebuild, that it keeps every column", name)
+		}
+	}
+}
+
+// SQLite changes a column type, a constraint or NOT NULL only by building the table again, which
+// drops the old table. With foreign keys on, the drop deletes the rows of other tables that point
+// at it with ON DELETE CASCADE. migrate turns foreign keys off for its run, so they stay.
+func TestRebuildKeepsTheRowsThatPointAtTheTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.db")
+	files := fstest.MapFS{"migrations/001_lists.sql": {Data: []byte(`
+CREATE TABLE lists (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE items (id INTEGER PRIMARY KEY, list_id INTEGER NOT NULL REFERENCES lists (id) ON DELETE CASCADE);
+`)}}
+	db, err := openDB(path, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO lists (id, name) VALUES (1, 'Home'); INSERT INTO items (list_id) VALUES (1), (1)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	files["migrations/002_list_name_not_null.sql"] = &fstest.MapFile{Data: []byte(`-- Builds lists again to make name NOT NULL, with every column it had.
+CREATE TABLE new_lists (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+INSERT INTO new_lists (id, name) SELECT id, name FROM lists;
+DROP TABLE lists;
+ALTER TABLE new_lists RENAME TO lists;
+`)}
+	db, err = openDB(path, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var items int
+	if err := db.QueryRow(`SELECT count(*) FROM items`).Scan(&items); err != nil || items != 2 {
+		t.Fatalf("%d items, %v, want the 2 that point at the list", items, err)
+	}
+	// The connection of the run, with foreign keys off, did not go back to the pool.
+	var on int
+	if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&on); err != nil || on != 1 {
+		t.Fatalf("PRAGMA foreign_keys: %d, %v, want 1", on, err)
+	}
+}

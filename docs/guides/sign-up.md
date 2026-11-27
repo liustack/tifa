@@ -18,8 +18,8 @@ It builds on `HashPassword` and `CheckHash` from [Sign in and sign out](sign-in.
 ## Two tables
 
 ```sql
--- schema.sql
-CREATE TABLE IF NOT EXISTS users (
+-- migrations/002_users.sql
+CREATE TABLE users (
   id          INTEGER PRIMARY KEY,
   email       TEXT    NOT NULL UNIQUE,  -- lower case
   name        TEXT    NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
   verified_at INTEGER,                  -- unix seconds, NULL until the address is confirmed
   epoch       INTEGER NOT NULL DEFAULT 0 -- goes up when the password changes
 );
-CREATE TABLE IF NOT EXISTS email_tokens (
+CREATE TABLE email_tokens (
   hash    TEXT    PRIMARY KEY,          -- SHA-256 of the token, hex
   user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   email   TEXT    NOT NULL,             -- the address the mail went to

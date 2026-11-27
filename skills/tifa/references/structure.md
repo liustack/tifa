@@ -13,7 +13,8 @@ myapp/
   go.mod
   hooks.go                  OnStart, OnShutdown, OnRequest, OnError
   db.go                     var DB, opened in OnStart and closed in OnShutdown
-  schema.sql                the tables of every domain
+  migrate.go  migrations/   the tables of every domain, one numbered SQL file per change
+  schema.sql                the tables as the migrations leave them, written by a test
   app/
     route.go  layout.tsx
     projects/

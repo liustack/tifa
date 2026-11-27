@@ -5,7 +5,6 @@ package {{.Package}}
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -25,12 +24,14 @@ var DB *sql.DB
 // committed is in the store.
 var Backup *replica.Replica
 
-//go:embed schema.sql
-var schema string
-
-// OpenDB opens the SQLite database at path, creating the file when it is missing, and creates
-// the tables of schema.sql that do not exist yet.
+// OpenDB opens the SQLite database at path, creating the file when it is missing, and runs the
+// files of migrations/ that it has not run yet (migrate.go).
 func OpenDB(path string) (*sql.DB, error) {
+	return openDB(path, migrationFiles)
+}
+
+// openDB is OpenDB with the migrations/ folder of files, which the tests of migrate.go replace.
+func openDB(path string, files fs.FS) (*sql.DB, error) {
 	// The pragmas run on every connection of the pool. WAL lets reads go on during a write,
 	// and SQLite checks foreign keys only when asked to. A write waits up to 5s for another one
 	// by default, so busy_timeout needs no setting. _txlock=immediate makes a transaction take the
@@ -41,7 +42,7 @@ func OpenDB(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if err := migrate(context.Background(), db, path, files); err != nil {
 		db.Close()
 		return nil, err
 	}

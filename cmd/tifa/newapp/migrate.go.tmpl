@@ -1,0 +1,247 @@
+package {{.Package}}
+
+import (
+	"cmp"
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"database/sql/driver"
+	"embed"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+)
+
+// migrationFiles holds the changes to the tables, one numbered file per change: 001_init.sql,
+// 002_<what>.sql and so on. OpenDB runs the ones the database has not run yet, at every start.
+// Never edit a file that ran anywhere but on your machine: add the next number. The rules are in
+// AGENTS.md and in "Change the tables" in docs/guides/database.md of Tifa.
+//
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
+// A migration is one file of migrations/.
+type migration struct {
+	version int    // the number its name starts with
+	name    string // such as 002_users.sql
+	text    string
+	sum     string // SHA-256 of the file, in hex
+}
+
+// A record is what schema_migrations holds of a file the database ran.
+type record struct{ name, sum string }
+
+// migrate runs the files of migrations/ in files that the database has not run yet, in the order
+// of their numbers, and records each one with its SHA-256 in the table schema_migrations. They
+// all run in one transaction: when one fails, or the program stops halfway, the database stays as
+// it was. Without db.backup, it first copies the database to path.before-<version>.
+//
+// The database may have run files this program does not have, when a newer release ran them and
+// was then rolled back. The program logs them and runs on that database. A file that changed
+// after it ran stops the start.
+func migrate(ctx context.Context, db *sql.DB, path string, files fs.FS) error {
+	ms, err := readMigrations(files)
+	if err != nil {
+		return err
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	// The connection runs with foreign keys off, so it must not go back to the pool: when Raw
+	// returns driver.ErrBadConn, database/sql closes the connection.
+	defer conn.Raw(func(any) error { return driver.ErrBadConn })
+	// With foreign keys on, the DROP TABLE of a table rebuild deletes the rows of other tables
+	// that point at it with ON DELETE CASCADE. SQLite ignores this pragma inside a transaction,
+	// so it comes before BEGIN. PRAGMA foreign_key_check below checks the keys instead.
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return err
+	}
+	if DBBackup == "" {
+		if err := copyBefore(ctx, conn, path, ms); err != nil {
+			return err
+		}
+	}
+	// BEGIN IMMEDIATE takes the write lock now, so a second copy of the app that starts at the
+	// same time waits here and then finds the work done.
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		}
+	}()
+	done, err := ran(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+  version    INTEGER PRIMARY KEY,
+  name       TEXT    NOT NULL,
+  sha256     TEXT    NOT NULL,
+  applied_at TEXT    NOT NULL
+)`); err != nil {
+		return err
+	}
+	var applied []string
+	for _, m := range ms {
+		r, ok := done[m.version]
+		switch {
+		case ok && r.sum == "":
+			// Counted as run by PRAGMA user_version: record it as it is now.
+		case ok && r.sum != m.sum:
+			return fmt.Errorf("migrations/%s changed after it ran on this database. Put it back as it was (git log -p migrations/%s shows the change) and write the change in a new file, migrations/%03d_<what>.sql", m.name, m.name, len(ms)+1)
+		case ok:
+			continue
+		default:
+			if _, err := conn.ExecContext(ctx, m.text); err != nil {
+				return fmt.Errorf("migrations/%s: %w", m.name, err)
+			}
+			applied = append(applied, m.name)
+		}
+		if _, err := conn.ExecContext(ctx, `INSERT INTO schema_migrations (version, name, sha256, applied_at)
+			VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))`, m.version, m.name, m.sum); err != nil {
+			return err
+		}
+	}
+	if len(applied) > 0 {
+		var table, parent string
+		var rowid any
+		var fk int
+		err := conn.QueryRowContext(ctx, "PRAGMA foreign_key_check").Scan(&table, &rowid, &parent, &fk)
+		if err == nil {
+			return fmt.Errorf("migrations: after %s, table %s has rows that point at rows of %s that are not there (PRAGMA foreign_key_check lists them), so none of the files ran", strings.Join(applied, ", "), table, parent)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return err
+	}
+	committed = true
+	if len(applied) > 0 {
+		slog.Info("migrations: ran", "files", applied)
+	}
+	var newer []string
+	for v, r := range done {
+		if v > len(ms) {
+			newer = append(newer, cmp.Or(r.name, "version "+strconv.Itoa(v)))
+		}
+	}
+	if len(newer) > 0 {
+		slices.Sort(newer)
+		slog.Warn("migrations: the database ran files this program does not have, from a newer release. It runs on that database", "files", newer)
+	}
+	return nil
+}
+
+// readMigrations returns the files of migrations/ in files. They must be numbered 1, 2, 3 and so
+// on, with no gap and no number twice.
+func readMigrations(files fs.FS) ([]migration, error) {
+	names, err := fs.Glob(files, "migrations/*.sql")
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(names)
+	ms := make([]migration, len(names))
+	for i, name := range names {
+		base := path.Base(name)
+		number, _, _ := strings.Cut(base, "_")
+		version, err := strconv.Atoi(number)
+		if err != nil || version != i+1 {
+			return nil, fmt.Errorf("migrations/%s must be numbered %03d: the files are numbered 1, 2, 3 and so on, each number once", base, i+1)
+		}
+		text, err := fs.ReadFile(files, name)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(text)
+		ms[i] = migration{version, base, string(text), hex.EncodeToString(sum[:])}
+	}
+	return ms, nil
+}
+
+// ran returns what the database recorded of the files it ran, by version. A database that the
+// runner the Tifa docs had before migrated has no schema_migrations, only PRAGMA user_version:
+// its files up to that number count as run, with no SHA-256 yet.
+func ran(ctx context.Context, conn *sql.Conn) (map[int]record, error) {
+	done := map[int]record{}
+	var table bool
+	if err := conn.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = 'schema_migrations')`).Scan(&table); err != nil {
+		return nil, err
+	}
+	if !table {
+		var n int
+		if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&n); err != nil {
+			return nil, err
+		}
+		for v := 1; v <= n; v++ {
+			done[v] = record{}
+		}
+		return done, nil
+	}
+	rows, err := conn.QueryContext(ctx, `SELECT version, name, sha256 FROM schema_migrations`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v int
+		var r record
+		if err := rows.Scan(&v, &r.name, &r.sum); err != nil {
+			return nil, err
+		}
+		done[v] = r
+	}
+	return done, rows.Err()
+}
+
+// copyBefore writes a copy of the database to path.before-<version>, where version is the first
+// file to run, when the database has tables and files to run. It removes the copies of earlier
+// runs. VACUUM INTO writes a consistent copy while the app runs, outside a transaction only.
+func copyBefore(ctx context.Context, conn *sql.Conn, path string, ms []migration) error {
+	var empty bool
+	if err := conn.QueryRowContext(ctx, `SELECT NOT EXISTS (SELECT 1 FROM sqlite_schema)`).Scan(&empty); err != nil || empty {
+		return err
+	}
+	done, err := ran(ctx, conn)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(ms, func(m migration) bool { _, ok := done[m.version]; return !ok })
+	if i < 0 {
+		return nil
+	}
+	target := fmt.Sprintf("%s.before-%03d", path, ms[i].version)
+	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "VACUUM INTO ?", target); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	prefix := filepath.Base(path) + ".before-"
+	for _, e := range entries {
+		if name := e.Name(); strings.HasPrefix(name, prefix) && name != filepath.Base(target) {
+			if err := os.Remove(filepath.Join(filepath.Dir(path), name)); err != nil {
+				return err
+			}
+		}
+	}
+	slog.Info("migrations: copied the database before running new files", "copy", target)
+	return nil
+}

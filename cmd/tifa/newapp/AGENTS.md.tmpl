@@ -66,7 +66,6 @@ Never edit `.tifa/`. It is generated.
 ## Settings and data
 
 - `tifa.yaml` lists every setting at its default, and `options.go` holds the options of the app. See `docs/build-and-deploy/config.md`.
-- `schema.sql` runs at every start, so keep its statements safe to repeat (`CREATE TABLE IF NOT EXISTS`).
 - `db.go` opens SQLite with `_txlock=immediate`, so a transaction takes the write lock at `BEGIN` and never fails halfway with `database is locked`. Keep it, and start a transaction that only reads with `sql.TxOptions{ReadOnly: true}`. See `docs/guides/database.md`.
 - The option `db.backup` (`DB_BACKUP`), empty by default, copies every commit to S3 or R2 and restores a missing database at start. See "Back it up" in `docs/guides/database.md`.
 - Under `tifa dev`, a page that fails answers with the whole error: `curl -i` the page, or run `go tool tifa errors`.
@@ -83,7 +82,15 @@ Never edit `.tifa/`. It is generated.
 
 - Code is grouped by domain, and a domain is a folder under `app/`. Its types, queries and rules sit next to its pages, with their tests.{{if not .Empty}} `app/todos/todo.go` (`package todos`) is the todo list. The home page (`app/route.go`) and the page of one todo (`app/todos/todo+/route.go`) import `{{.Module}}/app/todos`.{{else}} The home page (`app/page.tsx`) is one line, for you to replace.{{end}}
 - A new domain gets a folder under `app/` and a file named after it, such as `app/notes/note.go` (`package notes`). When it has a list page and a page per item, its code goes in the list folder, not in the `name+` folder of one item.
-- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`), the options (`options.go`: `var DBPath`) and what the whole app shares (`db.go`: `var DB`, `schema.sql` with the tables of every domain (only the sessions table at first), and `sessions.go`, the session store that keeps sessions in the database, so a restart signs nobody out). Domains import it as `"{{.Module}}"` and write `{{.Package}}.DB`. Go refuses import cycles, so the root package cannot import a domain that uses `{{.Package}}.DB`, or a page that imports one.
+- The root package (`package {{.Package}}`, at the module root) holds only the hooks (`hooks.go`), the options (`options.go`: `var DBPath`) and what the whole app shares (`db.go`: `var DB`, `migrate.go` with `migrations/`, the tables of every domain, and `sessions.go`, which keeps sessions in the database, so a restart signs nobody out). Domains import it as `"{{.Module}}"` and write `{{.Package}}.DB`. Go refuses import cycles, so the root package cannot import a domain that uses `{{.Package}}.DB`, or a page that imports one.
 - A domain may import another one that does not depend on it: if `notes` imports `tags`, directly or through other packages, `tags` cannot import `notes`. There are no `models/`, `services/` or `handlers/` packages. See `docs/start/structure.md`.
 - This app wires dependencies by hand: package-level variables such as `DB`, set up in `OnStart`, not in `init()`.
+
+## Changing tables
+
+- Each change is a new file, `migrations/<next number>_<what>.sql`, in SQL. Then `go test -run TestSchema -update` writes `schema.sql`. Never edit that one.
+- Never edit a file that ran anywhere but on your machine: the app refuses to start. Write a new file.
+- A rollback runs older releases on the same tables, so each release must run on the tables of the next: add tables, columns that are nullable or have a default, indexes. Name the columns in every `SELECT` and `INSERT`.
+- Rename or drop over three releases: add the new one and write both, read the new one, drop the old one once no release you could roll back to uses it. That file starts with a comment that says so.
+- Migrations finish within the 30 seconds of the deploy health check. See "Change the tables" in `docs/guides/database.md`.
 
