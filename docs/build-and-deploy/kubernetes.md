@@ -1,5 +1,5 @@
 ---
-summary: 'Run a Tifa app on Kubernetes: a Dockerfile, a Deployment with probes and a stop time, a Service and an Ingress, migrations as a Job or at start, and storage for SQLite or Postgres'
+summary: 'Run a Tifa app on Kubernetes: a Deployment with probes and a stop time, a Service and an Ingress, migrations as a Job or at start, and storage for SQLite or Postgres'
 audience: app
 order: 21
 read_when:
@@ -12,7 +12,7 @@ read_when:
 
 # Deploy to Kubernetes
 
-A Tifa app is one static program, so its image holds that program and nothing else. This page has the Dockerfile, the manifests around it and the choices that are Tifa's: the probe, the stop time, the migrations and where the data lives.
+A Tifa app is one static program, so its image holds that program and nothing else. This page has the manifests around the image of [Run on a container platform](containers.md) and the choices that are Tifa's: the probe, the stop time, the migrations and where the data lives.
 
 ## When to use it
 
@@ -20,51 +20,7 @@ A Tifa app is one static program, so its image holds that program and nothing el
 
 ## The image
 
-The build stage needs Go, and Node with pnpm because the front end is bundled with Vite. The final image holds only the program: it has no Node, because the program never needs it.
-
-```dockerfile
-# Dockerfile
-FROM golang:1.27 AS go
-
-FROM node:24-bookworm AS build
-COPY --from=go /usr/local/go /usr/local/go
-ENV PATH=/usr/local/go/bin:$PATH CGO_ENABLED=0
-RUN npm install -g pnpm@10
-WORKDIR /src
-# The files that name the dependencies come first, so a change to the code reuses these layers.
-COPY go.mod go.sum ./
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN go mod download && pnpm install --frozen-lockfile --ignore-scripts
-COPY . .
-RUN go tool tifa build -o /out/app && mkdir /data
-
-FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/app /app
-COPY --from=build --chown=65532:65532 /data /data
-WORKDIR /data
-ENV SERVER_ADDR=0.0.0.0:9527
-EXPOSE 9527
-USER 65532:65532
-ENTRYPOINT ["/app"]
-```
-
-```
-# .dockerignore
-.git
-.tifa
-bin
-node_modules
-*.db
-*.db-*
-.env
-```
-
-- `pnpm install --ignore-scripts` skips the `prepare` script, as the CI that `tifa new` writes does: `tifa build` writes `.tifa/` itself. An app that uses npm runs `npm ci --ignore-scripts` and copies `package-lock.json` instead.
-- `go tool tifa build` runs the Go and Node steps of [Build the program](build.md#tifa-build) and writes one file. Build the image on the system it runs on, or with `docker buildx --platform`. A build on an ARM Mac for an x86 cluster without `--platform` makes an image that does not start.
-- The program is static (`CGO_ENABLED=0`), so a distroless image is enough. `distroless/static` has the CA certificates the program needs for outgoing HTTPS, and a user `nonroot` with the number 65532. `FROM scratch` works if you copy `/etc/ssl/certs/ca-certificates.crt` from the build stage yourself.
-- `SERVER_ADDR=0.0.0.0:9527` makes the program listen on every interface, as the default of `127.0.0.1` cannot be reached from outside the pod.
-- `/data` is the working folder, so a relative `db.path` such as the `app.db` of a new app lands there. Mount a volume on it when the app keeps files.
-- When you hand the image to others, ship the license notices with it (see [Notices to ship with the program](build.md#notices-to-ship-with-the-program)).
+The Dockerfile and `.dockerignore` are in [The image](containers.md#the-image) of the page for container platforms. The image listens on every interface (`HOST=0.0.0.0`) and on port 9527 unless `PORT` says otherwise, so `containerPort: 9527` below matches it. `/data` is the working folder of the image: mount a volume on it when the app keeps files.
 
 ## The Deployment
 
