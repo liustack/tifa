@@ -74,7 +74,7 @@ func TestCrossSiteWritesAreRefused(t *testing.T) {
 		{"Sec-Fetch-Site decides over Origin", "POST", "/projects/p1", map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "http://shop.example"}, 403},
 		{"cross-site GET", "GET", "/api/health", with("Sec-Fetch-Site", "cross-site"), 200},
 		{"cross-site HEAD", "HEAD", "/api/health", with("Sec-Fetch-Site", "cross-site"), 200},
-		{"cross-site OPTIONS", "OPTIONS", "/api/health", with("Sec-Fetch-Site", "cross-site"), 405},
+		{"cross-site OPTIONS", "OPTIONS", "/api/health", with("Sec-Fetch-Site", "cross-site"), 204},
 		{"cross-site write to an unknown URL", "POST", "/nowhere", with("Sec-Fetch-Site", "cross-site"), 403},
 		{"same-origin write to an unknown URL", "POST", "/nowhere", with("Sec-Fetch-Site", "same-origin"), 404},
 		{"cross-site write to a method without a handler", "POST", "/api/health", with("Sec-Fetch-Site", "cross-site"), 403},

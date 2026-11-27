@@ -15,3 +15,5 @@ func POST(c echo.Context) error { return nil }
 func PUT(c *fiber.Ctx) error { return nil }
 
 func PATCH(w http.ResponseWriter, r *http.Request) {}
+
+func OPTIONS(w http.ResponseWriter, r *http.Request) {}

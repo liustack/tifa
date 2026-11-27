@@ -437,6 +437,20 @@ func TestInterfaceApp(t *testing.T) {
 		}
 	}
 
+	// HEAD, OPTIONS and TRACE of route.go, and the OPTIONS Tifa answers for a route without one.
+	if status, header, _ := request(t, "HEAD", base+"/probe", ""); status != 204 || header.Get("X-Probe") != "up" {
+		t.Errorf("HEAD /probe: %d %v", status, header)
+	}
+	if status, header, _ := request(t, "GET", base+"/probe", ""); status != 405 || header.Get("Allow") != "HEAD, OPTIONS, TRACE" {
+		t.Errorf("GET /probe: %d, Allow %q", status, header.Get("Allow"))
+	}
+	if status, _, body := request(t, "TRACE", base+"/probe", ""); status != 200 || body != "TRACE /probe" {
+		t.Errorf("TRACE /probe: %d %q", status, body)
+	}
+	if status, header, body := request(t, "OPTIONS", base+"/health", ""); status != 204 || header.Get("Allow") != "GET, HEAD, OPTIONS" || body != "" {
+		t.Errorf("OPTIONS /health: %d, Allow %q, %q", status, header.Get("Allow"), body)
+	}
+
 	// A public file is embedded without a modification time. Its ETag is the hash of its content
 	// from the build, so a browser that revalidates gets a 304 and not the whole file again.
 	robots, err := os.ReadFile(filepath.Join(dir, "public", "robots.txt"))

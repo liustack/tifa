@@ -281,7 +281,7 @@ func TestPatternIsEmptyForUnmatchedURL(t *testing.T) {
 	if w := send(s, "GET", "/nowhere", ""); w.Code != 404 {
 		t.Fatalf("unmatched URL got %d", w.Code)
 	}
-	if w := send(s, "DELETE", "/orders/1", ""); w.Code != 405 || w.Header().Get("Allow") != "GET, HEAD, POST" {
+	if w := send(s, "DELETE", "/orders/1", ""); w.Code != 405 || w.Header().Get("Allow") != "GET, HEAD, POST, OPTIONS" {
 		t.Fatalf("method mismatch got %d, Allow %q", w.Code, w.Header().Get("Allow"))
 	}
 	send(s, "GET", "/orders/1", "")

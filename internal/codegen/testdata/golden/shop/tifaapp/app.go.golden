@@ -57,9 +57,11 @@ var App = server.App{
 			Path:    "/api/health",
 			Page:    false,
 			GET:     server.InputOutput(app_api_health.GET, (*tifa.Ctx).BindQuery),
+			HEAD:    app_api_health.HEAD,
 			POST:    app_api_health.POST,
 			PUT:     server.Output(app_api_health.PUT),
 			DELETE:  server.Input(app_api_health.DELETE, (*tifa.Ctx).BindQuery),
+			OPTIONS: app_api_health.OPTIONS,
 			SSR:     true,
 			Layouts: []string{"app/layout"},
 		},
@@ -113,5 +115,5 @@ var App = server.App{
 	Settings: map[string]string{
 		"server.addr": "127.0.0.1:8090",
 	},
-	Fingerprint: "5ec4f801e0f4885eeaa2befbafc45a2c",
+	Fingerprint: "47d628e7eae0a396a643a1308f30612e",
 }

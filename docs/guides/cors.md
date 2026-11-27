@@ -35,9 +35,9 @@ A refused write is answered by the program before `OnRequest`, so it carries no 
 
 A POST with a JSON body is not a simple request, so the browser first sends an OPTIONS preflight. The preflight is never checked as a write, and `OnRequest` runs for it.
 
-## A route has no OPTIONS
+## The preflight goes in OnRequest
 
-`route.go` takes `GET`, `POST`, `PUT`, `PATCH` and `DELETE` ([Conventions](../reference/conventions.md)). A function named `OPTIONS` in it is not a route method: `tifa routes` lists only `GET` and `POST` for such a route, and `tifa check` does not warn about the function. Without a hook an OPTIONS request gets 405 and `Allow: GET, HEAD, POST`. So answer the preflight in `OnRequest`, which sees every request first.
+Without a hook, Tifa answers an OPTIONS request itself, with 204 and `Allow: GET, HEAD, POST, OPTIONS` for a route with `GET` and `POST`, and a `route.go` may have an `OPTIONS` of its own ([HEAD, OPTIONS, CONNECT and TRACE](../pages-and-data/handlers.md#head-options-connect-and-trace)). Neither is the place for CORS. The browser needs `Access-Control-Allow-Origin` on every answer it reads, the GET and the POST as well as the preflight, and on every route the other site calls. `OnRequest` sees every request first, so one hook covers them all, and its answer to the preflight comes before any `OPTIONS` of a route.
 
 ## The hook
 
@@ -146,4 +146,4 @@ curl -i -X OPTIONS http://127.0.0.1:9527/api/items \
   -H 'Origin: https://app.example.com' -H 'Access-Control-Request-Method: POST'
 ```
 
-The answer is `204` with the `Access-Control-Allow-*` headers. Leave out `Origin` and you get the 405 of any OPTIONS.
+The answer is `204` with the `Access-Control-Allow-*` headers. Leave out `Origin` and you get the answer Tifa gives any OPTIONS: `204` with `Allow` and no CORS headers.

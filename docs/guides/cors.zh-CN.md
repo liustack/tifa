@@ -2,7 +2,7 @@
 summary: '让另一个网站上的页面调用 Tifa 应用的 API：在 OnRequest 里回答 OPTIONS 预检，设置 Access-Control-Allow-*，以及它和 server.trusted_origins 的关系'
 audience: app
 order: 17
-translatedFrom: f897ab2f5db5
+translatedFrom: 07f6c395e98b
 read_when:
   - '另一个前端或合作方网站在浏览器里调用应用的 API 路由，控制台说「blocked by CORS policy」，或者调用以「Failed to fetch」失败'
   - '回答 OPTIONS 请求，或者设置 `Access-Control-Allow-Origin`'
@@ -36,9 +36,9 @@ Tifa 不发 CORS 头，也没有相关的设置。它是 `OnRequest` 里的几�
 
 带 JSON 正文的 POST 不是简单请求，所以浏览器先发一个 OPTIONS 预检。预检从不按写入来检查，而且 `OnRequest` 会为它运行。
 
-## 路由没有 OPTIONS {#a-route-has-no-options}
+## 预检放在 OnRequest 里 {#the-preflight-goes-in-onrequest}
 
-`route.go` 接受 `GET`、`POST`、`PUT`、`PATCH` 和 `DELETE`（[约定](../reference/conventions.zh-CN.md)）。里面一个叫 `OPTIONS` 的函数不是路由方法：`tifa routes` 对这样的路由只列出 `GET` 和 `POST`，`tifa check` 也不会对这个函数发警告。没有钩子时，OPTIONS 请求得到 405 和 `Allow: GET, HEAD, POST`。所以要在 `OnRequest` 里回答预检，它最先看到每一个请求。
+没有钩子时，Tifa 自己回答 OPTIONS 请求：对有 `GET` 和 `POST` 的路由，回答 204 和 `Allow: GET, HEAD, POST, OPTIONS`。`route.go` 也可以写自己的 `OPTIONS`（[HEAD、OPTIONS、CONNECT 和 TRACE](../pages-and-data/handlers.zh-CN.md#head-options-connect-and-trace)）。两者都不是放 CORS 的地方。浏览器读的每一个回答都要带 `Access-Control-Allow-Origin`，不只是预检，GET 和 POST 也要，而且另一个网站调用的每一条路由都要。`OnRequest` 最先看到每一个请求，所以一个钩子就全部覆盖了，它对预检的回答也排在任何路由的 `OPTIONS` 之前。
 
 ## 钩子 {#the-hook}
 
@@ -147,4 +147,4 @@ curl -i -X OPTIONS http://127.0.0.1:9527/api/items \
   -H 'Origin: https://app.example.com' -H 'Access-Control-Request-Method: POST'
 ```
 
-回答是 `204`，带 `Access-Control-Allow-*` 头。去掉 `Origin`，你得到的就是任何 OPTIONS 都会得到的 405。
+回答是 `204`，带 `Access-Control-Allow-*` 头。去掉 `Origin`，你得到的就是 Tifa 给任何 OPTIONS 的回答：`204`，带 `Allow`，没有 CORS 头。

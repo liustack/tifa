@@ -1,6 +1,7 @@
 // Run by TestGeneratedRouterBehaves in Node: the generated handler functions against a stubbed
 // fetch and a stubbed router.
 import { DELETE, GET, POST, PUT } from './app/api/notes/note+/route.gen'
+import * as noteFunctions from './app/api/notes/note+/route.gen'
 import { GET as file } from './app/api/files/path++/route.gen'
 import { POST as upload } from './app/api/photos/route.gen'
 import { setRouter } from './.tifa/runtime/call'
@@ -12,6 +13,9 @@ import { sessionSnapshot, startSession } from './.tifa/runtime/session'
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
+
+// HEAD, OPTIONS and TRACE of route.go have no function: a page never sends them by hand.
+assert(['HEAD', 'OPTIONS', 'TRACE'].every((m) => !(m in noteFunctions)), `route.gen exports ${Object.keys(noteFunctions)}`)
 
 const requests: Array<{ url: string; init: RequestInit }> = []
 let answer = () => new Response('[]', { status: 200 })

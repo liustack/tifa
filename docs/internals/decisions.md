@@ -139,6 +139,21 @@ Safety here is what Tifa itself promises: the render memo gives the right page, 
 
 ## Requests, handlers and errors
 
+### The methods route.go serves
+
+**Settled (2026-11-27).** `route.go` takes a handler for each standard method of RFC 9110: `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `CONNECT` and `TRACE`. `HEAD`, `OPTIONS`, `CONNECT` and `TRACE` take the Ctx alone and write their own answer. Without `HEAD`, `GET` answers HEAD, and with `HEAD` and no `GET` a GET gets 405. Without `OPTIONS`, Tifa answers 204 with `Allow`, after `OnRequest`. A function that takes the Ctx first, is named after one of the nine in another case (`Post`, `get`) and is called by nothing fails the build, since it would be skipped without a word. A first version the same day failed the build on the four names instead, and was turned down by the user.
+
+**Why.**
+- A path may answer HEAD alone, and OPTIONS has uses beyond CORS. Refusing a standard method breaks plain HTTP.
+- What a method risks is the app's choice, as with any of the many things an app can write. TRACE sends back what its handler writes, cookies and `Authorization` included when it writes the headers, and the docs say so in one line, without a refusal. Go's `ServeMux` takes any method in a pattern, Express routes `trace`, Fastify has `TRACE` in its default list, Hono takes any method with `app.on`, ASP.NET Core has `HttpMethods.Trace` and `Connect`, and Spring has `RequestMethod.TRACE` (dispatched when the app turns it on). Next.js serves seven, without CONNECT and TRACE. Node never routes CONNECT: it goes to the `connect` event of the server, so Express and Next.js cannot see one.
+- CONNECT is served as far as Go can route it. One for a host and port, as a client asks a proxy, has no path, so no route matches it and it gets 404. One with a path, as `net/rpc` sends, reaches the `CONNECT` of its route, which can take the connection with `Hijack`. Go turns HTTP/2 extended CONNECT (RFC 8441) off by default (`GODEBUG=http2xconnect=1`, golang/go#71128).
+- The automatic answer to OPTIONS sends `Allow`, as RFC 9110 9.3.7 asks, with 204 and no body, as Next.js does. Every route lists `OPTIONS` in its `Allow`, the one of a 405 too.
+- No input and no result for the four: HEAD has no body, OPTIONS answers with headers, CONNECT hands the connection over and TRACE sends the request back. `route.gen` has no function for them: a page has no use for them, and `fetch` refuses CONNECT and TRACE.
+- A folder with `page.tsx` takes no `HEAD`, as it takes no `GET`: Tifa answers HEAD of a page as its GET, and a HEAD of its own would send other headers than the page. It may take `OPTIONS`.
+- The cross-site check is Go's `CrossOriginProtection`, which lets GET, HEAD and OPTIONS through and checks every other method, CONNECT and TRACE included.
+
+**Instead, for CORS.** The preflight stays in `OnRequest`, since its headers go on every answer of the routes it opens: [Calls from another site](../guides/cors.md).
+
 ### A query string on the handler functions of POST, PUT and PATCH
 
 **Not done (2026-11-25).** The functions `route.gen` writes for `POST`, `PUT` and `PATCH` send the input as the body and have no place for a query string, though the handler can read one with `c.Query`.
