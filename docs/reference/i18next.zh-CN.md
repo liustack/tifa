@@ -2,7 +2,7 @@
 summary: 'Tifa 里的 i18next：`tifa/i18n` 适配器，以及 Vite 插件在 SSR 包里给 i18next 加的缓存'
 audience: app
 order: 15
-translatedFrom: 570d5bfecca0
+translatedFrom: d26498328712
 read_when:
   - '用 `tifa/i18n` 使用 i18next，或者关掉 `build.i18next_cache`'
 ---
@@ -13,7 +13,7 @@ read_when:
 
 ## i18next 适配器 {#the-i18next-adapter}
 
-`tifa/i18n` 是官方的 i18next 适配器。它把应用的翻译文件打包进来，为所有语言做一个 i18next 实例，并给页面提供常用的 react-i18next hook。应用自己安装 `i18next` 和 `react-i18next`（端到端测试用 i18next 27.1.2 和 react-i18next 18.0.1 运行它），并且它的 tsconfig 在 `paths` 里有 `"tifa/*": ["./.tifa/tifa/*"]`（`tifa new` 就是这样写的）。Tifa 只为带 `_locales` 文件夹的应用写出 `tifa/i18n.ts` 和 `runtime/i18n.tsx`，因为 TypeScript 会检查 `.tifa/` 的全部内容，而没有翻译的应用没有 i18next 可导入。
+`tifa/i18n` 是官方的 i18next 适配器。它把应用的翻译文件打包进来，为所有语言做一个 i18next 实例，并给页面提供常用的 react-i18next hook。应用自己安装 `i18next` 和 `react-i18next`（端到端测试用 i18next 27.1.2 和 react-i18next 18.0.3 运行它），并且它的 tsconfig 在 `paths` 里有 `"tifa/*": ["./.tifa/tifa/*"]`（`tifa new` 就是这样写的）。Tifa 只为带 `_locales` 文件夹的应用写出 `tifa/i18n.ts` 和 `runtime/i18n.tsx`，因为 TypeScript 会检查 `.tifa/` 的全部内容，而没有翻译的应用没有 i18next 可导入。
 
 字符串放在 `app/` 的各个文件夹里的 `_locales/<language>.json` 中。`<language>.draft.json` 不会发布，文件夹里的其他文件也都不算。一个文件夹的命名空间就是它相对于 `app/` 的路径：`app/store/_locales` 是 `store`，`app/admin/store/_locales` 是 `admin/store`，`app/_locales` 是默认命名空间。Vite 插件把这些文件变成一个模块，所以服务端渲染和浏览器都有每一个字符串，不用获取任何东西。
 
