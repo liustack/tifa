@@ -17,11 +17,11 @@ The app must keep what it shares somewhere all servers reach: see [What the app 
 
 ## The settings
 
-Several servers need `front: loadbalancer`, a load balancer of yours in front of them ([Behind your load balancer](deploy-proxy.md#behind-your-load-balancer)):
+Several servers need `front: external`, a load balancer of yours in front of them ([Behind your load balancer](deploy-proxy.md#behind-your-load-balancer)):
 
 ```yaml
 deploy:
-  front: loadbalancer
+  front: external
 ```
 
 Name the servers as you name one, with commas between them, first match wins as in [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy):
@@ -35,7 +35,7 @@ Or give `--host` more than once, or with commas: `go tool tifa deploy setup --ho
 
 With one server, everything is as before.
 
-**The other fronts work with one server only.** With several servers, `none`, `nginx` and `cloudflare` are refused before anything is changed, and the error says to use `loadbalancer`:
+**The other fronts work with one server only.** With several servers, `none`, `nginx` and `cloudflare` are refused before anything is changed, and the error says to use `external`:
 
 - `none`: each server would serve visitors itself, with its own certificate, and nothing would spread the load.
 - `nginx`: the nginx of Tifa serves the apps of one server. Sending visitors from it to other servers needs a network between the servers, which is yours and differs at every provider.

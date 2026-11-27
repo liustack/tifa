@@ -640,10 +640,10 @@ func (v frontValue) Set(s string) error {
 	switch m := strings.ToLower(s); m {
 	case "":
 		*v.p = "none"
-	case "none", "cloudflare", "nginx", "loadbalancer":
+	case "none", "cloudflare", "nginx", "external":
 		*v.p = m
 	default:
-		return fmt.Errorf("%q: use none, cloudflare, nginx or loadbalancer", s)
+		return fmt.Errorf("%q: use none, cloudflare, nginx or external", s)
 	}
 	return nil
 }

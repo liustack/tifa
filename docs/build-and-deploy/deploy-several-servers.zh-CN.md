@@ -2,7 +2,7 @@
 summary: '把一个应用放在你的负载均衡器后面的几台服务器上：服务器列表、setup、逐台部署、其他命令，以及应用要放在共享位置的东西'
 audience: app
 order: 22
-translatedFrom: 41f50fac0ad5
+translatedFrom: a361bc43df51
 read_when:
   - '一台服务器不够用了，或者一台服务器宕机不能让整个站点停掉'
   - '在 TIFA_DEPLOY_HOST 或 --host 里写几台服务器，或者命令因为 deploy.front 是 none、nginx 或 cloudflare 而拒绝了几台服务器'
@@ -18,11 +18,11 @@ read_when:
 
 ## 设置 {#the-settings}
 
-几台服务器需要 `front: loadbalancer`，也就是前面有一个你自己的负载均衡器（见[在你的负载均衡器后面](deploy-proxy.zh-CN.md#behind-your-load-balancer)）：
+几台服务器需要 `front: external`，也就是前面有一个你自己的负载均衡器（见[在你的负载均衡器后面](deploy-proxy.zh-CN.md#behind-your-load-balancer)）：
 
 ```yaml
 deploy:
-  front: loadbalancer
+  front: external
 ```
 
 服务器的写法和一台时一样，几台之间用逗号隔开，按[用 tifa deploy 部署](deploy.zh-CN.md#deploy-with-tifa-deploy)里的顺序，先找到的为准：
@@ -36,7 +36,7 @@ TIFA_DEPLOY_HOST=vps1,ssh://203.0.113.8:2222,ubuntu@vps3
 
 只有一台服务器时，一切和以前一样。
 
-**其他 front 只能用于一台服务器。** 有几台服务器时，`none`、`nginx` 和 `cloudflare` 在改动任何东西之前就被拒绝，错误信息会让你用 `loadbalancer`：
+**其他 front 只能用于一台服务器。** 有几台服务器时，`none`、`nginx` 和 `cloudflare` 在改动任何东西之前就被拒绝，错误信息会让你用 `external`：
 
 - `none`：每台服务器会自己接待访客，用自己的证书，没有东西来分摊负载。
 - `nginx`：Tifa 的 nginx 服务一台服务器上的应用。要从它把访客送到别的服务器，需要服务器之间的网络，这个网络是你的，每家服务商都不一样。

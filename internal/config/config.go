@@ -49,9 +49,10 @@ type Site struct {
 // is not here: tifa.yaml is committed, so tifa deploy takes it from --host, TIFA_DEPLOY_HOST or .env.
 type Deploy struct {
 	// Front is what visitors come through before the server: none, cloudflare, nginx or
-	// loadbalancer. With cloudflare the domain is the host of site.url. With nginx, an nginx that
-	// tifa deploy setup installs routes by the host of site.url. With loadbalancer, a load balancer
-	// of the user sends plain HTTP to the port of the app on each server.
+	// external. With cloudflare the domain is the host of site.url. With nginx, an nginx that
+	// tifa deploy setup installs routes by the host of site.url. With external, something of the
+	// user in front, such as a load balancer, a Cloudflare of their own or a proxy, sends plain
+	// HTTP to the port of the app on each server.
 	Front string
 	// Connect is the one path ssh takes to the server, from this machine and from CI: direct,
 	// cloudflare or tailscale.
@@ -294,7 +295,7 @@ func fields(c *Config) []field {
 		{"session.cookie", "Name of the session cookie", cookieNameValue{&c.Session.Cookie}},
 		{"session.max_age", "How long a session lasts, from the moment it is set", ageValue{&c.Session.MaxAge}},
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
-		{"deploy.front", "What visitors come through before the server: none, cloudflare, nginx or loadbalancer, on the host of site.url", frontValue{&c.Deploy.Front}},
+		{"deploy.front", "What visitors come through before the server: none, cloudflare, nginx or external, on the host of site.url", frontValue{&c.Deploy.Front}},
 		{"deploy.connect", "How deploys reach the server over ssh, from this machine and from CI: direct, cloudflare (through the Cloudflare Tunnel) or tailscale", connectValue{&c.Deploy.Connect}},
 		{"deploy.release_command", "A command of the app, such as migrate, that each deploy runs on the server with the new release before it starts it, while the old one still serves. Empty runs nothing", commandValue{&c.Deploy.ReleaseCommand}},
 		{"deploy.start_timeout", "How long a new release may take to start and pass its health check, from 1s to 10m, 30s when left out", startTimeoutValue{&c.Deploy.StartTimeout}},

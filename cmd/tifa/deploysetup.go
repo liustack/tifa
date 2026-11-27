@@ -561,12 +561,12 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	case port == httpPort:
 		serves = "serving visitors itself on port 80, over plain HTTP since site.url names no domain"
 	case t.open:
-		serves = fmt.Sprintf("port %d on every address of the server, for the load balancer", port)
-		p.firewall = fmt.Sprintf("The load balancer needs port %d of the server. Let only the load balancer reach port %[1]d, in the firewall or security groups of your provider (or ufw): a port open to everyone lets visitors past the balancer. Tifa opens no port for it.", port)
+		serves = fmt.Sprintf("port %d on every address of the server, for the load balancer or proxy in front", port)
+		p.firewall = fmt.Sprintf("The load balancer or proxy in front needs port %d of the server. Let only it reach port %[1]d, in the firewall or security groups of your provider (or ufw): a port open to everyone lets visitors past it. Tifa opens no port for it.", port)
 		if r.st.UFW == "on" {
 			p.notes = append(p.notes, planNote{
-				what: fmt.Sprintf("firewall: let the load balancer reach port %d through ufw", port),
-				why:  fmt.Sprintf("ufw is on, and blocks port %d unless a rule allows it. Run sudo ufw allow from <addresses of the load balancer> to any port %[1]d proto tcp on the server", port),
+				what: fmt.Sprintf("firewall: let the load balancer or proxy reach port %d through ufw", port),
+				why:  fmt.Sprintf("ufw is on, and blocks port %d unless a rule allows it. Run sudo ufw allow from <addresses of the load balancer or proxy> to any port %[1]d proto tcp on the server", port),
 			})
 		}
 	}
@@ -657,7 +657,7 @@ func (r *setupRun) printVisitors(ctx context.Context, w io.Writer) {
 	case r.t.front == "nginx":
 		r.printNginxVisitors(ctx, w)
 		return
-	case r.t.front == "loadbalancer":
+	case r.t.front == "external":
 		if r.haveServer && r.st.Port != 0 {
 			printBalancerTargets(ctx, []deployTarget{r.t}, []serverState{r.st}, w)
 		}
@@ -1598,7 +1598,7 @@ func deploySetupAll(ctx context.Context, ts []deployTarget, f setupFlags, in io.
 			return nil
 		}
 	}
-	if ts[0].front == "loadbalancer" {
+	if ts[0].front == "external" {
 		// Each server has the port of the group now.
 		states := slices.Clone(g.states)
 		for i := range states {

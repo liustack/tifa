@@ -987,7 +987,7 @@ func TestNewTifaYAMLNamesEveryFront(t *testing.T) {
 			line = l
 		}
 	}
-	for _, v := range []string{"none (", "| cloudflare (", "| nginx (", "| loadbalancer ("} {
+	for _, v := range []string{"none (", "| cloudflare (", "| nginx (", "| external ("} {
 		if !strings.Contains(line, v) {
 			t.Errorf("the line of deploy.front lacks %q:\n%s", v, line)
 		}

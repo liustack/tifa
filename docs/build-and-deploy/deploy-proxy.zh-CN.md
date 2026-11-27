@@ -1,11 +1,11 @@
 ---
-summary: '在 Tifa 应用前面放 nginx、负载均衡器、CDN 或反向代理：`deploy.front: nginx` 和 `loadbalancer`、CDN 的设置，以及代理后面的跨站 403'
+summary: '在 Tifa 应用前面放 nginx、负载均衡器、CDN 或反向代理：`deploy.front: nginx` 和 `external`、CDN 的设置，以及代理后面的跨站 403'
 audience: app
 order: 14
-translatedFrom: f54879392672
+translatedFrom: e93b727c182f
 read_when:
   - '不用 Cloudflare，用 `deploy.front: nginx` 把几个 Tifa 应用放在同一台服务器上，或者 setup 因为服务器上有一个不是 Tifa 装的 nginx 而停下'
-  - '用 `deploy.front: loadbalancer` 在 Tifa 应用前面放服务商的负载均衡器，并把目标和健康检查填进去'
+  - '用 `deploy.front: external` 在 Tifa 应用前面放服务商的负载均衡器或你自己的代理，并把目标和健康检查填进去'
   - '在 Tifa 应用前面放 CDN 或 nginx、Cloudflare、CloudFront 之类的反向代理'
   - 'POST 只在代理后面得到 403，信息是 `cross-origin request detected`'
 ---
@@ -86,21 +86,21 @@ server {
 
 ## 在你的负载均衡器后面 {#behind-your-load-balancer}
 
-用 `front: loadbalancer` 时，你在服务商那里建的负载均衡器（比如 AWS Application Load Balancer）把访客送到应用。它用自己的证书负责 HTTPS，用普通 HTTP 把请求发到每台服务器上应用的端口。Tifa 只管部署：它不建负载均衡器，不调用服务商的任何 API，也不装 nginx 或证书。一台服务器也能用，几台服务器只能用它（见[几台服务器](deploy-several-servers.zh-CN.md)）。
+用 `front: external` 时，服务器前面你自己的东西把访客送到应用：多半是你在服务商那里建的负载均衡器（比如 AWS Application Load Balancer），也可以是你自己的代理。它用自己的证书负责 HTTPS，用普通 HTTP 把请求发到每台服务器上应用的端口。Tifa 只管部署：它不建负载均衡器，不调用服务商的任何 API，也不装 nginx 或证书。应用回答普通 HTTP，不跳转到 HTTPS。一台服务器也能用，几台服务器只能用它（见[几台服务器](deploy-several-servers.zh-CN.md)）。
 
 ```yaml
 site:
   url: https://shop.example.com
 deploy:
-  front: loadbalancer
+  front: external
 ```
 
-**端口。** 应用在自己的端口上监听（从 9527 起），监听服务器的所有地址，不像在隧道或 nginx 后面那样只监听回环地址。放在几台服务器上时，每台的端口都一样，由 setup 挑一个每台都空着的。方案里会写出来：`port 9527 on every address of the server, for the load balancer`。
+**端口。** 应用在自己的端口上监听（从 9527 起），监听服务器的所有地址，不像在隧道或 nginx 后面那样只监听回环地址。放在几台服务器上时，每台的端口都一样，由 setup 挑一个每台都空着的。方案里会写出来：`port 9527 on every address of the server, for the load balancer or proxy in front`。
 
 **要填进负载均衡器的东西。** setup 和每次部署最后都会列出目标：
 
 ```text
-load balancer: send plain HTTP to these targets, and check each with GET /healthz, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a /healthz route):
+load balancer or proxy: send plain HTTP to these targets, and check each with GET /healthz, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a /healthz route):
   203.0.113.7:9527         vps
   203.0.113.8:9527         vps2
 ```

@@ -234,13 +234,13 @@ func loadDeployTargets(dir string, hostFlags []string, notice io.Writer) ([]depl
 	d := settings.Deploy
 	// Several servers share the load behind a load balancer of the user, and no other front.
 	if why, ok := oneServerFronts[d.Front]; ok && len(hosts) > 1 {
-		return nil, fmt.Errorf("%s names %d servers, and deploy.front is %s, %s: set deploy.front to loadbalancer in tifa.yaml, and put the servers behind a load balancer of yours", hosts[0].fromText(), len(hosts), d.Front, why)
+		return nil, fmt.Errorf("%s names %d servers, and deploy.front is %s, %s: set deploy.front to external in tifa.yaml, and put the servers behind a load balancer of yours", hosts[0].fromText(), len(hosts), d.Front, why)
 	}
 	ts := make([]deployTarget, len(hosts))
 	for i, h := range hosts {
 		ts[i] = deployTarget{root: root, app: app, host: h.addr(), dest: h, domain: domain, front: d.Front, own: own,
 			connectMode: d.Connect, startTimeout: d.StartTimeout, releaseCmd: d.ReleaseCommand, github: d.Auto.On, auto: d.Auto,
-			index: i, count: len(hosts), open: d.Front == "loadbalancer"}
+			index: i, count: len(hosts), open: d.Front == "external"}
 	}
 	return ts, nil
 }
@@ -561,7 +561,7 @@ with the token setup keeps on the server.
 It never uploads .env. On a server that setup prepared it makes the folder and units of a new
 app by itself. Run tifa deploy setup to prepare the server, Cloudflare and GitHub.
 
-With several servers, behind your load balancer (deploy.front loadbalancer), deploy builds once,
+With several servers, behind your load balancer (deploy.front external), deploy builds once,
 uploads to each, runs deploy.release_command once on the first, and then switches one server at
 a time, each once the one before passed its health check. When one fails, it goes back, and so do
 the servers before it, so all of them run one release.`,
@@ -593,9 +593,10 @@ When all is right it prints one line and asks nothing. It can run again at any t
             with HTTPS: setup stops when another program has them, and lets the systemd of
             tifa open them, as root once. When ufw is on and blocks them, setup allows them
             there, in rules with the comment tifa <app>. Tifa does not change the firewall or
-            security groups of your provider. With deploy.front loadbalancer the app listens
-            on its port on every address, for your load balancer: setup opens it nowhere, and
-            ends with the targets and the health check to enter in the balancer
+            security groups of your provider. With deploy.front external the app listens
+            on its port on every address, for what you put in front (your load balancer,
+            Cloudflare or proxy): setup opens it nowhere, and ends with the targets and the
+            health check to enter there
   front     with deploy.front cloudflare: the Cloudflare Tunnel, route, DNS and cache rules of
             the host of site.url (needs cf), and on the server a token that can only clear
             its cache, which every deploy reads. With deploy.front nginx: an nginx that setup
@@ -1236,7 +1237,7 @@ func gitCommit(root string) string {
 // printVisitorsAll says, once per deploy, where visitors reach the app: through the load balancer of
 // the user, the targets to give it, else what printVisitors says for the first server.
 func printVisitorsAll(ctx context.Context, ts []deployTarget, states []serverState, w io.Writer) {
-	if ts[0].front == "loadbalancer" {
+	if ts[0].front == "external" {
 		printBalancerTargets(ctx, ts, states, w)
 		return
 	}
@@ -1247,7 +1248,7 @@ func printVisitorsAll(ctx context.Context, ts []deployTarget, states []serverSta
 // the port of the app, the protocol, and the health check. A port that answers this machine may be
 // open to everyone, which lets visitors past the balancer: it says so.
 func printBalancerTargets(ctx context.Context, ts []deployTarget, states []serverState, w io.Writer) {
-	fmt.Fprintf(w, "load balancer: send plain HTTP to %s, and check %s with GET %s, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a %s route):\n",
+	fmt.Fprintf(w, "load balancer or proxy: send plain HTTP to %s, and check %s with GET %s, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a %s route):\n",
 		pick(len(ts) > 1, "these targets", "this target"), pick(len(ts) > 1, "each", "it"), healthPath, healthPath)
 	var open []string
 	for i, t := range ts {
@@ -1259,7 +1260,7 @@ func printBalancerTargets(ctx context.Context, ts []deployTarget, states []serve
 		}
 	}
 	if len(open) > 0 {
-		fmt.Fprintf(w, "%s %s this machine, so %s may be open to anyone, who would then reach the app past the balancer: let only the load balancer reach the port of the app, in the firewall of your provider (or ufw)\n",
+		fmt.Fprintf(w, "%s %s this machine, so %s may be open to anyone, who would then reach the app past the load balancer or proxy: let only it reach the port of the app, in the firewall of your provider (or ufw)\n",
 			strings.Join(open, " and "), pick(len(open) > 1, "answer", "answers"), pick(len(open) > 1, "they", "it"))
 	}
 }

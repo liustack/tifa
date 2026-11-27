@@ -112,7 +112,7 @@ func recordsOf(home string) string {
 // A deploy to two servers builds once, uploads to both, runs the command before the start once,
 // on the first server, and switches the servers one at a time. Both end on the new release.
 func TestDeploySeveralServers(t *testing.T) {
-	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n  release_command: migrate --all\n", nil)
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n  release_command: migrate --all\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	out, stderr, err := run(t, "deploy", "--dir", root)
 	if err != nil {
@@ -155,7 +155,7 @@ func TestDeploySeveralServers(t *testing.T) {
 // When the second server fails its check, it goes back by itself, and the first one, which
 // passed, is moved back to the release it ran before, so both run one release again.
 func TestDeploySeveralServersMovesBack(t *testing.T) {
-	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	first, second := "20261120T100000Z", "20261120T110000Z"
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
@@ -199,7 +199,7 @@ func TestDeploySeveralServersMovesBack(t *testing.T) {
 // When the first server fails, the servers after it never switched, but they have the release:
 // it is failed there too, so no rollback can pick it.
 func TestDeploySeveralServersFailedOnTheFirst(t *testing.T) {
-	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	first, second := "20261120T100000Z", "20261120T110000Z"
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
@@ -220,7 +220,7 @@ func TestDeploySeveralServersFailedOnTheFirst(t *testing.T) {
 // A first deploy that fails on the second server leaves nothing to go back to: the app stops on
 // every server that started the release, and the error says so.
 func TestDeploySeveralServersFirstDeployFails(t *testing.T) {
-	root, home1, home2, calls := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, home1, home2, calls := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	id := "20261120T100000Z"
 	writeFile(t, filepath.Join(home2, ".run", "health-"+id), "503")
@@ -244,7 +244,7 @@ func TestDeploySeveralServersFirstDeployFails(t *testing.T) {
 // When deploy.release_command fails, the release is deleted from every server it went to, and the
 // first one records why.
 func TestDeploySeveralServersReleaseCommandFails(t *testing.T) {
-	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n  release_command: migrate\n", nil)
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n  release_command: migrate\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	first, second := "20261120T100000Z", "20261120T110000Z"
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
@@ -274,7 +274,7 @@ func TestDeploySeveralServersReleaseCommandFails(t *testing.T) {
 // A deploy that names fewer servers than ~/.tifa keeps for the app is refused: the server left out
 // would keep running an older release behind the balancer.
 func TestDeploySeveralServersFewerThanRemembered(t *testing.T) {
-	root, home1, _, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, home1, _, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -293,7 +293,7 @@ func TestDeploySeveralServersFewerThanRemembered(t *testing.T) {
 // When a server that is moved back fails its check with the old release too, it stops: it never
 // runs the release that failed on another server again. The deploy says which server runs what.
 func TestDeploySeveralServersMoveBackFails(t *testing.T) {
-	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	first, second := "20261120T100000Z", "20261120T110000Z"
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
@@ -319,15 +319,15 @@ func TestDeploySeveralServersMoveBackFails(t *testing.T) {
 // Several servers share the load behind a load balancer of the user, and no other front: none
 // serves HTTPS on each machine itself, nginx serves the apps of one server, and a tunnel on several
 // sends each request to the closest one. They are refused when the target loads, for every command,
-// and the error names loadbalancer.
+// and the error names external.
 func TestDeploySeveralServersRefused(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	t.Setenv(deployHostEnv, "vps,vps2")
 	for yaml, want := range map[string]string{
-		"deploy:\n":                 "2 servers, and deploy.front is none, where the server serves visitors itself, with HTTPS of its own: set deploy.front to loadbalancer in tifa.yaml",
-		"deploy:\n  front: nginx\n": "deploy.front is nginx, which serves the apps of one server: set deploy.front to loadbalancer",
-		"site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n": "deploy.front is cloudflare, and a tunnel on several servers sends each request to the one closest to the visitor, which does not spread the load: set deploy.front to loadbalancer",
+		"deploy:\n":                 "2 servers, and deploy.front is none, where the server serves visitors itself, with HTTPS of its own: set deploy.front to external in tifa.yaml",
+		"deploy:\n  front: nginx\n": "deploy.front is nginx, which serves the apps of one server: set deploy.front to external",
+		"site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n": "deploy.front is cloudflare, and a tunnel on several servers sends each request to the one closest to the visitor, which does not spread the load: set deploy.front to external",
 	} {
 		writeFile(t, filepath.Join(root, "tifa.yaml"), yaml)
 		for _, args := range [][]string{{"deploy"}, {"deploy", "status"}, {"deploy", "rollback"}, {"deploy", "setup"}, {"deploy", "remove"}, {"deploy", "env", "list"}} {
@@ -341,7 +341,7 @@ func TestDeploySeveralServersRefused(t *testing.T) {
 
 // One host behaves as before: the messages name no server number.
 func TestDeployOneHostSaysNoNumbers(t *testing.T) {
-	root, _, _, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, _, _, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps")
 	out, _, err := run(t, "deploy", "--dir", root)
 	if err != nil {
@@ -354,7 +354,7 @@ func TestDeployOneHostSaysNoNumbers(t *testing.T) {
 
 // rollback goes back on every server, one at a time, and status looks at each.
 func TestDeploySeveralServersRollbackAndStatus(t *testing.T) {
-	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	first, second := "20261120T100000Z", "20261120T110000Z"
 	for range 2 {
@@ -397,7 +397,7 @@ func TestDeploySeveralServersRollbackAndStatus(t *testing.T) {
 
 // run runs the command on the first server, or on the one --host names.
 func TestDeploySeveralServersRun(t *testing.T) {
-	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -418,12 +418,12 @@ func TestDeploySeveralServersRun(t *testing.T) {
 	}
 }
 
-// With deploy.front loadbalancer the app listens on its port on every address, so the balancer of
+// With deploy.front external the app listens on its port on every address, so the balancer of
 // the user reaches it, and the deploy prints what to enter in the balancer. One host works too.
 func TestDeployLoadBalancer(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: loadbalancer\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: external\n")
 	t.Setenv(deployHostEnv, "vps")
 	homeOf(t)
 	home := t.TempDir()
@@ -445,7 +445,7 @@ func TestDeployLoadBalancer(t *testing.T) {
 		t.Errorf("socket unit %q", socket)
 	}
 	for _, want := range []string{
-		"load balancer: send plain HTTP to this target, and check it with GET /healthz, which a status from 200 to 499 passes",
+		"load balancer or proxy: send plain HTTP to this target, and check it with GET /healthz, which a status from 200 to 499 passes",
 		"  203.0.113.7:9527",
 		"203.0.113.7:9527 answers this machine, so it may be open to anyone",
 	} {
@@ -469,7 +469,7 @@ func TestDeployLoadBalancer(t *testing.T) {
 // env set and unset change the .env of every server, one at a time, each restarted and checked.
 // list prints the names once, and says when the servers differ.
 func TestDeploySeveralServersEnv(t *testing.T) {
-	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -515,7 +515,7 @@ const box2Facts = "os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nm
 // one port on both, free on both, on every address, and ends with what to enter in the balancer.
 // ~/.tifa keeps both servers, in order.
 func TestSetupSeveralServersLoadBalancer(t *testing.T) {
-	root := setupApp(t, "deploy:\n  front: loadbalancer\n", nil)
+	root := setupApp(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	homeOf(t)
 	fakePorts(t)
@@ -529,11 +529,11 @@ func TestSetupSeveralServersLoadBalancer(t *testing.T) {
 	for _, want := range []string{
 		"Plan for shop on vps (1 of 2)",
 		"Plan for shop on vps2 (2 of 2)",
-		"app: move shop from 127.0.0.1:9527, which only the server reaches, to port 9528 on every address of the server, for the load balancer",
-		"app: /srv/tifa/shop with an empty shared/.env, port 9528 on every address of the server, for the load balancer",
-		"load balancer: send plain HTTP to these targets",
+		"app: move shop from 127.0.0.1:9527, which only the server reaches, to port 9528 on every address of the server, for the load balancer or proxy in front",
+		"app: /srv/tifa/shop with an empty shared/.env, port 9528 on every address of the server, for the load balancer or proxy in front",
+		"load balancer or proxy: send plain HTTP to these targets",
 		"vps:9528", "203.0.113.8:9528",
-		"Let only the load balancer reach port 9528",
+		"Let only it reach port 9528",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
@@ -567,7 +567,7 @@ func TestSetupSeveralServersLoadBalancer(t *testing.T) {
 // secret TIFA_DEPLOY_HOST lists each, the host keys of each are trusted, and one key of the
 // repository logs in to each.
 func TestSetupSeveralServersGitHub(t *testing.T) {
-	root := setupApp(t, "deploy:\n  front: loadbalancer\n  auto: {}\n", nil)
+	root := setupApp(t, "deploy:\n  front: external\n  auto: {}\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	homeOf(t)
 	fakePorts(t)
@@ -619,7 +619,7 @@ func TestDeploySeveralServersNeedSetup(t *testing.T) {
 		"other port": {"9533\n", "shop has port 9531 on vps and 9533 on vps2: run go tool tifa deploy setup, which gives it one port on every server"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+			root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 			if tc.port == "" {
 				os.RemoveAll(filepath.Join(home2, "shop"))
 			} else {
@@ -644,7 +644,7 @@ func TestDeploySeveralServersNeedSetup(t *testing.T) {
 // and the first last. Only the plan of the first takes back what is in GitHub, and each server
 // loses the key of the repository. ~/.tifa forgets the app on every server.
 func TestRemoveSeveralServers(t *testing.T) {
-	root := setupApp(t, "deploy:\n  front: loadbalancer\n  auto: {}\n", nil)
+	root := setupApp(t, "deploy:\n  front: external\n  auto: {}\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	homeOf(t)
 	fakePorts(t)
@@ -685,7 +685,7 @@ func TestRemoveSeveralServers(t *testing.T) {
 // remove --host with one server of an app on several takes the app off that server only: the others
 // keep it, ~/.tifa keeps them as the servers of the app, and GitHub is left alone.
 func TestRemoveOneOfSeveralServers(t *testing.T) {
-	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
 		t.Fatalf("%v\n%s", err, out)

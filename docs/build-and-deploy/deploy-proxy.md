@@ -1,10 +1,10 @@
 ---
-summary: 'Put nginx, a load balancer, a CDN or a reverse proxy in front of a Tifa app: `deploy.front: nginx` and `loadbalancer`, the CDN settings and cross-origin 403s behind a proxy'
+summary: 'Put nginx, a load balancer, a CDN or a reverse proxy in front of a Tifa app: `deploy.front: nginx` and `external`, the CDN settings and cross-origin 403s behind a proxy'
 audience: app
 order: 14
 read_when:
   - Putting several Tifa apps on one server without Cloudflare, with `deploy.front: nginx`, or setup stopped because the server has an nginx that Tifa did not install
-  - Putting a load balancer of your provider in front of a Tifa app, with `deploy.front: loadbalancer`, and entering the targets and the health check in it
+  - Putting a load balancer of your provider or a proxy of your own in front of a Tifa app, with `deploy.front: external`, and entering the targets and the health check in it
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
 ---
@@ -85,21 +85,21 @@ Without a domain there is one server, with `listen 80 default_server;`. A server
 
 ## Behind your load balancer
 
-With `front: loadbalancer`, a load balancer you set up at your provider, such as an AWS Application Load Balancer, sends visitors to the app. It ends HTTPS with its own certificate and sends plain HTTP to the port of the app on each server. Tifa only deploys: it sets up no balancer, calls no API of your provider, and installs no nginx or certificate. It works with one server and is the front for [several servers](deploy-several-servers.md).
+With `front: external`, something of yours in front of the servers sends visitors to the app: most often a load balancer you set up at your provider, such as an AWS Application Load Balancer, or else a proxy of your own. It ends HTTPS with its own certificate and sends plain HTTP to the port of the app on each server. Tifa only deploys: it sets up no balancer, calls no API of your provider, and installs no nginx or certificate. The app answers plain HTTP and does not redirect to HTTPS. It works with one server and is the front for [several servers](deploy-several-servers.md).
 
 ```yaml
 site:
   url: https://shop.example.com
 deploy:
-  front: loadbalancer
+  front: external
 ```
 
-**The port.** The app listens on its own port, from 9527 up, on every address of the server, not only on the loopback as behind the tunnel or nginx. With several servers it has the same port on all of them, which setup picks free on each. The plan names it: `port 9527 on every address of the server, for the load balancer`.
+**The port.** The app listens on its own port, from 9527 up, on every address of the server, not only on the loopback as behind the tunnel or nginx. With several servers it has the same port on all of them, which setup picks free on each. The plan names it: `port 9527 on every address of the server, for the load balancer or proxy in front`.
 
 **What to enter in the balancer.** Setup and each deploy end with the targets:
 
 ```text
-load balancer: send plain HTTP to these targets, and check each with GET /healthz, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a /healthz route):
+load balancer or proxy: send plain HTTP to these targets, and check each with GET /healthz, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a /healthz route):
   203.0.113.7:9527         vps
   203.0.113.8:9527         vps2
 ```
