@@ -179,16 +179,119 @@ func TestDeploySeveralServersMovesBack(t *testing.T) {
 			t.Errorf("error %q lacks %q", err, want)
 		}
 	}
-	if got, want := recordsOf(home1), first+" deploy ok\n"+second+" deploy ok\n"+first+" rollback ok"; got != want {
+	// The release failed on vps2, so it is failed on vps too, which ran it and went back.
+	if got, want := recordsOf(home1), first+" deploy ok\n"+second+" deploy ok\n"+first+" rollback ok\n"+second+" deploy failed"; got != want {
 		t.Errorf("deploys.log of vps:\n%s\nwant\n%s", got, want)
+	}
+	if got, want := recordsOf(home2), first+" deploy ok\n"+second+" deploy failed"; got != want {
+		t.Errorf("deploys.log of vps2:\n%s\nwant\n%s", got, want)
+	}
+	// Neither status nor rollback offers it.
+	out, _, err = run(t, "deploy", "status", "--dir", root)
+	if err != nil || strings.Contains(out, second+"  commit none  passed") || strings.Count(out, second+"  commit none  failed its health check") != 2 {
+		t.Errorf("status: %v\n%s", err, out)
+	}
+	if out, _, err := run(t, "deploy", "rollback", second, "--dir", root); err == nil || currentOf(home1) != first {
+		t.Errorf("rolled back to the failed release: %v\n%s", err, out)
+	}
+}
+
+// When the first server fails, the servers after it never switched, but they have the release:
+// it is failed there too, so no rollback can pick it.
+func TestDeploySeveralServersFailedOnTheFirst(t *testing.T) {
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	t.Setenv(deployHostEnv, "vps,vps2")
+	first, second := "20261120T100000Z", "20261120T110000Z"
+	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	writeFile(t, filepath.Join(home1, ".run", "health-"+second), "503")
+	if out, _, err := run(t, "deploy", "--dir", root); err == nil {
+		t.Fatalf("the deploy passed:\n%s", out)
+	}
+	if currentOf(home1) != first || currentOf(home2) != first {
+		t.Fatalf("current: %s and %s", currentOf(home1), currentOf(home2))
 	}
 	if got, want := recordsOf(home2), first+" deploy ok\n"+second+" deploy failed"; got != want {
 		t.Errorf("deploys.log of vps2:\n%s\nwant\n%s", got, want)
 	}
 }
 
-// When a server that is moved back fails its check with the old release too, it runs the new one
-// again, and the deploy says which server runs which release.
+// A first deploy that fails on the second server leaves nothing to go back to: the app stops on
+// every server that started the release, and the error says so.
+func TestDeploySeveralServersFirstDeployFails(t *testing.T) {
+	root, home1, home2, calls := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	t.Setenv(deployHostEnv, "vps,vps2")
+	id := "20261120T100000Z"
+	writeFile(t, filepath.Join(home2, ".run", "health-"+id), "503")
+	out, _, err := run(t, "deploy", "--dir", root)
+	if err == nil {
+		t.Fatalf("the deploy passed:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "shop is stopped on every server that started it") {
+		t.Errorf("error: %v\n%s", err, out)
+	}
+	if n := strings.Count(calls(), "systemctl --user stop tifa-shop.service"); n != 2 {
+		t.Errorf("stopped %d times:\n%s", n, calls())
+	}
+	for _, home := range []string{home1, home2} {
+		if got := recordsOf(home); got != id+" deploy failed" && got != id+" deploy ok\n"+id+" deploy failed" {
+			t.Errorf("deploys.log: %q", got)
+		}
+	}
+}
+
+// When deploy.release_command fails, the release is deleted from every server it went to, and the
+// first one records why.
+func TestDeploySeveralServersReleaseCommandFails(t *testing.T) {
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n  release_command: migrate\n", nil)
+	t.Setenv(deployHostEnv, "vps,vps2")
+	first, second := "20261120T100000Z", "20261120T110000Z"
+	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	// The program of the next build fails every command.
+	buildForServer = func(_ context.Context, _, _, _, out string, _, _ io.Writer) error {
+		return os.WriteFile(out, []byte("#!/bin/sh\nexit 7\n"), 0o755)
+	}
+	out, _, err := run(t, "deploy", "--dir", root)
+	if err == nil {
+		t.Fatalf("the deploy passed:\n%s", out)
+	}
+	for _, home := range []string{home1, home2} {
+		if _, err := os.Stat(filepath.Join(home, "shop", "releases", second)); err == nil {
+			t.Errorf("%s keeps the release", home)
+		}
+		if currentOf(home) != first {
+			t.Errorf("current of %s: %s", home, currentOf(home))
+		}
+	}
+	if got := recordsOf(home1); got != first+" deploy ok\n"+second+" deploy "+releaseCommandFailed {
+		t.Errorf("deploys.log of vps: %q", got)
+	}
+}
+
+// A deploy that names fewer servers than ~/.tifa keeps for the app is refused: the server left out
+// would keep running an older release behind the balancer.
+func TestDeploySeveralServersFewerThanRemembered(t *testing.T) {
+	root, home1, _, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	t.Setenv(deployHostEnv, "vps,vps2")
+	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	t.Setenv(deployHostEnv, "vps")
+	out, _, err := run(t, "deploy", "--dir", root)
+	want := "go tool tifa deploy remove --host vps2"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("got %v, want %q\n%s", err, want, out)
+	}
+	if strings.Count(currentOf(home1), "Z") != 1 || currentOf(home1) != "20261120T100000Z" {
+		t.Errorf("vps changed: %s", currentOf(home1))
+	}
+}
+
+// When a server that is moved back fails its check with the old release too, it stops: it never
+// runs the release that failed on another server again. The deploy says which server runs what.
 func TestDeploySeveralServersMoveBackFails(t *testing.T) {
 	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
 	t.Setenv(deployHostEnv, "vps,vps2")
@@ -203,10 +306,10 @@ func TestDeploySeveralServersMoveBackFails(t *testing.T) {
 	if err == nil {
 		t.Fatalf("the deploy passed:\n%s", out)
 	}
-	if currentOf(home1) != second || currentOf(home2) != first {
-		t.Fatalf("current: %s and %s\n%s", currentOf(home1), currentOf(home2), out)
+	if currentOf(home2) != first {
+		t.Fatalf("current of vps2: %s\n%s", currentOf(home2), out)
 	}
-	for _, want := range []string{"vps runs " + second, "vps2 runs " + first} {
+	for _, want := range []string{"vps runs no release", "vps2 runs " + first} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q lacks %q", err, want)
 		}
@@ -576,5 +679,34 @@ func TestRemoveSeveralServers(t *testing.T) {
 	}
 	if servers, err := readServers(); err != nil || len(servers) != 0 {
 		t.Errorf("~/.tifa keeps %+v, %v", servers, err)
+	}
+}
+
+// remove --host with one server of an app on several takes the app off that server only: the others
+// keep it, ~/.tifa keeps them as the servers of the app, and GitHub is left alone.
+func TestRemoveOneOfSeveralServers(t *testing.T) {
+	root, home1, home2, _ := twoServers(t, "deploy:\n  front: loadbalancer\n", nil)
+	t.Setenv(deployHostEnv, "vps,vps2")
+	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	t.Setenv(deployHostEnv, "")
+	out, _, err := runRemove(t, root, false, "", "--host", "vps2", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(home2, "shop")); err == nil {
+		t.Error("vps2 keeps the app")
+	}
+	if currentOf(home1) == "" {
+		t.Error("vps lost the app")
+	}
+	servers, err := readServers()
+	if err != nil || len(servers) != 1 || servers[0].Host != "vps" || len(servers[0].Apps) != 1 || len(servers[0].Apps[0].Hosts) != 0 {
+		t.Fatalf("~/.tifa: %+v, %v", servers, err)
+	}
+	// The next deploy names the server that is left, and goes on.
+	if out, _, err := run(t, "deploy", "--dir", root); err != nil || !strings.Contains(out, "deploying shop to vps (") {
+		t.Errorf("%v\n%s", err, out)
 	}
 }

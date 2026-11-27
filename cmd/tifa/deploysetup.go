@@ -67,6 +67,8 @@ type setupPlan struct {
 	who string
 	// machine is the ID of the server the plan read, which ~/.tifa knows it by. Remove sets it.
 	machine string
+	// rest are the other servers of an app on several, which keep it when remove takes it off one.
+	rest []groupServer
 }
 
 func (p *setupPlan) add(op planOp, text string, do func(context.Context) (string, error)) {

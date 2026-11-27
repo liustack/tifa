@@ -2,7 +2,7 @@
 summary: '把一个应用放在你的负载均衡器后面的几台服务器上：服务器列表、setup、逐台部署、其他命令，以及应用要放在共享位置的东西'
 audience: app
 order: 22
-translatedFrom: 56fe88141f4c
+translatedFrom: 41f50fac0ad5
 read_when:
   - '一台服务器不够用了，或者一台服务器宕机不能让整个站点停掉'
   - '在 TIFA_DEPLOY_HOST 或 --host 里写几台服务器，或者命令因为 deploy.front 是 none、nginx 或 cloudflare 而拒绝了几台服务器'
@@ -50,7 +50,7 @@ setup 在第一台失败或需要你处理的服务器那里停下。按它说�
 
 有 `deploy.auto` 时，GitHub Actions 放在最后，所有服务器一个方案：仓库的一把密钥，能登录每一台，每一台的主机密钥，以及 secret `TIFA_DEPLOY_HOST` 里的服务器列表（见[从 GitHub Actions 部署](deploy-github-actions.zh-CN.md#deploy-from-github-actions)）。
 
-setup 最后列出要填进负载均衡器的目标和健康检查，`~/.tifa/config.yaml` 记住服务器列表，所以之后不带 `--host` 的命令会作用于所有服务器（见 [Tifa 记住的服务器](deploy.zh-CN.md#the-servers-tifa-remembers)）。要加一台服务器，就把它加进列表，运行 setup，再把目标加进负载均衡器。要去掉一台，先把它从负载均衡器里拿出去，然后运行 `go tool tifa deploy remove --host <那台服务器>`，再用缩短后的列表运行 setup。有 `deploy.auto` 时，这次 remove 也会删掉仓库的 secret，之后的 setup 会为剩下的服务器重新写上。
+setup 最后列出要填进负载均衡器的目标和健康检查，`~/.tifa/config.yaml` 记住服务器列表，所以之后不带 `--host` 的命令会作用于所有服务器（见 [Tifa 记住的服务器](deploy.zh-CN.md#the-servers-tifa-remembers)）。要加一台服务器，就把它加进列表，运行 setup，再把目标加进负载均衡器。要去掉一台，先把它从负载均衡器里拿出去，然后运行 `go tool tifa deploy remove --host <那台服务器>`：它只把应用从那一台上拿掉，`~/.tifa/config.yaml` 把其他几台留作这个应用的服务器。然后把那台服务器从 `TIFA_DEPLOY_HOST` 里删掉。有 `deploy.auto` 时，再运行一次 setup，让 GitHub Actions 拿到剩下的服务器。部署写的服务器比 `~/.tifa/config.yaml` 为这个应用记住的少时，会在改动任何东西之前停下，并说出要拿掉的是哪台。
 
 ## 部署 {#deploy}
 
@@ -58,12 +58,12 @@ setup 最后列出要填进负载均衡器的目标和健康检查，`~/.tifa/co
 
 1. 读取每台服务器。它们的系统必须一样，因为一次构建要在每台上运行，应用的端口也必须一样。某台服务器上没有这个应用，或者端口不一样，部署会在改动任何东西之前停下：运行 setup。
 2. 构建一次，把这个版本上传到每台服务器。
-3. 设置了 `deploy.release_command` 时，在任何服务器切换之前，在第一台服务器上运行它一次（见[发布命令](deploy.zh-CN.md#the-release-command)）。
+3. 设置了 `deploy.release_command` 时，在任何服务器切换之前，在第一台服务器上运行它一次（见[发布命令](deploy.zh-CN.md#the-release-command)）。它失败时，部署停下，新版本从每台服务器上删掉，第一台的 `deploys.log` 写着原因。
 4. 一次切换一台服务器：`switching vps2 (2 of 3)`。每台服务器启动新版本并通过健康检查之后，下一台才开始。负载均衡器继续把访客送到没在切换的服务器。
 
-一台服务器没通过检查时，它会自己回到原来的版本，和只有一台服务器时一样，部署随即停下。它前面那些已经通过的服务器会被挪回它们原来运行的版本，从最后一台开始，这样所有服务器又运行同一个版本。如果挪回失败，错误信息会说哪台运行哪个版本。这时再部署一次，或者运行 `go tool tifa deploy rollback <release>` 把它们带回同一个版本。
+一台服务器没通过检查时，它会自己回到原来的版本，和只有一台服务器时一样，部署随即停下。它前面那些已经通过的服务器会被挪回它们原来运行的版本，从最后一台开始，这样所有服务器又运行同一个版本。之前没有运行过版本的服务器（比如第一次部署时）会改为停掉应用，旧版本这时没通过检查的服务器也会停掉：没有哪台服务器会继续运行在另一台上失败了的版本。几台服务器运行的不一样时，错误信息会说哪台运行哪个版本。这时再部署一次，或者运行 `go tool tifa deploy rollback <release>` 把它们带回同一个版本。
 
-从没切换的服务器会把新版本留在磁盘上。这没有坏处：rollback 不会选它，因为它从没通过检查，之后的部署会把它和其他旧版本一起删掉。
+失败的版本会在每台有它的服务器的 `deploys.log` 里记成失败，包括用它通过了检查的和从没切换的，所以 `status` 显示它失败了，rollback 也不会去它那里。
 
 ## 其他命令 {#the-other-commands}
 
@@ -72,7 +72,7 @@ setup 最后列出要填进负载均衡器的目标和健康检查，`~/.tifa/co
 - `logs`：每台服务器的日志，前面有一行写着是哪台。`logs -f` 只跟一台服务器：用 `--host` 指定。
 - `env set` 和 `env unset`：一台接一台改每台服务器。出错时会说哪些服务器已经改好了。`env list` 只显示一次名字，几台服务器的名字不一样时分别显示每台的。
 - `run`：第一台服务器。要用别的就用 `--host` 指定。
-- `remove`：每台服务器一个方案，只问一次，先处理其他服务器，最后处理第一台。只有第一台的方案会收回 GitHub 里的东西。
+- `remove`：每台服务器一个方案，只问一次，先处理其他服务器，最后处理第一台。只有第一台的方案会收回 GitHub 里的东西。带 `--host` 时，它只把应用从那一台上拿掉，见 [setup](#set-up)。
 
 ## 应用要做的事 {#what-the-app-must-do}
 

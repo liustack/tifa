@@ -396,14 +396,12 @@ func parseServerState(out string) (serverState, error) {
 	return s, nil
 }
 
-// good reports whether release id passed its health check once, and returns its record.
+// good reports whether release id passed its health check and did not fail since, and returns
+// its record: the last record of id says ok. A release that passed on this server and failed on
+// another of the app has a failed record after its ok.
 func (s serverState) good(id string) (deployRecord, bool) {
-	for _, r := range slices.Backward(s.Records) {
-		if r.ID == id && r.Result == "ok" {
-			return r, true
-		}
-	}
-	return deployRecord{}, false
+	r := s.latest(id)
+	return r, r.ID != "" && r.Result == "ok"
 }
 
 // latest returns the last record of release id, or none.

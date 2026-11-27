@@ -78,7 +78,8 @@ echo "$did"
 
 // buildRemovePlan reads the server, Cloudflare and GitHub, and plans to remove what tifa made for
 // the app there. It changes nothing. For a server of an app on several but the first, it plans the
-// server alone: the first one's plan takes back what is in GitHub.
+// server alone: the first one's plan takes back what is in GitHub. So it does for the one server
+// named of an app that ~/.tifa keeps on others too, which keep it: p.rest lists them.
 func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (setupPlan, error) {
 	r := &setupRun{t: t, stdout: stdout, stderr: stderr, removing: true}
 	member := t.index > 0
@@ -91,6 +92,14 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 	}
 	st := r.st
 	p.machine = st.Machine
+	if !t.several() && st.Machine != "" {
+		if servers, err := readServers(); err == nil {
+			if group, ok := groupOf(servers, t.root); ok && slices.ContainsFunc(group, func(g groupServer) bool { return g.id == st.Machine }) {
+				member = true
+				p.rest = slices.DeleteFunc(group, func(g groupServer) bool { return g.id == st.Machine })
+			}
+		}
+	}
 	// The site and certificate of an app behind the nginx of Tifa, and nginx with the last of them.
 	if st.NginxTifa {
 		if err := r.nginxRemovalSteps(ctx, &p, ""); err != nil {
@@ -397,6 +406,14 @@ func deployRemove(ctx context.Context, t deployTarget, yes bool, in io.Reader, s
 	}
 	// Only a clean finish forgets the app: after a warning something of it may still be on the
 	// server, and a retry without --host must find the same server.
+	if plan.rest != nil {
+		// The app stays on the other servers, which ~/.tifa keeps as its servers.
+		rememberGroupAndSay(plan.rest, knownApp{Name: t.app, Path: t.root}, stdout, stderr)
+		if t.github {
+			fmt.Fprintf(stdout, "The secret %s of the repository still names %s: run go tool tifa deploy setup, which gives GitHub Actions the servers that are left.\n", secretHost, t.host)
+		}
+		return nil
+	}
 	forgetApp(plan.machine, t.root, stderr)
 	return nil
 }

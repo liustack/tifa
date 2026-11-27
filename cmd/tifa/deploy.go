@@ -710,6 +710,9 @@ func deploy(ctx context.Context, ts []deployTarget, stdout, stderr io.Writer) (e
 		}
 		states[i] = s
 	}
+	if err := checkLeftOut(ts, machines); err != nil {
+		return err
+	}
 	goos, goarch, err := serverTarget(states[0].OS, states[0].Arch)
 	if err != nil {
 		return err
@@ -752,9 +755,13 @@ func deploy(ctx context.Context, ts []deployTarget, stdout, stderr io.Writer) (e
 		}
 	}
 
-	// Once: deploy.release_command, on the first server, before any switch.
+	// Once: deploy.release_command, on the first server, before any switch. When it fails, no
+	// server keeps the release: the first one keeps the line of deploys.log that says why.
 	if len(first.releaseCmd) > 0 {
 		if err := first.releaseCommand(ctx, id, commit, states[0].Current, stdout, stderr); err != nil {
+			if first.several() {
+				forEachServer(ctx, ts, -1, dropReleaseScript(first.app, id), stderr)
+			}
 			return err
 		}
 	}
@@ -768,10 +775,11 @@ func deploy(ctx context.Context, ts []deployTarget, stdout, stderr io.Writer) (e
 		a := activation{App: t.app, ID: id, Commit: commit, Port: s.Port, Action: "deploy",
 			Back: fallback(s), Prune: pruneReleases(s.Releases, s.Current, id, keepReleases), Wait: t.healthWait()}
 		if runs, err := t.switchTo(ctx, a, health, stderr); err != nil {
-			if i == 0 {
-				return err
+			if i > 0 {
+				err = moveBack(ctx, ts, states, i, id, runs, health, stdout, stderr)
 			}
-			return moveBack(ctx, ts, states, i, id, runs, health, stdout, stderr)
+			forEachServer(ctx, ts, i, failedScript(t.app, id, commit, "deploy"), stderr)
+			return err
 		}
 	}
 	fmt.Fprintf(stdout, "deployed %s release %s (commit %s) in %s\n", first.app, id, commit, time.Since(started).Round(100*time.Millisecond))
@@ -790,6 +798,64 @@ func deploy(ctx context.Context, ts []deployTarget, stdout, stderr io.Writer) (e
 	sum.Cache = clearCache(ctx, first, stderr)
 	printCache(stdout, sum.Cache)
 	printVisitorsAll(ctx, ts, states, stdout)
+	return nil
+}
+
+// failedBody runs as the deploy user. It records release $id as failed when the server has it, so
+// that no rollback goes to it and status says it failed: it failed on another server of the app.
+const failedBody = `d="$HOME/$app"
+` + recordFunc + `exec 9>"$d/.lock"
+if ! flock -n 9; then echo "tifa: another deploy of $app runs on the server" >&2; exit 1; fi
+if [ -d "$d/releases/$id" ]; then record "$id" "$commit" failed; fi
+`
+
+// failedScript is failedBody for release id of app, from commit, which action started.
+func failedScript(app, id, commit, action string) string {
+	return script(failedBody, "app", app, "id", id, "commit", commit, "action", action)
+}
+
+// dropReleaseBody runs as the deploy user. It deletes release $id, unless current points at it.
+const dropReleaseBody = `d="$HOME/$app"
+exec 9>"$d/.lock"
+if ! flock -n 9; then echo "tifa: another deploy of $app runs on the server" >&2; exit 1; fi
+if [ "$(readlink "$d/current")" != "releases/$id" ]; then rm -rf "$d/releases/$id"; fi
+`
+
+// dropReleaseScript is dropReleaseBody for release id of app.
+func dropReleaseScript(app, id string) string {
+	return script(dropReleaseBody, "app", app, "id", id)
+}
+
+// forEachServer runs script as the deploy user on every server of ts but the one at skip, after a
+// deploy failed. A server it cannot reach is a warning: the deploy has its error already.
+func forEachServer(ctx context.Context, ts []deployTarget, skip int, script string, stderr io.Writer) {
+	for i, t := range ts {
+		if i == skip {
+			continue
+		}
+		if err := t.ssh(ctx, deployUser, script, nil, io.Discard, stderr); err != nil {
+			fmt.Fprintf(stderr, "warning: %s: %v\n", t.host, err)
+		}
+	}
+}
+
+// checkLeftOut refuses a deploy that leaves out a server ~/.tifa keeps for the app on several:
+// it would go on running an older release behind the balancer. machines are the servers of ts.
+// A file that cannot be read stops nothing: it only helps here.
+func checkLeftOut(ts []deployTarget, machines []string) error {
+	servers, err := readServers()
+	if err != nil {
+		return nil
+	}
+	group, ok := groupOf(servers, ts[0].root)
+	if !ok {
+		return nil
+	}
+	for _, g := range group {
+		if !slices.Contains(machines, g.id) {
+			return fmt.Errorf("%s runs on %s too, as %s says, and this deploy does not name it: name every server of %[1]s, or take %[1]s off %[2]s first with go tool tifa deploy remove --host %[2]s", ts[0].app, g.host, shownServersPath())
+		}
+	}
 	return nil
 }
 
@@ -827,8 +893,9 @@ func stopScript(app string) string {
 
 // moveBack ends a switch that failed on the server failed of ts, which now runs runs: the servers
 // before it switched to release id and passed, so each goes back to the release it ran before,
-// the latest first. A server that fails its check with that release runs id again. It says
-// which server runs which release, and always returns an error, the deploy having failed.
+// the latest first, or stops when it ran none. A server that fails its check with that release
+// stops too: no server runs id, which failed on another. It says which server runs which release,
+// and always returns an error, the deploy having failed.
 func moveBack(ctx context.Context, ts []deployTarget, states []serverState, failed int, id, runs string, health, stdout, stderr io.Writer) error {
 	now := make([]string, len(ts))
 	now[failed] = runs
@@ -849,7 +916,9 @@ func moveBack(ctx context.Context, ts []deployTarget, states []serverState, fail
 			continue
 		}
 		fmt.Fprintf(stdout, "moving %s back to %s\n", t.host, back)
-		a := activation{App: t.app, ID: back, Commit: s.latest(back).Commit, Port: s.Port, Action: "rollback", Back: id, Wait: t.healthWait()}
+		// No way back to id, which failed on another server: a server whose release before fails
+		// its check too stops.
+		a := activation{App: t.app, ID: back, Commit: s.latest(back).Commit, Port: s.Port, Action: "rollback", Wait: t.healthWait()}
 		r, err := t.switchTo(ctx, a, health, stderr)
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", t.host, err)
@@ -858,11 +927,10 @@ func moveBack(ctx context.Context, ts []deployTarget, states []serverState, fail
 	}
 	t := ts[failed]
 	if same := slices.Compact(slices.Clone(now)); len(same) == 1 {
-		what := "every server runs " + same[0] + " again"
 		if same[0] == "" {
-			what = "no server runs a release: look at the log above, then deploy again"
+			return &exitError{code: 1, err: fmt.Errorf("release %s failed its health check on %s%s, and no server ran a release that passed before it, so %s is stopped on every server that started it: look at the log above, then deploy again", id, t.host, t.serverNote(), t.app)}
 		}
-		return &exitError{code: 1, err: fmt.Errorf("release %s failed its health check on %s%s, so the servers before it went back: %s", id, t.host, t.serverNote(), what)}
+		return &exitError{code: 1, err: fmt.Errorf("release %s failed its health check on %s%s, so the servers before it went back: every server runs %s again", id, t.host, t.serverNote(), same[0])}
 	}
 	var parts []string
 	for i, r := range now {
@@ -1093,10 +1161,11 @@ func deployRollbackAll(ctx context.Context, ts []deployTarget, release string, s
 		fmt.Fprintf(stdout, "rolling %s on %s%s %s from %s to %s (commit %s)\n", t.app, t.host, t.serverNote(), way, s.Current, release, targets[i].Commit)
 		a := activation{App: t.app, ID: release, Commit: targets[i].Commit, Port: s.Port, Action: "rollback", Back: s.Current, Wait: t.healthWait()}
 		if runs, err := t.switchTo(ctx, a, health, stderr); err != nil {
-			if i == 0 {
-				return err
+			if i > 0 {
+				err = moveBack(ctx, ts, states, i, release, runs, health, stdout, stderr)
 			}
-			return moveBack(ctx, ts, states, i, release, runs, health, stdout, stderr)
+			forEachServer(ctx, ts, i, failedScript(t.app, release, targets[i].Commit, "rollback"), stderr)
+			return err
 		}
 	}
 	fmt.Fprintf(stdout, "rolled %s to %s on %s in %s\n", first.app, release, hostNames(ts), time.Since(started).Round(100*time.Millisecond))

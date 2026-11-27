@@ -49,7 +49,7 @@ Setup stops at the first server that fails or needs you. Fix what it says and ru
 
 With `deploy.auto`, GitHub Actions comes last, in a plan of its own for all the servers: one key of the repository that may log in to each, the host keys of each, and the list in the secret `TIFA_DEPLOY_HOST` (see [Deploy from GitHub Actions](deploy-github-actions.md#deploy-from-github-actions)).
 
-Setup ends with the targets and the health check to enter in the balancer, and `~/.tifa/config.yaml` keeps the list of servers, so later commands without `--host` reach all of them ([The servers Tifa remembers](deploy.md#the-servers-tifa-remembers)). To add a server, add it to the list, run setup, and add the target to the balancer. To take one away, take it out of the balancer first, then run `go tool tifa deploy remove --host <that server>`, then run setup with the shorter list. With `deploy.auto`, that remove also deletes the secrets of the repository, and the setup after it writes them again for the servers that are left.
+Setup ends with the targets and the health check to enter in the balancer, and `~/.tifa/config.yaml` keeps the list of servers, so later commands without `--host` reach all of them ([The servers Tifa remembers](deploy.md#the-servers-tifa-remembers)). To add a server, add it to the list, run setup, and add the target to the balancer. To take one away, take it out of the balancer first, then run `go tool tifa deploy remove --host <that server>`: it takes the app off that server only, and `~/.tifa/config.yaml` keeps the others as the servers of the app. Then take the server out of `TIFA_DEPLOY_HOST`. With `deploy.auto`, run setup too, so GitHub Actions gets the servers that are left. A deploy that names fewer servers than `~/.tifa/config.yaml` keeps for the app stops before it changes anything, and names the server to remove.
 
 ## Deploy
 
@@ -57,12 +57,12 @@ Setup ends with the targets and the health check to enter in the balancer, and `
 
 1. Reads every server. They must have the same system, since one build runs on all of them, and the app on the same port. A server without the app, or with it on another port, stops the deploy before anything changes: run setup.
 2. Builds once, and uploads the release to every server.
-3. Runs `deploy.release_command`, when you set one, once on the first server, before any server switches (see [The release command](deploy.md#the-release-command)).
+3. Runs `deploy.release_command`, when you set one, once on the first server, before any server switches (see [The release command](deploy.md#the-release-command)). When it fails, the deploy stops, the new release is deleted from every server, and the `deploys.log` of the first one says why.
 4. Switches one server at a time: `switching vps2 (2 of 3)`. Each server starts the new release and passes its health check before the next one starts. The balancer keeps sending visitors to the servers that are not switching.
 
-When a server fails its check, it goes back to its release by itself, as with one server, and the deploy stops. The servers before it, which passed, are moved back to the release they ran, the last one first, so all servers run one release again. The error says which release runs where if a move back failed. Then deploy again, or run `go tool tifa deploy rollback <release>` to bring them to one release.
+When a server fails its check, it goes back to its release by itself, as with one server, and the deploy stops. The servers before it, which passed, are moved back to the release they ran, the last one first, so all servers run one release again. A server that ran no release before, as at the first deploy, stops the app instead, and so does one whose old release fails its check now: no server keeps running a release that failed on another. The error says which release runs where when the servers differ. Then deploy again, or run `go tool tifa deploy rollback <release>` to bring them to one release.
 
-A server that never switched keeps the new release on its disk. It does no harm: rollback never picks it, since it never passed a check, and later deploys delete it with the other old releases.
+The release that failed is written down as failed in the `deploys.log` of every server that has it, also of those that passed with it or never switched, so `status` shows it as failed and no rollback goes to it.
 
 ## The other commands
 
@@ -71,7 +71,7 @@ A server that never switched keeps the new release on its disk. It does no harm:
 - `logs`: the log of each server, under a line that names it. `logs -f` follows one server: name it with `--host`.
 - `env set` and `env unset`: every server, one after the other. An error says which servers have the change already. `env list` shows the names once, or each server's names when they differ.
 - `run`: the first server. Name another with `--host`.
-- `remove`: a plan for each server, one question, then the others first and the first last. Only the plan of the first server takes back what is in GitHub.
+- `remove`: a plan for each server, one question, then the others first and the first last. Only the plan of the first server takes back what is in GitHub. With `--host`, it takes the app off that one server, as [Set up](#set-up) says.
 
 ## What the app must do
 
