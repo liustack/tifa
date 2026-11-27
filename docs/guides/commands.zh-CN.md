@@ -2,7 +2,7 @@
 summary: '用 hooks.go 里的 OnCommand 给应用的程序加命令，比如填入示例数据、把用户设为管理员，并在本机、在测试里用 tifatest.Command、在服务器上用 tifa deploy run 运行它们'
 audience: app
 order: 19
-translatedFrom: 681b52a70c62
+translatedFrom: 0f1097c97642
 read_when:
   - '给应用的程序加一个命令，比如往数据库里填示例数据，或者把一个用户设为管理员'
   - '在服务器上手动或由 agent 改一次数据'

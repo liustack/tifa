@@ -31,8 +31,45 @@ fi
 
 // runBody runs as the deploy user with the arguments of the command in $@. It runs the program of
 // the current release as the service runs it.
+//
+// With $watch set, there is no terminal on the server, and nothing tells the program when the ssh
+// connection goes away: the session process of sshd exits, and the program goes on as an orphan
+// until it ends by itself. So the program runs in the background with the input of the script, and
+// a watcher asks /proc every second whether the nearest sshd process above the script is still
+// there. When it is gone, the watcher sends the program SIGTERM, which ends the context of a
+// command of the app, and SIGKILL 10 seconds later. With a terminal, the terminal sends SIGHUP
+// itself, and the program takes the place of the script as before. A server without /proc, which
+// only the tests have, runs it so too.
 const runBody = `d="$HOME/$app"
-` + serviceEnvBody + `exec "$d/current/$app" "$@"
+` + serviceEnvBody + `if [ -z "$watch" ] || [ ! -r "/proc/$$/status" ]; then exec "$d/current/$app" "$@"; fi
+field() { sed -n "s/^$1:[[:space:]]*//p" "/proc/$2/status" 2>/dev/null; }
+session=$(field PPid $$)
+p=$session
+while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+	case $(field Name "$p") in sshd*) session=$p; break ;; esac
+	p=$(field PPid "$p")
+done
+exec 3<&0
+"$d/current/$app" "$@" <&3 3<&- &
+program=$!
+exec 3<&-
+(
+	while kill -0 "$program" 2>/dev/null; do
+		if [ ! -d "/proc/$session" ]; then
+			kill -TERM "$program" 2>/dev/null
+			i=0
+			while [ "$i" -lt 10 ] && kill -0 "$program" 2>/dev/null; do sleep 1; i=$((i + 1)); done
+			kill -KILL "$program" 2>/dev/null
+			exit 0
+		fi
+		sleep 1
+	done
+) </dev/null >/dev/null 2>&1 &
+watcher=$!
+wait "$program"
+status=$?
+kill "$watcher" 2>/dev/null
+exit "$status"
 `
 
 // commandArgs is "set --" with args, each a word of its own whatever it holds, for a script that
@@ -45,9 +82,13 @@ func commandArgs(args []string) string {
 	return "set -- " + strings.Join(words, " ") + "\n"
 }
 
-// runScript is runBody for app with args.
-func runScript(app string, args []string) string {
-	return script(commandArgs(args)+runBody, "app", app)
+// runScript is runBody for app with args. Without terminal it watches the ssh connection.
+func runScript(app string, args []string, terminal bool) string {
+	watch := "yes"
+	if terminal {
+		watch = ""
+	}
+	return script(commandArgs(args)+runBody, "app", app, "watch", watch)
 }
 
 // deployRun runs the program of the current release of the app with args, over ssh as the deploy
@@ -61,7 +102,7 @@ func deployRun(ctx context.Context, t deployTarget, args []string, terminal bool
 	if s.Current == "" {
 		return fmt.Errorf("%s has no release on %s yet: run go tool tifa deploy first", t.app, t.host)
 	}
-	c := exec.CommandContext(ctx, sshProgram, t.sshArgs(ctx, deployUser, runScript(t.app, args), terminal)...)
+	c := exec.CommandContext(ctx, sshProgram, t.sshArgs(ctx, deployUser, runScript(t.app, args, terminal), terminal)...)
 	c.Stdin, c.Stdout, c.Stderr = stdin, stdout, stderr
 	c.WaitDelay = sshWaitDelay
 	err = c.Run()
