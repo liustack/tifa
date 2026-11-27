@@ -1100,6 +1100,22 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 **Reopen when** apps on several servers need alerts that no outside probe gives, such as the restart count of a service.
 
+### Hardening the server
+
+**Settled (2026-11-27).** `tifa deploy harden` is a command of its own, per server and not per app, that is run once and touches ssh. It makes ssh take keys only, turns on ufw when it is off or not installed, and makes sure security updates install by themselves. It changes Debian and Ubuntu (apt) only, and only after the plan is agreed to.
+
+- ssh: a file `/etc/ssh/sshd_config.d/00-tifa-harden.conf` with `PasswordAuthentication no` and `KbdInteractiveAuthentication no`, and `PermitRootLogin prohibit-password` only when `sshd -T` says `yes`. The name starts with `00` because sshd keeps the first value it reads for a keyword and reads the files of that folder in the order of their names: cloud-init's `50-cloud-init.conf` (`PasswordAuthentication yes` on many VPS images) would win over a later name. After `sshd -t` and the reload, a login from the machine of the developer with a new connection (no `ControlMaster`, no password prompt) must work. The session of the change stays open until that login answers, and undoes the change when it fails or when `tifa` dies.
+- ufw: only when it is off or not installed, with the ports of ssh and of the apps of Tifa that serve visitors. A listener on a non-loopback address that is not sshd, a socket of Tifa or the nginx of Tifa stops it, and harden names the program and its port. It does not guess. A ufw that is on is reported and not changed. The ssh port is never closed or limited.
+- Updates: `unattended-upgrades` installed and on. A reboot that waits is reported and never done.
+- Record: `/etc/tifa/harden` holds what harden changed and the state from before. `--undo` puts back exactly that. `tifa deploy remove` does not undo it, since hardening belongs to the server.
+- `tifa deploy setup` prints one line when the server accepts ssh passwords, and changes nothing else.
+
+**Turned down.** fail2ban: harden only advises it, in one line, when it is absent. With key-only ssh a guessed password gets nobody in, so it only cuts the log noise. Kernel settings (sysctl, BBR), closing the ssh port and the firewall of the provider are not harden's either.
+
+**Why.** Passwords and open ports are what a new VPS is attacked through, and a lockout is the one mistake that cannot be fixed from the server. So the change that could cause it has a way back that works without the developer.
+
+**Reopen when** a way to reach the server that is not ssh with a key (a provider API, say) makes the new-login check wrong.
+
 ## Coding agents
 
 ### Changing behavior when an agent is detected
