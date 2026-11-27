@@ -233,7 +233,7 @@ func changeEnv(ctx context.Context, t deployTarget, s serverState, old, next, su
 	}
 	restart := func() error {
 		err := t.ssh(ctx, deployUser, script(restartBody, "app", t.app, "port", fmt.Sprint(s.Port),
-			"health", healthPath, "tries", fmt.Sprint(healthTries)), nil, stdout, stderr)
+			"health", healthPath, "tries", fmt.Sprint(t.healthTries())), nil, stdout, stderr)
 		var exit interface{ ExitCode() int }
 		if errors.As(err, &exit) && exit.ExitCode() == restartFailed {
 			return errRestartFailed

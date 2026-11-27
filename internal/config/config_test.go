@@ -294,7 +294,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.public_dotfiles build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.connect deploy.auto.branch deploy.auto.needs"
+	want := "build.target build.public build.public_dotfiles build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.connect deploy.start_timeout deploy.auto.branch deploy.auto.needs"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -867,7 +867,7 @@ func TestI18nAndSiteAreProjectFileSettings(t *testing.T) {
 // deploy.front, deploy.connect and the block deploy.auto are read by tifa deploy from the project
 // file only.
 func TestDeployIsAProjectFileSetting(t *testing.T) {
-	off := Deploy{Front: "none", Connect: "direct", Auto: Auto{Needs: "ci.yml"}}
+	off := Deploy{Front: "none", Connect: "direct", StartTimeout: 30 * time.Second, Auto: Auto{Needs: "ci.yml"}}
 	if d := Default().Deploy; d != off {
 		t.Fatalf("defaults: %+v", d)
 	}
@@ -906,6 +906,26 @@ func TestDeployConnect(t *testing.T) {
 	}
 	if _, _, err := Project([]byte("deploy:\n  connect: proxy\n")); err == nil || !strings.Contains(err.Error(), "deploy.connect") {
 		t.Errorf("got %v", err)
+	}
+}
+
+// deploy.start_timeout is how long a new release may take to pass its check: a whole number of
+// seconds from one second to ten minutes, 30s when not set.
+func TestDeployStartTimeout(t *testing.T) {
+	for in, want := range map[string]time.Duration{"1s": time.Second, "45s": 45 * time.Second, "2m": 2 * time.Minute, "10m": 10 * time.Minute} {
+		c, _, err := Project([]byte("deploy:\n  start_timeout: " + in + "\n"))
+		if err != nil || c.Deploy.StartTimeout != want {
+			t.Errorf("start_timeout %q: %v, %v", in, c.Deploy.StartTimeout, err)
+		}
+	}
+	if c, _, err := Project([]byte("deploy:\n  front: none\n")); err != nil || c.Deploy.StartTimeout != 30*time.Second {
+		t.Errorf("default: %v, %v", c.Deploy.StartTimeout, err)
+	}
+	for _, bad := range []string{"0s", "-5s", "500ms", "1500ms", "11m", "1h", "soon", "30"} {
+		_, _, err := Project([]byte("deploy:\n  start_timeout: " + bad + "\n"))
+		if err == nil || !strings.Contains(err.Error(), "deploy.start_timeout") {
+			t.Errorf("start_timeout %q: got %v", bad, err)
+		}
 	}
 }
 
@@ -1001,7 +1021,7 @@ func TestUnknownKeyInTifaYamlFails(t *testing.T) {
 		want  []string
 		avoid []string
 	}{
-		"old key":          {"deploy:\n  front: none\n  ssh: cloudflare\n", []string{"tifa.yaml line 3: deploy.ssh is not a setting of tifa.yaml", "the settings of deploy are front, connect, auto"}, []string{"did you mean"}},
+		"old key":          {"deploy:\n  front: none\n  ssh: cloudflare\n", []string{"tifa.yaml line 3: deploy.ssh is not a setting of tifa.yaml", "the settings of deploy are front, connect, start_timeout, auto"}, []string{"did you mean"}},
 		"typo":             {"deploy:\n  conect: direct\n", []string{"tifa.yaml line 2: deploy.conect is not a setting of tifa.yaml: did you mean deploy.connect?"}, nil},
 		"dotted":           {"server.adr: :8080\n", []string{"tifa.yaml line 1: server.adr is not a setting of tifa.yaml: did you mean server.addr?"}, nil},
 		"unknown section":  {"servr:\n  addr: :8080\n", []string{"tifa.yaml line 1: servr is not a setting of tifa.yaml: did you mean server?"}, []string{"servr.addr"}},

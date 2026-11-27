@@ -92,5 +92,5 @@ Never edit `.tifa/`. It is generated.
 - Never edit a file that ran anywhere but on your machine: the app refuses to start. Write a new file.
 - A rollback runs older releases on the same tables, so each release must run on the tables of the next: add tables, columns that are nullable or have a default, indexes. Name the columns in every `SELECT` and `INSERT`.
 - Rename or drop over three releases: add the new one and write both, read the new one, drop the old one once no release you could roll back to uses it. That file starts with a comment that says so.
-- Migrations finish within the 30 seconds of the deploy health check. See "Change the tables" in `docs/guides/database.md`.
+- Migrations finish within the deploy health check, 30 seconds unless `deploy.start_timeout` says more. See "Change the tables" in `docs/guides/database.md`.
 

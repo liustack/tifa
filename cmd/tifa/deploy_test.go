@@ -857,3 +857,43 @@ func TestDeployRollbackToFlow(t *testing.T) {
 		t.Fatalf("forward: %v, current %s\n%s", err, current(), out)
 	}
 }
+
+// deploy.start_timeout is how long the server asks for /healthz, once a second: the new release
+// gets that many tries. Without the setting it is 30.
+func TestDeployStartTimeoutSetsTheTries(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml string
+		want int
+	}{"default": {"", 30}, "set": {"deploy:\n  start_timeout: 7s\n", 7}} {
+		t.Run(name, func(t *testing.T) {
+			root, _, calls := serveApp(t, "9531", "", map[string]string{"20261120T100000Z": "200", "20261120T110000Z": "503"})
+			writeFile(t, filepath.Join(root, "tifa.yaml"), tc.yaml)
+			if out, _, err := run(t, "deploy", "--dir", root); err != nil {
+				t.Fatalf("first deploy: %v\n%s", err, out)
+			}
+			before := strings.Count(calls(), "curl ")
+			out, _, err := run(t, "deploy", "--dir", root)
+			if err == nil || !strings.Contains(out, "going back to 20261120T100000Z") {
+				t.Fatalf("failing deploy: %v\n%s", err, out)
+			}
+			// The new release is asked as many times as the setting says, the old one answers the first time.
+			if got := strings.Count(calls(), "curl ") - before; got != tc.want+1 {
+				t.Errorf("asked %d times, want %d tries and one answer of the old release", got, tc.want)
+			}
+		})
+	}
+}
+
+// The setting reaches the scripts as a whole number of seconds, and the check of the release a
+// failed deploy goes back to reads the same $tries, since both call check.
+func TestStartTimeoutTries(t *testing.T) {
+	for in, want := range map[time.Duration]int{time.Second: 1, 30 * time.Second: 30, 90 * time.Second: 90, 10 * time.Minute: 600} {
+		if got := (deployTarget{startTimeout: in}).healthTries(); got != want {
+			t.Errorf("%v: %d, want %d", in, got, want)
+		}
+	}
+	script := activateScript(activation{App: "shop", ID: "1", Back: "0", Tries: 45})
+	if !strings.Contains(script, "tries='45'") {
+		t.Errorf("script has no tries of 45:\n%s", script)
+	}
+}

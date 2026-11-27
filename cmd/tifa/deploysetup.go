@@ -581,7 +581,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		}
 		r.port = port
 		var out strings.Builder
-		if err := t.ssh(ctx, deployUser, appScript(app, port, t.ownFor(port), move, restart), nil, &out, r.stderr); err != nil {
+		if err := t.ssh(ctx, deployUser, appScript(app, port, t.ownFor(port), move, restart, t.healthTries()), nil, &out, r.stderr); err != nil {
 			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
 		}
 		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
