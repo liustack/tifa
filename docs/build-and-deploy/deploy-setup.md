@@ -101,7 +101,7 @@ An app that moves to another front gives up the tunnel the same way once no app 
 go tool tifa deploy setup --plan
 ```
 
-`--plan` builds the same plan and prints it, then stops. It changes nothing: not the server, not Cloudflare, not GitHub, not `~/.tifa`, and not this machine. It installs no cf or gh and logs in to none: when one is missing, the plan lists it as a step setup cannot do. It never asks a question and works without a terminal. It only reads, with ssh to the server for the probes, and the read calls of cf and gh. `--plan` and `--yes` contradict each other, so setup refuses both together.
+`--plan` builds the same plan and prints it, then stops. It changes nothing: not the server, not Cloudflare, not GitHub, not `~/.tifa`, and not this machine. It installs no cf or gh and logs in to none: when one is missing, the plan lists it as a step setup cannot do. It never asks a question and works without a terminal. It only reads, with ssh to the server for the probes, and the read calls of cf and gh. setup refuses `--plan` together with `--yes`, which applies the plan, or with `--cache-purge-token`, which asks for a token.
 
 The exit status says what the plan found, and is the same for one server and for several (the worst one wins). These are the meanings of `terraform plan -detailed-exitcode`:
 

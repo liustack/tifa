@@ -176,7 +176,7 @@ func TestSetupPlanSeveralServers(t *testing.T) {
 	}
 }
 
-// --plan only looks, so --yes contradicts it, and --json is only for --plan.
+// --plan only looks, so --yes and --cache-purge-token contradict it, and --json is only for --plan.
 func TestSetupPlanFlagsRefused(t *testing.T) {
 	root := setupApp(t, "deploy:\n", nil)
 	srv := newSetupServer(t, "", freshFacts)
@@ -185,6 +185,11 @@ func TestSetupPlanFlagsRefused(t *testing.T) {
 	}
 	if _, _, err := runSetupIO(t, root, false, "", "--json"); err == nil || !strings.Contains(err.Error(), "add --plan") || planExit(err) != 1 {
 		t.Errorf("--json: %v", err)
+	}
+	// --cache-purge-token asks for the token, on a terminal or on a page in the browser.
+	cfRoot := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n", nil)
+	if _, _, err := runSetupIO(t, cfRoot, false, "", "--plan", "--cache-purge-token"); err == nil || !strings.Contains(err.Error(), "--plan") || !strings.Contains(err.Error(), "--cache-purge-token") || planExit(err) != 1 {
+		t.Errorf("--plan --cache-purge-token: %v", err)
 	}
 	if srv.calls() != "" {
 		t.Errorf("the server was asked:\n%s", srv.calls())

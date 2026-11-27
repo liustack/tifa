@@ -760,7 +760,7 @@ in ~/.tifa or on this machine (no tool is installed or logged in), and it asks n
 script or an agent can run it. It exits with 0 when all matches tifa.yaml, 2 when the plan has
 something to do or something you must do, and 1 when the plan could not be made. With several
 servers the worst status wins. Advice alone does not make it 2. --json prints the plan as one JSON
-object, with the same exit status. Neither goes with --yes.
+object, with the same exit status. Neither goes with --yes or --cache-purge-token.
 
 On a terminal, a missing cf or gh comes first: a plan that installs it with pnpm, brew or
 winget and logs it in, then the plan of the rest. It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.

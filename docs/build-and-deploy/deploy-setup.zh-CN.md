@@ -2,7 +2,7 @@
 summary: '用 `tifa deploy setup` 配好服务器、Cloudflare 和 GitHub：计划、用 --plan 只看计划及其退出码和 JSON、每种 `front` 改了什么、在没有 gh 的机器上运行 setup'
 audience: app
 order: 11
-translatedFrom: ea8b77cde615
+translatedFrom: 1eda9e0d8ca2
 read_when:
   - '在没有 gh 的机器上运行 tifa deploy setup 或 remove，用 TIFA_DEPLOY_GITHUB_TOKEN 里的细粒度令牌'
   - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，你想知道每种 front 下应用监听哪里、`server.addr` 怎么用，你想知道要开放哪些端口，或者想知道 setup 和 remove 在 ufw 里改了什么'
@@ -101,7 +101,7 @@ setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你�
 go tool tifa deploy setup --plan
 ```
 
-`--plan` 生成同样的计划，打印出来，然后停下。它什么都不改：不改服务器，不改 Cloudflare，不改 GitHub，不改 `~/.tifa`，也不改这台机器。它不安装 cf 或 gh，也不登录它们：缺哪个，计划就把它列成一件 setup 做不了的事。它从不提问，没有终端也能运行。它只读取：用 ssh 连服务器做探测，以及 cf 和 gh 的读取调用。`--plan` 和 `--yes` 互相矛盾，所以两个一起给，setup 会拒绝。
+`--plan` 生成同样的计划，打印出来，然后停下。它什么都不改：不改服务器，不改 Cloudflare，不改 GitHub，不改 `~/.tifa`，也不改这台机器。它不安装 cf 或 gh，也不登录它们：缺哪个，计划就把它列成一件 setup 做不了的事。它从不提问，没有终端也能运行。它只读取：用 ssh 连服务器做探测，以及 cf 和 gh 的读取调用。`--plan` 和 `--yes`（会执行计划）或 `--cache-purge-token`（会要令牌）一起给，setup 会拒绝。
 
 退出码说明计划发现了什么，一台服务器和多台服务器都一样（取最差的那个）。含义和 `terraform plan -detailed-exitcode` 相同：
 

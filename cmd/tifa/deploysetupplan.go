@@ -32,6 +32,8 @@ func checkPlanFlags(f setupFlags) error {
 	switch {
 	case f.plan && f.yes:
 		return errors.New("--plan only prints the plan and changes nothing, and --yes applies it: use one of them")
+	case f.plan && f.purgeToken:
+		return errors.New("--plan only prints the plan and asks nothing, and --cache-purge-token asks for the token: use one of them")
 	case f.asJSON && !f.plan:
 		return errors.New("--json is for the plan: add --plan")
 	}
