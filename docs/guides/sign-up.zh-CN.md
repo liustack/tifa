@@ -2,7 +2,7 @@
 summary: '给 Tifa 应用加上注册和邮箱确认：只能用一次、以哈希保存的令牌，不泄露哪些邮箱已有账号的回答，链接打开页面、按钮才用掉令牌'
 audience: app
 order: 13
-translatedFrom: c015a14ee20f
+translatedFrom: b47828f8f74c
 read_when:
   - '加注册页，或者邮件里一个用来确认邮箱地址的链接'
   - '做一个只能用一次、会过期的链接，比如确认链接或邀请链接'
@@ -19,8 +19,8 @@ read_when:
 ## 两张表 {#two-tables}
 
 ```sql
--- schema.sql
-CREATE TABLE IF NOT EXISTS users (
+-- migrations/002_users.sql
+CREATE TABLE users (
   id          INTEGER PRIMARY KEY,
   email       TEXT    NOT NULL UNIQUE,  -- lower case
   name        TEXT    NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
   verified_at INTEGER,                  -- unix seconds, NULL until the address is confirmed
   epoch       INTEGER NOT NULL DEFAULT 0 -- goes up when the password changes
 );
-CREATE TABLE IF NOT EXISTS email_tokens (
+CREATE TABLE email_tokens (
   hash    TEXT    PRIMARY KEY,          -- SHA-256 of the token, hex
   user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   email   TEXT    NOT NULL,             -- the address the mail went to

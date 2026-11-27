@@ -1,3 +1,4 @@
 # Keep LF line ends on every system. git on Windows checks files out with CRLF by default, and the
-# program embeds some of them, such as schema.sql, so it would differ from a build made elsewhere.
+# program embeds some of them, such as the files of migrations/, so it would differ from a build
+# made elsewhere, and migrate.go would find that every file changed after it ran.
 * text=auto eol=lf

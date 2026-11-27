@@ -1,17 +1,17 @@
--- The tables of the app. OnStart runs this file every time the app starts, so each statement
--- must be safe to run again. A table that exists is not changed by editing its CREATE TABLE here:
--- to add or change a column of one, see "Change the tables with migrations" in
--- docs/guides/database.md of Tifa (go tool tifa docs prints where the docs are).
-{{if not .Empty}}CREATE TABLE IF NOT EXISTS todos (
-  id    INTEGER PRIMARY KEY,
-  title TEXT    NOT NULL,
-  done  INTEGER NOT NULL DEFAULT 0
-);
+-- Written by go test -run TestSchema -update from the files of migrations/. Do not edit it:
+-- to change a table, add the next numbered file to migrations/ and run that command again.
 
-{{end}}-- The sessions of tifa.SetSession (sessions.go), so a restart signs nobody out.
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE sessions (
   key    TEXT    PRIMARY KEY,
   data   BLOB    NOT NULL,
   expiry INTEGER NOT NULL -- Unix time in milliseconds
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS sessions_by_expiry ON sessions (expiry);
+
+CREATE INDEX sessions_by_expiry ON sessions (expiry);
+{{if not .Empty}}
+CREATE TABLE todos (
+  id    INTEGER PRIMARY KEY,
+  title TEXT    NOT NULL,
+  done  INTEGER NOT NULL DEFAULT 0
+);
+{{end}}

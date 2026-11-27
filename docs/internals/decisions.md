@@ -502,6 +502,50 @@ A redirect from the handler to the address the page already has does load it aga
 
 **Instead.** The cookie stays as it is, and the log gets one warning when `tifa.SetSession` answers a request that is neither local nor HTTPS. That is Tifa checking its own cookie, not the app's.
 
+## Database
+
+### Tifa has no database layer (migrations are app code tifa new writes)
+
+**Settled (2026-11-27).** Tifa ships no database package: no migration runner, no schema tool, no ORM. `tifa new` writes the database code into the app, as it writes `db.go`: `migrations/001_init.sql`, `migrate.go` (the runner), `migrate_test.go` and `schema.sql`. Files are SQL only. `migrate.go` keeps the name and SHA-256 of each file it ran in the table `schema_migrations`, turns foreign keys off on a connection of its own before `BEGIN IMMEDIATE`, runs `PRAGMA foreign_key_check` before `COMMIT` and closes that connection afterwards. Without `db.backup` it first writes a copy with `VACUUM INTO`. `schema.sql` is written by `TestSchema` from the migrations and is no longer run.
+
+**Why.** Every app already owns its database code, and a package would be a new API with a promise to keep, for SQLite only (Postgres apps use goose). The cost of copies is that a fix reaches apps only through an "Upgrading:" note: the runner the docs had before deleted rows that point at a rebuilt table with `ON DELETE CASCADE`, and nothing could patch the apps that copied it.
+
+**Turned down.** A declarative schema that a tool diffs into `ALTER` statements: it cannot tell a rename from a drop and an add, SQLite table rebuilds are where such tools lose rows, and an older release after a rollback would "fix" the newer tables. Go code in migrations: data work in Go goes in the app's own Go code, such as a background job. A drop check in `tifa check`, and a CI step that fails when a merged migration changes: the app's `TestDropsSayWhy` and the checksum at start cover them.
+
+**Instead.** [Change the tables](../guides/database.md#change-the-tables).
+
+**Reopen when** a fix to the runner has to reach many apps that cannot each edit their copy. Then a `migrate` package belongs in the driver, github.com/liustack/sqlite, not in Tifa.
+
+### Rolling back the database with a release
+
+**Turned down (2026-11-27).** Down files, or `tifa deploy rollback` (or the automatic rollback of a failed deploy) undoing the migrations of the release it leaves, or restoring the database from before them.
+
+**Why not.** It would throw away what visitors wrote after the migration: a down step that drops a column drops what was written into it, and a restore loses every write since, on every table. A down file is also known only to the newer release, which is the one being thrown away.
+
+**Instead.** The database stays where it is and older releases run on it. Each release must run on the tables of the next ones: add, then stop using, then drop in a later release. To undo data, restore from `db.backup` or from the copy `migrate.go` keeps: [Roll back](../build-and-deploy/deploy.md#roll-back).
+
+### A program that finds migrations it does not have
+
+**Settled (2026-11-27).** When the database ran files the program does not have (a newer release ran them and was rolled back), `migrate.go` logs one `slog.Warn` line that names them and starts. Flyway does the same by default, and goose skips them too.
+
+**Why.** Refusing to start, as the runner the docs had before did, turns the automatic rollback of a failed deploy into an outage: the older release would refuse the database the newer one left. The rules above make the older release work on those tables.
+
+### A way past a migration that changed after it ran
+
+**Turned down (2026-11-27).** Starting anyway when a file's SHA-256 differs from the one recorded when it ran: a flag, a setting, or a command that records the new checksum.
+
+**Why not.** The edit never runs on a database that already ran the file, so the code that needs it fails there with `no such column`, while new databases get it: the two drift apart without a word. A bypass is the first thing a coding agent reaches for.
+
+**Instead.** The app refuses to start, and the message gives the safe fix only: put the file back as it was, and write the change in the next numbered file. A deploy of such a release fails its health check and goes back to the release before.
+
+### A setting for the 30 seconds of the deploy health check
+
+**Turned down (2026-11-27).** A setting that gives a slow migration longer before the deploy counts the release as failed.
+
+**Why not.** A start that takes longer keeps visitors waiting on the socket for as long.
+
+**Instead.** Migrations and the rest of `OnStart` finish within 30 seconds. A long index or table rebuild runs by hand at a quiet time, or is split: [How long a migration may take](../guides/database.md#how-long-a-migration-may-take).
+
 ## Rendering, memo and Cache
 
 ### React Server Components
