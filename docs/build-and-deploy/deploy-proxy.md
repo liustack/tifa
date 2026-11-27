@@ -1,20 +1,22 @@
 ---
-summary: 'Put nginx, a load balancer, a CDN or a reverse proxy in front of a Tifa app: `deploy.front: nginx` and `external`, the CDN settings and cross-origin 403s behind a proxy'
+summary: 'Put a load balancer, a CDN, your own Cloudflare, a reverse proxy or the optional nginx of Tifa in front of a Tifa app: `deploy.front: external` with `server.addr`, `nginx`, the CDN settings and cross-origin 403s behind a proxy'
 audience: app
 order: 14
 read_when:
-  - Putting several Tifa apps on one server without Cloudflare, with `deploy.front: nginx`, or setup stopped because the server has an nginx that Tifa did not install
-  - Putting a load balancer of your provider or a proxy of your own in front of a Tifa app, with `deploy.front: external`, and entering the targets and the health check in it
+  - Putting several Tifa apps on one server without Cloudflare, with the optional `deploy.front: nginx`, or setup stopped because the server has an nginx that Tifa did not install
+  - Putting a load balancer of your provider or a proxy of your own in front of a Tifa app, with `deploy.front: external` and `server.addr`, and entering the targets and the health check in it
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
   - 'The domain is in your own Cloudflare account, proxied, without the tunnel of `front: cloudflare`, and you choose between Full (strict) and Flexible'
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
 ---
 
-# Put nginx or a CDN in front
+# Put a load balancer, a CDN or nginx in front
 
-Visitors can reach the program through nginx that `tifa deploy setup` installs, through a load balancer you set up at your provider, or through a proxy or CDN of your own. This page covers all three, and your own Cloudflare in front of the server.
+The way `tifa new` sets up is a Cloudflare Tunnel (`front: cloudflare`), and it needs nothing on this page. This page is for the other cases: a load balancer you set up at your provider or a proxy or CDN of your own (`front: external`), your own Cloudflare in front of the server, and the optional nginx that `tifa deploy setup` installs (`front: nginx`). [Choose a front](deploy.md#choose-a-front) says which one fits.
 
 ## Behind nginx
+
+`front: nginx` is optional and not recommended. Use it only to put several apps on one server when you do not use Cloudflare, for example in mainland China. With `cloudflare` the server opens no port and Cloudflare does HTTPS, which is less to keep running. If this nginx becomes too much to maintain it may be dropped, and the way out is `front: external` with a Caddy of yours in front.
 
 With `front: nginx`, an nginx that Tifa installs serves the visitors of every app of the server that has this front, so they share ports 80 and 443 without Cloudflare. Each app listens on a loopback port, as it does behind the Cloudflare Tunnel, and nginx sends a request to the app whose host it names, the host of its `site.url`.
 
@@ -95,17 +97,19 @@ deploy:
   front: external
 ```
 
-**The port.** The app listens on its own port, from 9527 up, on every address of the server, not only on the loopback as behind the tunnel or nginx. With several servers it has the same port on all of them, which setup picks free on each. The plan names it: `port 9527 on every address of the server, for the load balancer or proxy in front`.
-
-To choose the port, set `deploy.port`, from 80 to 65535. Some proxies reach only certain ports of the server, Cloudflare among them ([its ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)):
+**The port and the address.** The app listens where `server.addr` in `tifa.yaml` says, on the systemd socket that setup opens. A port alone listens on every address of the server, and an address with a port listens on that address only:
 
 ```yaml
+server:
+  addr: ":9527"            # every address of the server, port 9527
+# addr: "10.0.0.5:9527"    # only the private address 10.0.0.5
 deploy:
   front: external
-  port: 8080
 ```
 
-Setup stops before it changes anything when another app or program listens on that port on a server, and names it. On port 80 or 443 the app still serves plain HTTP, with no certificate. A port below 1024 needs root once per server: the plan lets the user `tifa` open ports from 80, as it does for an app that serves visitors itself, and `tifa deploy remove` of the last app on such a port puts the setting back. Changing `deploy.port` moves the app at the next setup: the plan says so, and the app restarts on the new port and passes its health check. A deploy alone never moves it, and stops with a line that says to run setup.
+The default `127.0.0.1:9527` only the server itself reaches, so with `front: external` setup stops and says so: write the address the balancer connects to. A host name is refused, since the socket takes an IP address. With several servers only `":port"` is accepted. Choose the port to fit what is in front: some proxies reach only certain ports, Cloudflare among them ([its ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)). The plan names the result: `port 9527 on every address of the server, for the load balancer or proxy in front`.
+
+Setup stops before it changes anything when another app or program listens on that port on a server, and names it. Two apps with `front: external` on one server need two ports. On port 80 or 443 the app still serves plain HTTP, with no certificate. A port below 1024 needs root once per server: the plan lets the user `tifa` open ports from 80, as it does for an app that serves visitors itself, and `tifa deploy remove` of the last app on such a port puts the setting back. A port below 80 is refused. Changing `server.addr` moves the app at the next setup: the plan says so, and the app restarts on the new port and passes its health check. A deploy alone never moves it, and stops with a line that says to run setup.
 
 **What to enter in the balancer.** Setup and each deploy end with the targets:
 
@@ -158,7 +162,13 @@ Checked against the vendors' documentation on 2026-11-27. Names change, so open 
 
 ## Your own Cloudflare in front
 
-Use this when the domain is in a Cloudflare account of yours, its DNS record proxied (the orange cloud), and you do not want the tunnel of `front: cloudflare`. What to set in `tifa.yaml` follows the SSL/TLS encryption mode of the zone in Cloudflare.
+Use this when the domain is in a Cloudflare account of yours, its DNS record proxied (the orange cloud), and you manage DNS and the proxy yourself in the Cloudflare dashboard instead of letting Tifa manage it with the tunnel of `front: cloudflare`. Not having cf, or not wanting Tifa to manage Cloudflare, is a choice of front and not a reason to leave Cloudflare. What to set in `tifa.yaml` follows the SSL/TLS encryption mode of the zone in Cloudflare:
+
+| SSL/TLS mode of the zone | Write |
+| --- | --- |
+| Full (strict) | `none`, with a certificate from Let's Encrypt or an uploaded Origin CA certificate |
+| Flexible | `external`, with `server.addr: ":80"` |
+| Full (strict), the origin in a private network of yours | `external`, with the private address in `server.addr` |
 
 **Full (strict): `front: none`.** The app serves HTTPS itself, and Cloudflare connects to it on port 443 and checks its certificate.
 
@@ -177,9 +187,10 @@ The certificate comes from one of two places:
 **Flexible: `front: external`.** Cloudflare ends HTTPS, and connects to the app over plain HTTP on a port it proxies for HTTP, such as 80 or 8080 ([network ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)):
 
 ```yaml
+server:
+  addr: ":80"
 deploy:
   front: external
-  port: 80
 ```
 
 The way from Cloudflare to the server is then plain HTTP, which anyone on that path can read. Full (strict) encrypts it.

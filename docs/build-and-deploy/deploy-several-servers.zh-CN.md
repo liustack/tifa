@@ -2,7 +2,7 @@
 summary: '把一个应用放在你的负载均衡器后面的几台服务器上：服务器列表、setup、逐台部署、其他命令，以及应用要放在共享位置的东西'
 audience: app
 order: 23
-translatedFrom: f83c72e0a9f2
+translatedFrom: 13e130fb49b9
 read_when:
   - '一台服务器不够用了，或者一台服务器宕机不能让整个站点停掉'
   - '在 TIFA_DEPLOY_HOST 或 --host 里写几台服务器，或者命令因为 deploy.front 是 none、nginx 或 cloudflare 而拒绝了几台服务器'
@@ -21,9 +21,13 @@ read_when:
 几台服务器需要 `front: external`，也就是前面有一个你自己的负载均衡器（见[在你的负载均衡器后面](deploy-proxy.zh-CN.md#behind-your-load-balancer)）：
 
 ```yaml
+server:
+  addr: ":9527"      # the port the balancer connects to, on every address of each server
 deploy:
   front: external
 ```
+
+有几台服务器时，`server.addr` 只接受 `":port"` 这种写法，因为适合某一台的地址不是其他几台的地址。setup 会拒绝 `10.0.0.5:9527` 和默认的 `127.0.0.1:9527`，并说明原因。每台服务器都监听这个端口，所以它必须在每台上都空着。
 
 服务器的写法和一台时一样，几台之间用逗号隔开，按[用 tifa deploy 部署](deploy.zh-CN.md#deploy-with-tifa-deploy)里的顺序，先找到的为准：
 
@@ -36,7 +40,7 @@ TIFA_DEPLOY_HOST=vps1,ssh://203.0.113.8:2222,ubuntu@vps3
 
 只有一台服务器时，一切和以前一样。
 
-**其他 front 只能用于一台服务器。** 有几台服务器时，`none`、`nginx` 和 `cloudflare` 在改动任何东西之前就被拒绝，错误信息会让你用 `external`：
+**其他 front 只能用于一台服务器。** `front` 没有默认值，有几台服务器时只接受 `external`。`none`、`nginx` 和 `cloudflare` 在改动任何东西之前就被拒绝，错误信息会让你用 `external`：
 
 - `none`：每台服务器会自己接待访客，用自己的证书，没有东西来分摊负载。
 - `nginx`：Tifa 的 nginx 服务一台服务器上的应用。要从它把访客送到别的服务器，需要服务器之间的网络，这个网络是你的，每家服务商都不一样。
@@ -44,7 +48,7 @@ TIFA_DEPLOY_HOST=vps1,ssh://203.0.113.8:2222,ubuntu@vps3
 
 ## setup {#set-up}
 
-`go tool tifa deploy setup` 依次设置每台服务器，先设置第一台，每台都有自己的方案：`Plan for shop on vps2 (2 of 3)`。它给应用挑一个每台服务器上都空着的端口，这样负载均衡器只需要一个端口。应用在一台服务器上的端口在另一台上被占用时，应用会换到一个每台都空着的端口。
+`go tool tifa deploy setup` 依次设置每台服务器，先设置第一台，每台都有自己的方案：`Plan for shop on vps2 (2 of 3)`。应用在每台服务器上都用 `server.addr` 里的端口，这样负载均衡器只需要一个端口。某台服务器上另一个应用或程序已经在这个端口上监听时，setup 会停下并说出是谁。
 
 setup 在第一台失败或需要你处理的服务器那里停下。按它说的修好，再运行一次：已经正确的服务器各显示一行，setup 从停下的地方接着做。
 

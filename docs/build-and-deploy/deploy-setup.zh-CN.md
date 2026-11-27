@@ -2,10 +2,10 @@
 summary: '用 `tifa deploy setup` 配好服务器、Cloudflare 和 GitHub：计划、每种 `front` 改了什么、在没有 gh 的机器上运行 setup'
 audience: app
 order: 11
-translatedFrom: dc09b0a56184
+translatedFrom: 2c497cbf76d8
 read_when:
   - '在没有 gh 的机器上运行 tifa deploy setup 或 remove，用 TIFA_DEPLOY_GITHUB_TOKEN 里的细粒度令牌'
-  - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，你想知道要开放哪些端口，或者想知道 setup 和 remove 在 ufw 里改了什么'
+  - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，你想知道每种 front 下应用监听哪里、`server.addr` 怎么用，你想知道要开放哪些端口，或者想知道 setup 和 remove 在 ufw 里改了什么'
 ---
 
 # 配好服务器 {#set-up-the-server}
@@ -75,7 +75,7 @@ setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你�
 | 层 | 内容 | 需要 |
 | --- | --- | --- |
 | server | 用户 `tifa`，它拥有并运行服务器上的每个应用，可以用 root 的密钥登录，或者用主机前面那个用户的密钥登录（home 是 `/srv/tifa`），以及 linger，让它的 systemd 在开机时运行 | `ssh root@<TIFA_DEPLOY_HOST>`，只在第一次，或者用主机前面那个用户加 sudo（见[root 登录不了时](deploy.zh-CN.md#when-root-cannot-log-in)） |
-| app | `/srv/tifa/<app>`、它空的 `shared/.env`、数据文件夹 `shared`、它在 `port` 里的端口（`front: none` 时是 80，有 HTTPS 时是 443，否则是回环地址上从 9527 起第一个空闲的），以及用户单元 `tifa-<app>.socket` 和 `.service`，有 HTTPS 时还有 `tifa-<app>-http.socket`。`front: none` 时，每台服务器还要以 root 做一次设置，让 `tifa` 的 systemd 能打开 80 和 443 端口 | 以 `tifa` 身份 ssh，以及一次 root |
+| app | `/srv/tifa/<app>`、它空的 `shared/.env`、数据文件夹 `shared`、它在 `port` 里的端口（`front: none` 时是 80，有 HTTPS 时是 443，`front: external` 时是 `server.addr` 里的端口，否则是回环地址上从 9527 到 9999 的第一个空闲端口），以及用户单元 `tifa-<app>.socket` 和 `.service`，有 HTTPS 时还有 `tifa-<app>-http.socket`。`front: none` 时，每台服务器还要以 root 做一次设置，让 `tifa` 的 systemd 能打开 80 和 443 端口 | 以 `tifa` 身份 ssh，以及一次 root |
 | front: cloudflare | Cloudflare Tunnel、服务器上的 cloudflared、`site.url` 主机的路由、被代理的 DNS 记录和缓存规则，以及服务器上清除这些缓存的令牌 | cf |
 | front: nginx | 以 root 用 apt 安装的 nginx，有域名的应用还有 certbot 和它的 nginx 插件，用来标记这个 nginx 是 Tifa 的 `/etc/tifa/nginx`，应用在 `/etc/nginx/conf.d/tifa-<app>.conf` 里的站点，它的证书，以及 ufw 里的 80 和 443 端口（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)） | `ssh root@<TIFA_DEPLOY_HOST>`，或者用主机前面那个用户加 sudo |
 | ci | 仓库的一把密钥、secret（CI 在哪里登录、主机密钥），以及工作流 | gh 或 `TIFA_DEPLOY_GITHUB_TOKEN` |
@@ -94,6 +94,20 @@ setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你�
 7. 请求一个令牌，这是可选的，它只能清除 zone 的缓存，并把它和 zone 的 ID 一起保存在服务器上，每次部署都能在那里找到它（见[清除 CDN 缓存](deploy-cloudflare.zh-CN.md#clearing-the-cdn-cache)）。cf 的登录做不了 API 令牌，所以你要在 Cloudflare 控制台里做，在终端里 setup 会带你走一遍：它打印一个链接，指向 Cloudflare 的表单，已经填好了 Cache Purge 权限和名字 `tifa cache purge <zone>`。把 Zone Resources 设为只包含这个 zone，创建令牌，并在隐藏的提示处粘贴它。setup 通过清除一个不存在的 URL 来检查它，最多重试 3 次，然后通过 ssh 以 `tifa` 身份，用 ssh 的输入把它写到服务器上。输入空行会跳过它，setup 继续并成功。setup 在这个域名第一次设置时询问，在第一次设置 CI 时询问。服务器上已经有这个 zone 的令牌后，setup 每次运行都用同样的方式检查它，只要 Cloudflare 接受就什么也不问：同一台服务器、同一个 zone 上的第二个应用什么也不用做。Cloudflare 拒绝的令牌，比如已过期或已被删除的，会再问一次。没有令牌时，之后带 `auto` 的运行，以及没有终端的第一次运行，都把它列为可选。以后要加这个令牌或替换它，请运行 `go tool tifa deploy setup --cache-purge-token`：即使服务器上已经有一个，它也会问，在终端里用隐藏的提示，没有终端时用浏览器里的一个页面，加了 `--yes` 也一样（见[没有终端时的 secret](deploy-operate.zh-CN.md#secrets-without-a-terminal)）。
 
 对服务器上最后一个应用运行 `tifa deploy remove`，也会删掉 tunnel 和缓存令牌（见[日志、状态和移除](deploy-operate.zh-CN.md#logs-status-and-remove)）。要手动移除它们，运行 `systemctl disable --now tifa-tunnel tifa-tunnel-upgrade.path`，并删除服务器上的 `/etc/tifa`、`/etc/systemd/system/tifa-tunnel*` 和 `/srv/tifa/.config/tifa`，然后在 Cloudflare 里删除 tunnel 和令牌 `tifa cache purge <zone>`。cloudflared 仍然是装着的：`apt-get purge cloudflared` 再删除 `/etc/apt/sources.list.d/cloudflared.list`、`/usr/share/keyrings/cloudflare-main.gpg` 和 `/etc/apt/apt.conf.d/52tifa-cloudflared`，也能把它移除。
+
+### 应用监听哪里 {#where-the-app-listens}
+
+setup 给应用的 systemd socket 定下地址，应用用的是 systemd 交给它的 socket，所以在服务器上起作用的不是程序自己的 `server.addr`：
+
+| front | socket 的地址 | 端口从哪来 |
+| --- | --- | --- |
+| `cloudflare`、`nginx` | `127.0.0.1:<port>` | setup 从 9527 到 9999 挑第一个空闲端口，记在 `/srv/tifa/<app>/port`，以后一直沿用 |
+| `none` | 80，有域名时再加 443 | 固定 |
+| `external` | `tifa.yaml` 里 `server.addr` 的地址和端口 | 你来定 |
+
+`front: external` 时，`server.addr: ":9527"` 监听所有地址，`server.addr: "10.0.0.5:9527"` 只监听那一个地址（setup 会加上 `FreeBind=true`，这样开机时地址还没配好，socket 也能启动）。默认值 `127.0.0.1:9527` 只有服务器自己连得上，所以 setup 会停下并说明原因。放在几台服务器上时，只接受 `":port"` 这种写法，因为适合某一台的地址不是其他几台的地址。低于 80 的端口会被拒绝。服务器上另一个 Tifa 应用用了同一个端口时，setup 会停下并指出是哪个应用。
+
+用其他 front 时，如果 `tifa.yaml` 里的 `server.addr` 不是默认值，setup 会打印一行，说明服务器不使用它。应用在服务器上的 `shared/.env` 里写了 `SERVER_ADDR` 时，setup 也会打印一行：systemd 的 socket 优先，这个值不起作用。
 
 ### 应用自己接待访客 {#the-app-serves-visitors-itself}
 

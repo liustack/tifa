@@ -2,7 +2,7 @@
 summary: '由程序自己提供 HTTPS：自动申请的证书、你自己的证书、80 端口和 HSTS、1024 以下的端口、HTTP/2'
 audience: app
 order: 19
-translatedFrom: f3fdc69cae88
+translatedFrom: 9195071c04a1
 read_when:
   - '由程序自己提供 HTTPS，用 Let''s Encrypt 或你自己的证书，或者在决定要不要这样做'
   - '程序无法监听 80 或 443 端口，或者拿不到证书'
@@ -10,7 +10,7 @@ read_when:
 
 # HTTPS {#https}
 
-HTTPS 默认关闭，程序仍和以前一样在 `server.addr` 上提供普通 HTTP。如果前面有终结 TLS 的 CDN 或代理（比如 Cloudflare、nginx 或 Caddy），就保持关闭：它们已经和浏览器说 HTTPS 和 HTTP/2，而程序的证书只会有它们看到。
+HTTPS 默认关闭，程序仍和以前一样在 `server.addr` 上提供普通 HTTP。如果前面有终结 TLS 的 CDN 或代理（比如 Cloudflare、nginx 或 Caddy），就保持关闭：它们已经和浏览器说 HTTPS 和 HTTP/2，而程序的证书只会有它们看到。用 `tifa deploy` 时，`front: none` 替你打开 HTTPS，`cloudflare`、`external` 和 `nginx` 则保持关闭。
 
 当程序自己面对互联网时，才开启它。这时浏览器还会得到 HTTP/2，浏览器只通过 TLS 说它：页面的每个文件共用一个连接，而在 HTTP/1.1 上，浏览器对一个主机最多开 6 个，见[预加载页面的分块](../reference/route-modules.zh-CN.md#preloading-the-chunks-of-a-page)。有两种方式，两种都设置会失败。无论哪种，都要设置 `server.addr`：开启 HTTPS 时，默认的 `127.0.0.1:9527` 会拒绝启动，因为只有本机能连到它。在配置里把它写出来也一样。当 systemd 传入 `server.addr` 的 socket（[socket 激活](deploy-by-hand.zh-CN.md#restart-without-dropping-requests)）时，程序监听那个 socket 而不是地址，所以地址可以保持默认。另一个回环地址，比如 `127.0.0.1:8443`，启动时日志里会有一条警告，用于在本机上测试。
 

@@ -285,7 +285,7 @@ func loadTarget(dir, hostFlag string) (deployTarget, error) {
 func shopApp(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "")
 	return root
 }
@@ -354,7 +354,7 @@ func TestDeployHostAppsAreFolders(t *testing.T) {
 	homeOf(t)
 	root := shopApp(t)
 	other := filepath.Join(t.TempDir(), "other", "shop")
-	writeFile(t, filepath.Join(other, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, other)
 	for _, s := range []struct {
 		id, host string
 		app      knownApp

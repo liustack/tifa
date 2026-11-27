@@ -2,11 +2,12 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: cfe695a6fb9b
+translatedFrom: 06e0f0e66a37
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
   - '用 TIFA_DEPLOY_HOST 给 tifa deploy 指定服务器，或者在没有指定时想知道它用的是哪台服务器（~/.tifa/config.yaml、TIFA_HOME），或者在 tifa.yaml 里选择 deploy.front、deploy.connect 或 deploy.auto'
+  - '选择 deploy.front，或者某条 deploy 命令因为没写 deploy.front 或 front: cloudflare 走不通而停下'
   - '给慢启动更多时间（deploy.start_timeout），或者在部署前跑测试、部署后发一条消息'
   - '用 deploy.release_command 在新发布启动前用它运行迁移或应用的其他命令'
   - '让第二台开发机有权部署'
@@ -18,7 +19,7 @@ Tifa 应用就是一个可执行文件。服务器需要这个文件、环境里
 
 `tifa deploy` 把 Tifa 应用放到你自己的服务器上，一条命令就设置好从 push 到上线的整条 CI/CD 路径。
 
-`go tool tifa deploy` 通过 ssh 把应用放到带 systemd 的 Linux 服务器上：它在你的机器上为服务器构建，上传程序，重启应用而不拒绝任何请求，在服务器上检查它，检查失败时回到之前的发布。应用自己接待访客并用自己的 HTTPS，或者放在 Cloudflare Tunnel 或 Tifa 安装的 nginx 后面，这时多个应用可以共用一台服务器。服务器不需要 Docker、Node，也不需要自己的部署程序。
+`go tool tifa deploy` 通过 ssh 把应用放到带 systemd 的 Linux 服务器上：它在你的机器上为服务器构建，上传程序，重启应用而不拒绝任何请求，在服务器上检查它，检查失败时回到之前的发布。访客通过 Cloudflare Tunnel 到达应用（`tifa new` 设好的就是这种），或者直接由应用用它自己的 HTTPS 接待，或者经过你自己的东西（比如负载均衡器），或者经过 Tifa 安装的 nginx。服务器不需要 Docker、Node，也不需要自己的部署程序。
 
 `tifa.yaml` 写明你要什么。`go tool tifa deploy setup` 让服务器、Cloudflare 和 GitHub 与它一致。`tifa.yaml` 是要提交的，所以密钥和服务器的位置都不放进去。
 
@@ -26,7 +27,7 @@ Tifa 应用就是一个可执行文件。服务器需要这个文件、环境里
 site:
   url: https://shop.example.com   # the domain is the host of this URL
 deploy:
-  front: none      # what visitors come through before the server: none (the app serves them itself on ports 80 and 443) | cloudflare | nginx | external
+  front: cloudflare  # what sits between visitors and the app: cloudflare | none | external | nginx. Needed, no default
   connect: direct  # how deploys reach the server over ssh: direct | cloudflare | tailscale
   release_command: migrate  # a command of the app that each deploy runs once with the new release before it starts it. Left out: none
   start_timeout: 30s  # how long a new release may take to start and answer /healthz: 1s to 10m
@@ -47,7 +48,7 @@ deploy:
   ```
 
   这个值就是 `ssh` 接受的目标：可以是 `~/.ssh/config` 里的一个 Host（比如别名 `vps`，这样地址、端口、密钥和 `ProxyJump` 都由 `~/.ssh/config` 提供）、一个主机名，或者一个 `ssh://host[:port]` 的 URL。用户由 Tifa 自己选，改动系统的步骤用 root，其余用 `tifa`，所以除非 root 登录不了，否则不要写用户（见[root 登录不了时](#when-root-cannot-log-in)）。带路径、查询或别的协议的值会被拒绝。四种都没设置时，每个 `tifa deploy` 命令都会停下并说明。
-- `front` 是访客到达服务器之前经过的东西。选 `cloudflare` 时，就是 `site.url` 的主机上的一个 Cloudflare Tunnel，带它的 DNS 记录和规则，`deploy` 和 `rollback` 会清除那个主机名的 CDN 缓存。必须设置 `site.url`，并且不带端口。选 `none` 时，应用自己在 80 端口上接待访客，`site.url` 里有域名时还在 443 端口上用自己的 HTTPS，也不清缓存（见[应用自己接待访客](deploy-setup.zh-CN.md#the-app-serves-visitors-itself)）。选 `nginx` 时，setup 安装的一个 nginx 按 `site.url` 的主机把访客送到应用，并用 certbot 为它拿证书，这样几个应用不用 Cloudflare 也能共用一台服务器（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)）。选 `external` 时，前面你自己的东西（比如你在服务商那里建的负载均衡器）负责 HTTPS，用普通 HTTP 把请求发到应用的端口（见[在你的负载均衡器后面](deploy-proxy.zh-CN.md#behind-your-load-balancer)）。一个应用放在几台服务器上时就用它，服务器在 `TIFA_DEPLOY_HOST` 里用逗号隔开（见[在几台服务器上运行应用](deploy-several-servers.zh-CN.md#run-an-app-on-several-servers)）。
+- `front` 是访客和应用之间隔着的东西：`cloudflare`、`none`、`external` 或 `nginx`。它没有默认值，没写时 `tifa deploy` 会停下。见[选择 front](#choose-a-front)。
 - `connect` 是 ssh 连到服务器走的那一条路，从你的机器和从 GitHub Actions 的 runner 都一样。选 `direct` 时，ssh 用你给的地址。选 `cloudflare` 时，两边都经由 Cloudflare Tunnel，所以服务器不用开放 ssh 端口（见 [`connect: cloudflare`](deploy-cloudflare.zh-CN.md#connect-cloudflare)）。它需要 `front: cloudflare`，因为 ssh 的主机名是由域名生成的，有没有 `auto` 都行。选 `tailscale` 时，runner 加入你的 tailnet，它需要 `auto` 这个块（见 [`connect: tailscale`](deploy-github-actions.zh-CN.md#connect-tailscale)）。你自己的机器照常连到服务器，用 `TIFA_DEPLOY_HOST` 里的地址，tailnet 和服务器都由你自己设置。
 - `release_command` 是应用的一条命令和它的参数，比如 `migrate` 或 `migrate --verbose`。每次部署在服务器上用新发布的程序运行它一次，在启动这个发布之前，这时旧发布还在服务。这些词按空格拆开，每个词原样交给程序：没有引号，也不经过 shell。不写就什么也不运行。见[发布命令](#the-release-command)。
 - `start_timeout` 是新发布启动并通过健康检查最多可以花多长时间，写成 Go 的时长，比如 `45s` 或 `2m`。它是整秒数，从 `1s` 到 `10m`，不写就是 `30s`。部署失败后回退到的那个发布的检查，以及 `deploy rollback` 启动的发布的检查，用同样的时间。见[慢启动](#a-slow-start)。
@@ -72,6 +73,52 @@ deploy:
 第一次要先运行 `go tool tifa deploy setup`，见[配好服务器](deploy-setup.zh-CN.md)。之后只需要部署，某个版本有问题时再回滚。
 
 没有终端时（比如 agent 或脚本运行命令），ssh 什么都不问：服务器的主机密钥还不在你的 `known_hosts` 里时，命令会停下，报错里给出接受这个密钥的命令。ssh 直接连到的服务器有 15 秒的应答时间，除非你的 ssh 配置自己设了 `ConnectTimeout`。经过 `ProxyCommand` 或 `ProxyJump` 连到的服务器（比如在浏览器里登录 Cloudflare Access）不限时间，等多久都行。
+
+## 选择 front {#choose-a-front}
+
+`deploy.front` 说明访客和应用之间隔着什么。它没有默认值，所以 `tifa.yaml` 里写的就是实际生效的。没写时，`tifa deploy setup` 和其他所有 `tifa deploy` 命令都会停下，并列出四个值，各附一句什么时候用。`tifa build` 和 `tifa dev` 不需要它。`tifa new` 会写上 `front: cloudflare`。
+
+在 `front` 成为必填之前设置过、从没写过它的应用，实际跑的是 `none`。想保持原样，就写 `front: none`。
+
+| 值 | 中间隔着什么 | HTTPS 谁做 | 对全网开放的端口 | Tifa 管什么 | 一台服务器几个应用 | 几台服务器 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `cloudflare`（推荐） | Cloudflare，经 Tunnel | Cloudflare | 没有 | Tunnel、DNS、缓存规则、部署后清缓存 | 多个，按域名分 | 一台 |
+| `none` | 什么都没有，应用直接面对访客 | 应用自己，用 Let's Encrypt 或你的证书 | 有域名时 80 和 443，只有 IP 时 80 | 端口、证书、ufw | 一个 | 一台 |
+| `external` | 你自己的东西：负载均衡器、CDN、代理、内网 | 前面那个东西，内网里可以不用 | `server.addr` 里的端口，由你自己限制谁能连 | 只管部署。会打印给负载均衡器填的目标，不开任何防火墙 | 多个，各用一个端口 | 一台或几台 |
+| `nginx`（可选，不推荐） | Tifa 装的 nginx | nginx 加 certbot | 80 和 443 | nginx、每个应用一个站点、证书 | 多个，共用 443 | 一台 |
+
+- **`cloudflare`。** 服务器不开任何端口：服务器上的 cloudflared 主动连出去连到 Cloudflare，由 Cloudflare 负责 HTTPS、CDN 和 DDoS 防护。需要一个在 Cloudflare 里的域名，并且 cf 已登录（见[配置服务器](deploy-setup.zh-CN.md#set-up-with-a-plan)）。
+- **`none`。** 浏览器默认访问 80 和 443，所以端口按 `site.url` 定，从不读 `server.addr`。有域名时，443 提供 HTTPS，80 应答 Let's Encrypt 并把其余请求都跳转到 HTTPS。只有 IP 地址时拿不到证书，只开明文 HTTP 的 80。想在别的端口上提供 HTTPS，就换成 `cloudflare` 或 `nginx`。
+- **`external`。** 前面的东西连到 `server.addr` 写的地址和端口（见[在你的负载均衡器后面](deploy-proxy.zh-CN.md#behind-your-load-balancer)）。Tifa 不为它开防火墙，[harden](deploy-harden.zh-CN.md) 也不会放行这个端口：只让前面那个东西连得进来。
+- **`nginx`。** 给不用 Cloudflare、又要在一台服务器上放多个应用的情况，比如中国大陆。见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)。
+
+### 你的情况该用哪个 front {#which-front-for-your-setup}
+
+| 服务器前面是什么 | 写 |
+| --- | --- |
+| 由 Tifa 管的 Cloudflare | `cloudflare` |
+| 你自己管的 Cloudflare，SSL 模式 Full (strict) | `none`，证书用 Let's Encrypt 或上传的 Origin CA 证书 |
+| 你自己管的 Cloudflare，SSL 模式 Flexible | `external`，`server.addr: ":80"` |
+| CloudFront，普通源站 | `none` 或 `external` |
+| CloudFront VPC origins（源站在私有子网里） | `external`，`server.addr` 写内网地址 |
+| 云服务商的负载均衡器，或你自己的代理 | `external` |
+| 中国大陆的 CDN | `none` 或 `external` |
+| 一台服务器上放多个应用，不用 Cloudflare | `nginx` |
+| 只有 IP 地址，没有域名 | `none`（80 端口上的明文 HTTP） |
+
+只有 `cloudflare` 会在部署后清 CDN 缓存。用别的 CDN 时，请在每次部署后自己清：部署会删掉旧的 `/assets/` 文件，缓存着的旧页面最多会坏 `s-maxage` 那么久。见[部署之后](deploy-by-hand.zh-CN.md#after-a-deploy)。
+
+几台服务器上的应用用 `external`。`connect: cloudflare` 只能配 `front: cloudflare`。
+
+### cloudflare 走不通时 {#when-cloudflare-cannot-go-on}
+
+setup 从不悄悄换成别的 front，也不会在没有 Cloudflare 的情况下接着做其他步骤：检查失败时它先打印方案，让你看到它本来要做什么，然后在改动任何东西之前停下，加了 `--yes` 也一样，退出状态是 1。从 Tunnel 退到 `none`，会把一台不开端口的服务器变成 80 和 443 对所有人开放的服务器，这该由你来决定。setup 按从便宜到贵的顺序检查，在第一个失败的地方停下，并说明怎么办：
+
+1. **`site.url` 里有域名。** Tunnel 按域名路由，所以 IP 地址、`localhost` 或没写 `site.url` 都会让 setup 停下。请设置 `site.url`。只有 IP 地址的话，写 `front: none`（80 端口上的明文 HTTP）或 `front: external`。
+2. **cf 装了并且已登录。** 在终端里，setup 会帮你安装并打开登录。没有终端时它停下并列出步骤，你只需要在浏览器里点。
+3. **域名在 cf 登录的那个账号里。** 把域名加进那个账号（把域名的 name server 改成 Cloudflare 给你的那两个），或者让 cf 登录到有这个域名的账号。
+
+没有 cf，或者不想让 Tifa 管 Cloudflare，不等于不用 Cloudflare。如果你不想让 Tifa 通过 cf 管理 Cloudflare，比如因为你自己在 Cloudflare 后台管理 DNS 和代理，就写 `front: none` 或 `front: external`，按上面的表选哪一个。setup 从不改 `tifa.yaml`：它只会说出要加或要改的那一行。
 
 ## root 登录不了时 {#when-root-cannot-log-in}
 

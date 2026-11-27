@@ -531,10 +531,13 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c, _, err := config.Project(data); err != nil || !reflect.DeepEqual(c, config.Default()) {
-		t.Fatalf("tifa.yaml as written: %+v, %v, want the defaults", c, err)
+	// deploy.front has no default, and tifa new writes cloudflare, the recommended one.
+	written := config.Default()
+	written.Deploy.Front = "cloudflare"
+	if c, _, err := config.Project(data); err != nil || !reflect.DeepEqual(c, written) {
+		t.Fatalf("tifa.yaml as written: %+v, %v, want the defaults with front cloudflare", c, err)
 	}
-	settingLine := regexp.MustCompile(`^# ( *)([a-z0-9_]+):`)
+	settingLine := regexp.MustCompile(`^(?:# )?( *)([a-z0-9_]+):`)
 	var lines, keys []string
 	var found []struct {
 		indent int
@@ -566,12 +569,10 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 		t.Fatalf("tifa.yaml with the settings turned on: %v", err)
 	}
 	// ssr.vms defaults to GOMAXPROCS, at most 4, so the file shows an example.
-	want := config.Default()
+	want := written
 	want.SSR.VMs = c.SSR.VMs
 	// deploy.release_command runs nothing by default, so the file shows the migrate command of the app.
 	want.Deploy.ReleaseCommand = []string{"migrate"}
-	// deploy.port is for front external only, and picked by setup when left out: the file shows one.
-	want.Deploy.Port = 8080
 	// The block deploy.auto turns deploys on by being there, with the branch the file shows.
 	want.Deploy.Auto = config.Auto{On: true, Branch: "main", Needs: "ci.yml"}
 	if !reflect.DeepEqual(c, want) {

@@ -172,7 +172,7 @@ func TestSetupMovesTheLoopbackApp(t *testing.T) {
 
 	// The script itself: the old socket stops before the units change, and the app restarts on the
 	// new one and passes its check.
-	body := appScript("shop", httpPort, "", false, false, true, true, 30)
+	body := appScript("shop", httpPort, "", "", false, false, true, true, 30)
 	stop, write := strings.Index(body, `systemctl --user stop $old`), strings.Index(body, `printf '%s' "$socket_unit"`)
 	if stop < 0 || write < 0 || stop > write || !strings.Contains(body, `systemctl --user restart "$unit.service"`) || !strings.Contains(body, "if check; then exit 0; fi") {
 		t.Errorf("app script:\n%s", body)
@@ -255,12 +255,12 @@ func TestSetupStopsWhenPortsAreTaken(t *testing.T) {
 func serveApp(t *testing.T, port, domain string, health map[string]string) (root, home string, calls func() string) {
 	t.Helper()
 	root = t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "vps")
 	home = t.TempDir()
 	writeFile(t, filepath.Join(home, "shop", "port"), port+"\n")
 	if domain != "" {
-		writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://"+domain+"\n")
+		writeFile(t, filepath.Join(root, "tifa.yaml"), withFront("site:\n  url: https://"+domain+"\n"))
 		writeFile(t, filepath.Join(home, "shop", "https"), domain+"\n")
 	}
 	if err := os.MkdirAll(filepath.Join(home, "shop", "releases"), 0o755); err != nil {
@@ -332,7 +332,7 @@ func TestDeployServesVisitorsOverHTTPS(t *testing.T) {
 // and changes nothing.
 func TestDeployCreateNeedsSetupForPort80(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "vps")
 	home := t.TempDir()
 	prepareFakeServer(t, home)

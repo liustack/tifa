@@ -1,21 +1,23 @@
 ---
-summary: '在 Tifa 应用前面放 nginx、负载均衡器、CDN 或反向代理：`deploy.front: nginx` 和 `external`、CDN 的设置，以及代理后面的跨站 403'
+summary: '在 Tifa 应用前面放负载均衡器、CDN、你自己的 Cloudflare、反向代理或 Tifa 的可选 nginx：`deploy.front: external` 加 `server.addr`、`nginx`、CDN 的设置，以及代理后面的跨站 403'
 audience: app
 order: 14
-translatedFrom: 6ce3b9195f7f
+translatedFrom: a4b186766578
 read_when:
-  - '不用 Cloudflare，用 `deploy.front: nginx` 把几个 Tifa 应用放在同一台服务器上，或者 setup 因为服务器上有一个不是 Tifa 装的 nginx 而停下'
-  - '用 `deploy.front: external` 在 Tifa 应用前面放服务商的负载均衡器或你自己的代理，并把目标和健康检查填进去'
+  - '不用 Cloudflare，用可选的 `deploy.front: nginx` 把几个 Tifa 应用放在同一台服务器上，或者 setup 因为服务器上有一个不是 Tifa 装的 nginx 而停下'
+  - '用 `deploy.front: external` 和 `server.addr` 在 Tifa 应用前面放服务商的负载均衡器或你自己的代理，并把目标和健康检查填进去'
   - '在 Tifa 应用前面放 CDN 或 nginx、Cloudflare、CloudFront 之类的反向代理'
   - '域名在你自己的 Cloudflare 账号里、开了代理，不用 `front: cloudflare` 的隧道，要在 Full (strict) 和 Flexible 之间选'
   - 'POST 只在代理后面得到 403，信息是 `cross-origin request detected`'
 ---
 
-# 在前面放 nginx 或 CDN {#put-nginx-or-a-cdn-in-front}
+# 在前面放负载均衡器、CDN 或 nginx {#put-a-load-balancer-a-cdn-or-nginx-in-front}
 
-访客可以通过 `tifa deploy setup` 装好的 nginx 到达程序，也可以通过你在服务商那里建的负载均衡器，或者你自己的代理或 CDN。这一篇讲这三种，以及服务器前面是你自己的 Cloudflare 的情况。
+`tifa new` 设好的是 Cloudflare Tunnel（`front: cloudflare`），它不需要这一篇里的任何东西。这一篇讲其他情况：你在服务商那里建的负载均衡器，或者你自己的代理或 CDN（`front: external`），服务器前面是你自己的 Cloudflare，以及 `tifa deploy setup` 装的可选 nginx（`front: nginx`）。[选择 front](deploy.zh-CN.md#choose-a-front) 说明哪种适合你。
 
 ## 在 nginx 后面 {#behind-nginx}
+
+`front: nginx` 是可选的，不推荐。只在不用 Cloudflare、又要在一台服务器上放多个应用时用它，比如中国大陆。用 `cloudflare` 时服务器不开端口，由 Cloudflare 负责 HTTPS，要维护的东西更少。这个 nginx 要是以后维护不动了，可能会被去掉，到时的出路是 `front: external`，前面放你自己的 Caddy。
 
 用 `front: nginx` 时，由 Tifa 安装的一个 nginx 接待服务器上所有用这个 front 的应用的访客，所以它们不用 Cloudflare 就能共用 80 和 443 端口。每个应用监听回环地址上的一个端口，和在 Cloudflare Tunnel 后面一样，nginx 把请求送给它所点的主机对应的应用，也就是该应用 `site.url` 的主机。
 
@@ -96,17 +98,19 @@ deploy:
   front: external
 ```
 
-**端口。** 应用在自己的端口上监听（从 9527 起），监听服务器的所有地址，不像在隧道或 nginx 后面那样只监听回环地址。放在几台服务器上时，每台的端口都一样，由 setup 挑一个每台都空着的。方案里会写出来：`port 9527 on every address of the server, for the load balancer or proxy in front`。
-
-想自己定端口，就设 `deploy.port`，从 80 到 65535。有些代理只能连到服务器的某些端口，Cloudflare 就是这样（见[它支持的端口](https://developers.cloudflare.com/fundamentals/reference/network-ports/)）：
+**端口和地址。** 应用监听 `tifa.yaml` 里 `server.addr` 写的地方，也就是 setup 打开的那个 systemd socket。只写端口就监听服务器的所有地址，写地址加端口就只监听那个地址：
 
 ```yaml
+server:
+  addr: ":9527"            # every address of the server, port 9527
+# addr: "10.0.0.5:9527"    # only the private address 10.0.0.5
 deploy:
   front: external
-  port: 8080
 ```
 
-某台服务器上已有别的应用或程序在这个端口上监听时，setup 在改动任何东西之前就停下，并说出是谁。用 80 或 443 端口时，应用照样回答普通 HTTP，没有证书。低于 1024 的端口每台服务器要用一次 root：方案会让用户 `tifa` 能打开 80 起的端口，和应用自己接待访客时一样，用这类端口的最后一个应用被 `tifa deploy remove` 时，这个设置会还原。改了 `deploy.port`，下次 setup 会挪动应用：方案里会写出来，应用在新端口上重启并通过健康检查。光部署不会挪，它会停下并提示你运行 setup。
+默认值 `127.0.0.1:9527` 只有服务器自己连得上，所以用 `front: external` 时 setup 会停下并说明原因：请写负载均衡器连的那个地址。主机名会被拒绝，因为 socket 只认 IP 地址。放在几台服务器上时，只接受 `":port"`。端口要按前面那个东西来选：有些代理只能连到某些端口，Cloudflare 就是这样（见[它支持的端口](https://developers.cloudflare.com/fundamentals/reference/network-ports/)）。方案里会写出结果：`port 9527 on every address of the server, for the load balancer or proxy in front`。
+
+某台服务器上已有别的应用或程序在这个端口上监听时，setup 在改动任何东西之前就停下，并说出是谁。一台服务器上有两个 `front: external` 的应用，就要用两个端口。用 80 或 443 端口时，应用照样回答普通 HTTP，没有证书。低于 1024 的端口每台服务器要用一次 root：方案会让用户 `tifa` 能打开 80 起的端口，和应用自己接待访客时一样，用这类端口的最后一个应用被 `tifa deploy remove` 时，这个设置会还原。低于 80 的端口会被拒绝。改了 `server.addr`，下次 setup 会挪动应用：方案里会写出来，应用在新端口上重启并通过健康检查。光部署不会挪，它会停下并提示你运行 setup。
 
 **要填进负载均衡器的东西。** setup 和每次部署最后都会列出目标：
 
@@ -159,7 +163,13 @@ load balancer or proxy: send plain HTTP to these targets, and check each with GE
 
 ## 前面是你自己的 Cloudflare {#your-own-cloudflare-in-front}
 
-域名在你自己的 Cloudflare 账号里、DNS 记录开了代理（橙色云朵），又不想用 `front: cloudflare` 的隧道时，看这一节。`tifa.yaml` 怎么写，取决于 Cloudflare 里这个 zone 的 SSL/TLS 加密模式。
+域名在你自己的 Cloudflare 账号里、DNS 记录开了代理（橙色云朵），你自己在 Cloudflare 后台管理 DNS 和代理，而不让 Tifa 用 `front: cloudflare` 的隧道来管时，看这一节。没有 cf，或者不想让 Tifa 管 Cloudflare，是在选 front，不是不再用 Cloudflare。`tifa.yaml` 怎么写，取决于 Cloudflare 里这个 zone 的 SSL/TLS 加密模式：
+
+| zone 的 SSL/TLS 模式 | 写 |
+| --- | --- |
+| Full (strict) | `none`，证书用 Let's Encrypt 或上传的 Origin CA 证书 |
+| Flexible | `external`，`server.addr: ":80"` |
+| Full (strict)，源站在你自己的内网里 | `external`，`server.addr` 写内网地址 |
 
 **Full (strict)：`front: none`。** 应用自己提供 HTTPS，Cloudflare 连到它的 443 端口，并检查它的证书。
 
@@ -178,9 +188,10 @@ deploy:
 **Flexible：`front: external`。** Cloudflare 负责 HTTPS，用普通 HTTP 连到应用，端口要选它为 HTTP 代理的端口，比如 80 或 8080（见[网络端口](https://developers.cloudflare.com/fundamentals/reference/network-ports/)）：
 
 ```yaml
+server:
+  addr: ":80"
 deploy:
   front: external
-  port: 80
 ```
 
 这样从 Cloudflare 到服务器这一段是普通 HTTP，路上的人都能看到内容。Full (strict) 会把它加密。

@@ -64,8 +64,12 @@ func TestParseDeployHosts(t *testing.T) {
 func twoServers(t *testing.T, tifaYAML string, health map[string]string) (root, home1, home2 string, calls func() string) {
 	t.Helper()
 	root = t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), tifaYAML)
+	writeShopApp(t, root)
+	if strings.Contains(tifaYAML, "front: external") && !strings.Contains(tifaYAML, "addr:") {
+		// The app is on port 9531 on both servers.
+		tifaYAML = "server:\n  addr: \":9531\"\n" + tifaYAML
+	}
+	writeFile(t, filepath.Join(root, "tifa.yaml"), withFront(tifaYAML))
 	homeOf(t)
 	home1, home2 = t.TempDir(), t.TempDir()
 	for _, home := range []string{home1, home2} {
@@ -322,14 +326,14 @@ func TestDeploySeveralServersMoveBackFails(t *testing.T) {
 // and the error names external.
 func TestDeploySeveralServersRefused(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "vps,vps2")
 	for yaml, want := range map[string]string{
 		"deploy:\n":                 "2 servers, and deploy.front is none, where the server serves visitors itself, with HTTPS of its own: set deploy.front to external in tifa.yaml",
 		"deploy:\n  front: nginx\n": "deploy.front is nginx, which serves the apps of one server: set deploy.front to external",
 		"site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n": "deploy.front is cloudflare, and a tunnel on several servers sends each request to the one closest to the visitor, which does not spread the load: set deploy.front to external",
 	} {
-		writeFile(t, filepath.Join(root, "tifa.yaml"), yaml)
+		writeFile(t, filepath.Join(root, "tifa.yaml"), withFront(yaml))
 		for _, args := range [][]string{{"deploy"}, {"deploy", "status"}, {"deploy", "rollback"}, {"deploy", "setup"}, {"deploy", "remove"}, {"deploy", "env", "list"}} {
 			_, _, err := run(t, append(args, "--dir", root)...)
 			if err == nil || !strings.Contains(err.Error(), want) {
@@ -422,8 +426,8 @@ func TestDeploySeveralServersRun(t *testing.T) {
 // the user reaches it, and the deploy prints what to enter in the balancer. One host works too.
 func TestDeployLoadBalancer(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: external\n")
+	writeShopApp(t, root)
+	writeFile(t, filepath.Join(root, "tifa.yaml"), withFront("site:\n  url: https://shop.example.com\ndeploy:\n  front: external\n"))
 	t.Setenv(deployHostEnv, "vps")
 	homeOf(t)
 	home := t.TempDir()
@@ -520,8 +524,7 @@ func TestSetupSeveralServersLoadBalancer(t *testing.T) {
 	homeOf(t)
 	fakePorts(t)
 	srv := newSetupServer(t, "", factsOf("shop", 9527, "appdir yes\n"))
-	// blog has port 9527 on the second server, so the app moves to 9528 on both.
-	two := srv.addHost(t, "vps2", "hostname 203.0.113.8\n", box2Facts+"taken 9527\nother blog\n")
+	two := srv.addHost(t, "vps2", "hostname 203.0.113.8\n", box2Facts)
 	out, err := runSetup(t, root, false, "", "--yes")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -529,18 +532,18 @@ func TestSetupSeveralServersLoadBalancer(t *testing.T) {
 	for _, want := range []string{
 		"Plan for shop on vps (1 of 2)",
 		"Plan for shop on vps2 (2 of 2)",
-		"app: move shop from 127.0.0.1:9527, which only the server reaches, to port 9528 on every address of the server, for the load balancer or proxy in front",
-		"app: /srv/tifa/shop with an empty shared/.env, port 9528 on every address of the server, for the load balancer or proxy in front",
+		"app: write the systemd units of shop again",
+		"app: /srv/tifa/shop with an empty shared/.env, port 9527 on every address of the server, for the load balancer or proxy in front",
 		"load balancer or proxy: send plain HTTP to these targets",
-		"vps:9528", "203.0.113.8:9528",
-		"Let only it reach port 9528",
+		"vps:9527", "203.0.113.8:9527",
+		"Let only it reach port 9527",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
-	if n := strings.Count(srv.unquoted(), "ListenStream=9528\n"); n < 2 {
-		t.Errorf("the units of port 9528 went to %d servers:\n%s", n, srv.unquoted())
+	if n := strings.Count(srv.unquoted(), "ListenStream=9527\n"); n < 2 {
+		t.Errorf("the units of port 9527 went to %d servers:\n%s", n, srv.unquoted())
 	}
 	if !strings.Contains(srv.calls(), "app tifa") || !strings.Contains(two.calls(), "app tifa") {
 		t.Errorf("calls:\n%s\n%s", srv.calls(), two.calls())
@@ -616,7 +619,7 @@ func TestDeploySeveralServersNeedSetup(t *testing.T) {
 		want string
 	}{
 		"missing":    {"", "shop is not set up on vps2: run go tool tifa deploy setup, which sets up every server of shop"},
-		"other port": {"9533\n", "shop has port 9531 on vps and 9533 on vps2: run go tool tifa deploy setup, which gives it one port on every server"},
+		"other port": {"9533\n", "shop has port 9533 on vps2, and server.addr says port 9531: run go tool tifa deploy setup, which moves it"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root, home1, home2, _ := twoServers(t, "deploy:\n  front: external\n", nil)

@@ -633,13 +633,14 @@ func (v connectValue) Set(s string) error {
 func (v connectValue) String() string { return *v.p }
 func (v connectValue) kind() string   { return "string" }
 
-// frontValue is deploy.front: what visitors come through before the server. Empty means none.
+// frontValue is deploy.front: what sits between visitors and the app. It has no default: empty
+// stays empty, and tifa deploy says to write one.
 type frontValue struct{ p *string }
 
 func (v frontValue) Set(s string) error {
 	switch m := strings.ToLower(s); m {
 	case "":
-		*v.p = "none"
+		*v.p = ""
 	case "none", "cloudflare", "nginx", "external":
 		*v.p = m
 	default:

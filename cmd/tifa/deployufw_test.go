@@ -306,6 +306,7 @@ func TestSetupMoveToCloudflareDeletesUFWRules(t *testing.T) {
 	root := setupApp(t, "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n", nil)
 	srv := newSetupServer(t, "", factsHTTPS("shop", "shop.example.com", "appdir yes\nufw off\n"))
 	srv.ufw(t, ufwRead(ufwInactive, ufwAdded+"ufw allow 80/tcp comment 'tifa shop'\nufw allow 443/tcp comment 'tifa shop'\n"))
+	cfSetup(t, "example.com")
 	out, _ := runSetup(t, root, false, "")
 	if !strings.Contains(out, "remove  firewall: the rules of ufw for ports 80 and 443 (tcp) with the comment 'tifa shop', which shop no longer needs, as root") {
 		t.Errorf("plan:\n%s", out)

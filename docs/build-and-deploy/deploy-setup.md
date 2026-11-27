@@ -4,7 +4,7 @@ audience: app
 order: 11
 read_when:
   - Running tifa deploy setup or remove on a machine without gh, with a fine-grained token in TIFA_DEPLOY_GITHUB_TOKEN
-  - A deployed app with `front: none` does not answer from outside, setup stopped because port 80 or 443 is taken, you want to know which ports to open, or what setup and remove change in ufw
+  - A deployed app with `front: none` does not answer from outside, setup stopped because port 80 or 443 is taken, you want to know where the app listens with each front and how `server.addr` is used, you want to know which ports to open, or what setup and remove change in ufw
 ---
 
 # Set up the server
@@ -74,7 +74,7 @@ The layers of the plan:
 | Layer | What | Needs |
 | --- | --- | --- |
 | server | The user `tifa`, which owns and runs every app of the server and may log in with the keys of root, or of the user in front of the host (home `/srv/tifa`), and linger, so its systemd runs at boot | `ssh root@<TIFA_DEPLOY_HOST>`, the first time only, or the user in front of the host with sudo (see [When root cannot log in](deploy.md#when-root-cannot-log-in)) |
-| app | `/srv/tifa/<app>`, its empty `shared/.env`, the data folder `shared`, its port in `port` (80, or 443 with HTTPS, for `front: none`, else the first free one from 9527 on the loopback), and the user units `tifa-<app>.socket` and `.service`, with HTTPS also `tifa-<app>-http.socket`. For `front: none`, once per server as root, the setting that lets the systemd of `tifa` open ports 80 and 443 | ssh as `tifa`, and root once |
+| app | `/srv/tifa/<app>`, its empty `shared/.env`, the data folder `shared`, its port in `port` (80, or 443 with HTTPS, for `front: none`, the port of `server.addr` for `front: external`, else the first free one from 9527 to 9999 on the loopback), and the user units `tifa-<app>.socket` and `.service`, with HTTPS also `tifa-<app>-http.socket`. For `front: none`, once per server as root, the setting that lets the systemd of `tifa` open ports 80 and 443 | ssh as `tifa`, and root once |
 | front: cloudflare | The Cloudflare Tunnel, cloudflared on the server, the route, the proxied DNS record and the cache rules of the host of `site.url`, and on the server the token that clears its cache | cf |
 | front: nginx | As root: nginx, and for an app with a domain certbot with its nginx plugin, installed with apt, `/etc/tifa/nginx` to mark that nginx as Tifa's, the site of the app in `/etc/nginx/conf.d/tifa-<app>.conf`, its certificate, and ports 80 and 443 in ufw (see [Behind nginx](deploy-proxy.md#behind-nginx)) | `ssh root@<TIFA_DEPLOY_HOST>`, or the user in front of the host with sudo |
 | auto | A key for the repository, the secrets (where CI logs in, the host keys), and the workflow | gh or `TIFA_DEPLOY_GITHUB_TOKEN` |
@@ -94,6 +94,20 @@ The layers of the plan:
 7. Asks for a token, which is optional, that can only clear the cache of the zone, and keeps it with the ID of the zone on the server, where every deploy finds it (see [Clearing the CDN cache](deploy-cloudflare.md#clearing-the-cdn-cache)). A login of cf cannot make API tokens, so you make it in the Cloudflare dashboard, and on a terminal setup walks you through it: it prints a link to the Cloudflare form with the permission Cache Purge filled in and the name `tifa cache purge <zone>`. Set Zone Resources to that zone only, create the token and paste it at the hidden prompt. Setup checks it by clearing a URL that does not exist, tries again up to 3 times, and writes it to the server over ssh as `tifa`, on the input of ssh. An empty line skips it, and setup goes on and succeeds. Setup asks on the first setup of the domain, and on the first setup of CI. Once the server has a token for the zone, setup checks it the same way on each run and asks nothing while Cloudflare takes it: a second app on the same server and zone needs nothing. A token Cloudflare refuses, such as one that expired or was deleted, is asked for again. Without a token, later runs with `auto`, and a first run without a terminal, list it as optional. To add the token later, or to replace it, run `go tool tifa deploy setup --cache-purge-token`: it asks even when the server has one, on a terminal at the hidden prompt and without one on a page in your browser, with `--yes` too (see [Secrets without a terminal](deploy-operate.md#secrets-without-a-terminal)).
 
 `tifa deploy remove` of the last app on a server removes the tunnel and the cache token too (see [Logs, status and remove](deploy-operate.md#logs-status-and-remove)). To remove them by hand, run `systemctl disable --now tifa-tunnel tifa-tunnel-upgrade.path` and delete `/etc/tifa`, `/etc/systemd/system/tifa-tunnel*` and `/srv/tifa/.config/tifa` on the server, then delete the tunnel and the token `tifa cache purge <zone>` in Cloudflare. cloudflared stays installed: `apt-get purge cloudflared` and deleting `/etc/apt/sources.list.d/cloudflared.list`, `/usr/share/keyrings/cloudflare-main.gpg` and `/etc/apt/apt.conf.d/52tifa-cloudflared` remove it too.
+
+### Where the app listens
+
+Setup gives the systemd socket of the app its address, and the app takes the socket systemd passes it, so `server.addr` of the program is not what counts on the server:
+
+| Front | Address of the socket | Where the port comes from |
+| --- | --- | --- |
+| `cloudflare`, `nginx` | `127.0.0.1:<port>` | Setup picks the first free port from 9527 to 9999 and keeps it in `/srv/tifa/<app>/port` |
+| `none` | 80, and 443 with a domain | Fixed |
+| `external` | The address and port of `server.addr` in `tifa.yaml` | You |
+
+With `front: external`, `server.addr: ":9527"` listens on every address, and `server.addr: "10.0.0.5:9527"` only on that one (setup adds `FreeBind=true`, so the socket starts at boot before the address is up). The default `127.0.0.1:9527` only the server itself reaches, so setup stops and says so. With several servers only the form `":port"` is accepted, because an address that fits one server is not the address of the others. A port below 80 is refused. When another app of Tifa on the server has the same port, setup stops and names that app.
+
+With the other fronts setup prints one line when `tifa.yaml` sets a `server.addr` other than the default, since the server does not use it. It prints one line too when the `shared/.env` of the app on the server sets `SERVER_ADDR`: the systemd socket wins, and the value is not used.
 
 ### The app serves visitors itself
 

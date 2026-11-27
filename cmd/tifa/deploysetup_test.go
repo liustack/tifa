@@ -281,6 +281,7 @@ const (
 
 func setupApp(t *testing.T, tifaYAML string, files map[string]string) string {
 	t.Helper()
+	tifaYAML = withFront(tifaYAML)
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
 	writeFile(t, filepath.Join(root, "tifa.yaml"), tifaYAML)
@@ -549,7 +550,7 @@ func TestSetupGitHub(t *testing.T) {
 		}
 
 		// github: false takes it away.
-		writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
+		writeFile(t, filepath.Join(root, "tifa.yaml"), withFront("deploy:\n"))
 		srv = newSetupServer(t, "hostname 203.0.113.7\nport 2222\n", factsOf("shop", 80, "ghkey acme/shop\nghkey acme/other\n"))
 		out, err = runSetup(t, root, false, "", "--yes")
 		if err != nil {
@@ -585,7 +586,7 @@ func TestSetupRemovesOnlyMarkedThings(t *testing.T) {
 		t.Errorf("removed something: %v %v", err, gh.secrets)
 	}
 	// A workflow of the developer's own stays with github: true too.
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  auto: {}\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), withFront("deploy:\n  auto: {}\n"))
 	out, _ = runSetup(t, root, false, "", "--all")
 	if !strings.Contains(out, "has no Tifa line at the top, so it is yours and stays") {
 		t.Errorf("out:\n%s", out)
@@ -681,7 +682,7 @@ func TestSetupDomain(t *testing.T) {
 		map[string]any{"hostname": "notes.example.com", "service": "http://127.0.0.1:9600"},
 		map[string]any{"service": "http_status:404"},
 	}
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
+	writeFile(t, filepath.Join(root, "tifa.yaml"), withFront("deploy:\n"))
 	cf.calls = nil
 	out, err = runSetup(t, root, false, "", "--yes")
 	if err != nil || !strings.Contains(out, "remove  domain: shop.example.com, its route, DNS record and rules, which tifa made") {
@@ -1752,5 +1753,43 @@ func TestSetupAdminWithoutSudo(t *testing.T) {
 	}
 	if !strings.Contains(srv.calls(), "sudocheck ubuntu") {
 		t.Errorf("no check of sudo:\n%s", srv.calls())
+	}
+}
+
+// frontLeftOut starts the tifa.yaml of a test that wants deploy.front left out: every other test
+// gets front: none, what a tifa.yaml without it meant before it was needed.
+const frontLeftOut = "# front left out\n"
+
+// withFront gives a tifa.yaml of a test front: none when it names no front, and front external
+// the port 9527 when it sets no server.addr, which the first port setup picked.
+func withFront(yaml string) string {
+	if strings.HasPrefix(yaml, frontLeftOut) {
+		return strings.TrimPrefix(yaml, frontLeftOut)
+	}
+	if strings.Contains(yaml, "front: external") && !strings.Contains(yaml, "addr:") {
+		if strings.Contains(yaml, "server:\n") {
+			yaml = strings.Replace(yaml, "server:\n", "server:\n  addr: \":9527\"\n", 1)
+		} else {
+			yaml = "server:\n  addr: \":9527\"\n" + yaml
+		}
+	}
+	switch {
+	case strings.HasPrefix(yaml, frontLeftOut):
+		return strings.TrimPrefix(yaml, frontLeftOut)
+	case strings.Contains(yaml, "front:"):
+		return yaml
+	case strings.Contains(yaml, "deploy:\n"):
+		return strings.Replace(yaml, "deploy:\n", "deploy:\n  front: none\n", 1)
+	}
+	return yaml + "deploy:\n  front: none\n"
+}
+
+// writeShopApp writes the go.mod of a test app named shop, and a tifa.yaml with front: none when
+// the folder has none: a test of a deploy command needs a front, and most of them do not care which.
+func writeShopApp(t *testing.T, root string) {
+	t.Helper()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	if _, err := os.Stat(filepath.Join(root, "tifa.yaml")); err != nil {
+		writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  front: none\n")
 	}
 }

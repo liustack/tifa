@@ -207,7 +207,7 @@ func TestShellQuote(t *testing.T) {
 // at the root of the app. tifa.yaml has no host: the file is committed.
 func TestDeployHost(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	writeFile(t, filepath.Join(root, "tifa.yaml"), "site:\n  url: https://shop.example.com\ndeploy:\n  front: cloudflare\n  auto: {}\n")
 	t.Setenv(deployHostEnv, "")
 	writeFile(t, filepath.Join(root, ".env"), "# the server\nOTHER=1\nTIFA_DEPLOY_HOST=ssh://203.0.113.7:2222\n")
@@ -260,15 +260,15 @@ func TestDeploySettingsChecks(t *testing.T) {
 		"none":                       {"deploy:\n", ""},
 		"front needs a site url":     {"deploy:\n  front: cloudflare\n", "site.url"},
 		"front with a port":          {"site:\n  url: https://shop.example.com:8443\ndeploy:\n  front: cloudflare\n", "port"},
-		"port without front":         {"site:\n  url: http://localhost:8080", ""},
+		"port without front":         {"site:\n  url: http://localhost:8080\n", ""},
 		"ssh cloudflare needs front": {site + "deploy:\n  connect: cloudflare\n  auto: {}\n", "deploy.front"},
 		"ssh tailscale needs ci":     {site + "deploy:\n  connect: tailscale\n", "deploy.auto"},
 		"ssh cloudflare without ci":  {site + "deploy:\n  front: cloudflare\n  connect: cloudflare\n", ""},
 		"all set":                    {site + "deploy:\n  front: cloudflare\n  connect: cloudflare\n  auto: {}\n", ""},
 	} {
 		root := t.TempDir()
-		writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
-		writeFile(t, filepath.Join(root, "tifa.yaml"), tc.yaml)
+		writeShopApp(t, root)
+		writeFile(t, filepath.Join(root, "tifa.yaml"), withFront(tc.yaml))
 		t.Setenv(deployHostEnv, "vps")
 		d, err := loadTarget(root, "")
 		switch {
@@ -407,8 +407,8 @@ echo the app said goodbye`)
 // check is recorded and the one before runs again, and tifa deploy rollback goes back past it.
 func TestDeployFlow(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
-	writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n")
+	writeShopApp(t, root)
+	writeFile(t, filepath.Join(root, "tifa.yaml"), withFront("deploy:\n"))
 	t.Setenv(deployHostEnv, "vps")
 	home := t.TempDir()
 	for _, dir := range []string{"shop/releases", "shop/shared"} {
@@ -499,7 +499,7 @@ func TestDeployFlow(t *testing.T) {
 // Before setup the server has no port for the app, and tifa deploy says to run setup.
 func TestDeployNeedsSetup(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "vps")
 	fakeServer(t, t.TempDir(), nil)
 	if _, _, err := run(t, "deploy", "--dir", root); err == nil || !strings.Contains(err.Error(), "tifa deploy setup") {
@@ -510,7 +510,7 @@ func TestDeployNeedsSetup(t *testing.T) {
 // A first deploy that fails its check has nothing to go back to, so the app is stopped.
 func TestDeployFirstReleaseFails(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "vps")
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, "shop", "port"), "9531\n")
@@ -545,7 +545,7 @@ func prepareFakeServer(t *testing.T, home string) {
 // visitors itself on port 80, which the deploy user may open there.
 func TestDeployCreatesTheApp(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "vps")
 	home := t.TempDir()
 	prepareFakeServer(t, home)
@@ -651,7 +651,7 @@ func TestDeployMasksTheHostInActions(t *testing.T) {
 
 	// Before anything reaches the server.
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "ssh://203.0.113.7:2222")
 	t.Setenv(envGitHubActions, "true")
 	fakeServer(t, t.TempDir(), nil)
@@ -674,7 +674,6 @@ func TestCheckRunsTheDeployChecks(t *testing.T) {
 	}{
 		"tailscale without auto":        {"deploy:\n  connect: tailscale\n", nil, "deploy.connect is tailscale, which is how GitHub Actions reaches the server"},
 		"cloudflare without front":      {"deploy:\n  connect: cloudflare\n", nil, "deploy.connect is cloudflare, and the ssh host name is made from the domain of site.url"},
-		"front without site url":        {"deploy:\n  front: cloudflare\n", nil, "deploy.front is cloudflare, which needs site.url"},
 		"needs missing":                 {"deploy:\n  auto: {}\n", nil, ".github/workflows/ci.yml does not exist"},
 		"needs without name":            {"deploy:\n  auto: {}\n", map[string]string{testCIPath: "on: push\n"}, "has no name: line"},
 		"needs not on push":             {"deploy:\n  auto:\n    branch: main\n", map[string]string{testCIPath: "name: CI\non: pull_request\n"}, "does not run on a push to main"},
@@ -764,7 +763,7 @@ func TestDevWarnsOfDeploySettings(t *testing.T) {
 // and a file it cannot write is a warning, not a failed deploy.
 func TestDeployRemembersTheServer(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/shop\n\ngo 1.27.0\n")
+	writeShopApp(t, root)
 	t.Setenv(deployHostEnv, "ubuntu@vps")
 	home := t.TempDir()
 	prepareFakeServer(t, home)
@@ -896,7 +895,7 @@ func TestDeployStartTimeoutSetsTheWait(t *testing.T) {
 	}{"default": {"", 30}, "set": {"deploy:\n  start_timeout: 7s\n", 7}} {
 		t.Run(name, func(t *testing.T) {
 			root, _, calls := serveApp(t, "9531", "", map[string]string{"20261120T100000Z": "200", "20261120T110000Z": "503"})
-			writeFile(t, filepath.Join(root, "tifa.yaml"), tc.yaml)
+			writeFile(t, filepath.Join(root, "tifa.yaml"), withFront(tc.yaml))
 			if out, _, err := run(t, "deploy", "--dir", root); err != nil {
 				t.Fatalf("first deploy: %v\n%s", err, out)
 			}
@@ -975,21 +974,20 @@ func TestHealthCheckKeepsToStartTimeout(t *testing.T) {
 	}
 }
 
-// The tifa.yaml of a new app names every value of deploy.front.
+// The tifa.yaml of a new app writes front: cloudflare and names every value of deploy.front, each
+// with when to use it.
 func TestNewTifaYAMLNamesEveryFront(t *testing.T) {
 	data, err := newapp.ReadFile("newapp/tifa.yaml.tmpl")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var line string
-	for _, l := range strings.Split(string(data), "\n") {
-		if strings.Contains(l, "front:") {
-			line = l
-		}
+	text := string(data)
+	if !strings.Contains(text, "\ndeploy:\n  front: cloudflare\n") {
+		t.Error("front: cloudflare is not written")
 	}
-	for _, v := range []string{"none (", "| cloudflare (", "| nginx (", "| external ("} {
-		if !strings.Contains(line, v) {
-			t.Errorf("the line of deploy.front lacks %q:\n%s", v, line)
+	for _, v := range []string{"#   cloudflare  ", "#   none        ", "#   external    ", "#   nginx       ", "(recommended)", "server.addr"} {
+		if !strings.Contains(text, v) {
+			t.Errorf("the comment of deploy.front lacks %q", v)
 		}
 	}
 }

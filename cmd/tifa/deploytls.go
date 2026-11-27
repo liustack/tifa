@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/liustack/tifa/internal/codegen"
+	"github.com/liustack/tifa/internal/config"
 )
 
 const (
@@ -132,6 +133,19 @@ func sayOwnCertWins(t deployTarget, w interface{ Write([]byte) (int, error) }) {
 		return
 	}
 	fmt.Fprintf(w, "tifa.yaml sets server.tls_cert and server.tls_key, and on %s the service sets SERVER_TLS_CERT and SERVER_TLS_KEY to the files setup uploaded, which win.\n", t.host)
+}
+
+// sayServerAddrUnused says that server.addr of tifa.yaml is not used on the server when it is not
+// the default and the front picks the port: the systemd socket sets where the app listens.
+func sayServerAddrUnused(t deployTarget, w interface{ Write([]byte) (int, error) }) {
+	if t.front == "external" {
+		return
+	}
+	settings, err := codegen.ProjectSettings(t.root)
+	if err != nil || settings.Server.Addr == config.DefaultAddr {
+		return
+	}
+	fmt.Fprintf(w, "server.addr is %s in tifa.yaml, and with deploy.front %s the server is not told to use it: setup picks the port and the systemd socket of the app decides where it listens.\n", settings.Server.Addr, t.front)
 }
 
 // tlsUploadBody runs as the deploy user with the file on its input. It writes $name in the folder
