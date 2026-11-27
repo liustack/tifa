@@ -15,10 +15,14 @@ import (
 )
 
 // serviceEnvBody goes into the folder of the service, where the program reads its .env, and sets
-// the variables unitsOf gives the service besides: those of HTTPS when the app serves it itself.
-// It needs $d, the folder of the app.
+// the variables unitsOf gives the service besides: those of HTTPS when the app serves it itself,
+// with the certificate setup uploaded or else Let's Encrypt. It needs $d, the folder of the app.
 const serviceEnvBody = `cd "$d/shared" || exit 1
-if [ -s "$d/https" ]; then
+if [ -s "$d/https" ] && [ -f "$d/` + tlsDir + `/cert.pem" ]; then
+	SERVER_TLS_CERT="$d/` + tlsDir + `/cert.pem"
+	SERVER_TLS_KEY="$d/` + tlsDir + `/key.pem"
+	export SERVER_TLS_CERT SERVER_TLS_KEY
+elif [ -s "$d/https" ]; then
 	SERVER_TLS_DOMAINS=$(cat "$d/https")
 	SERVER_TLS_CACHE="$d/certs"
 	export SERVER_TLS_DOMAINS SERVER_TLS_CACHE

@@ -573,7 +573,7 @@ func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stde
 		}
 		return s, fmt.Errorf("%s serves visitors on %s itself, which only root may open on %s yet: run go tool tifa deploy setup", t.app, portsText(port), t.host)
 	}
-	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), t.open, false, false, t.healthWait()), nil, io.Discard, stderr); err != nil {
+	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), t.open, false, false, false, t.healthWait()), nil, io.Discard, stderr); err != nil {
 		return s, err
 	}
 	fmt.Fprintf(stdout, "created %s on %s: %s/%s, %s, empty shared/.env\n", t.app, t.host, s.Home, t.app, t.portsText(port))

@@ -61,7 +61,7 @@
 # The server of tifa deploy is not set here, because this file is committed. Put
 # TIFA_DEPLOY_HOST=<ssh alias or ssh://host:port> in the .env of the app (git ignores it), or pass --host.
 # With none of these, tifa deploy uses the only server in ~/.tifa/config.yaml, where setup and deploy remember theirs.
-# The other inputs of tifa deploy (TIFA_DEPLOY_CF_PURGE_TOKEN, TIFA_DEPLOY_CF_ZONE_ID, TIFA_DEPLOY_GITHUB_TOKEN)
+# The other inputs of tifa deploy (TIFA_DEPLOY_CF_PURGE_TOKEN, TIFA_DEPLOY_CF_ZONE_ID, TIFA_DEPLOY_GITHUB_TOKEN, TIFA_DEPLOY_TLS_CERT, TIFA_DEPLOY_TLS_KEY)
 # are read the same way: the environment, else .env.
 # deploy:
 #   front: none             # what visitors come through before the server: none (the app serves them itself on port 80, and on 443 with HTTPS for the host of site.url) | cloudflare (Tunnel, DNS and cache of the host of site.url, and deploys clear its CDN cache) | nginx (an nginx that setup installs routes visitors by the host of site.url, so apps share the server) | external (what you put in front, such as your load balancer, your own Cloudflare or a proxy, ends HTTPS and sends plain HTTP to the app on each server, for one server or several)

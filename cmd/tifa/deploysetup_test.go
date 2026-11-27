@@ -139,6 +139,9 @@ if [ -d "$d/host-$2" ]; then d="$d/host-$2"; fi
 if [ "$user" != root ] && [ "$user" != tifa ] && [ -f "$d/nosudo" ]; then PATH="$d/bin:$PATH" exec sh -c "$script"; fi
 case "$script" in
 *"tifa: check sudo"*) echo "sudocheck $user" >> "$d/calls" ;;
+*"tifa: tls upload"*) case "$script" in *cert.pem*) n=cert.pem ;; *) n=key.pem ;; esac; echo "tlsupload $n $user" >> "$d/calls"; cat > "$d/tls-$n"; echo "wrote $n" ;;
+*"tifa: tls read"*) echo "tlsread $user" >> "$d/calls"; cat "$d/tls-cert.pem" 2>/dev/null; true ;;
+*"tifa: tls delete"*) echo "tlsdelete $user" >> "$d/calls"; echo "deleted" ;;
 true) echo "check $user" >> "$d/calls"; [ -f "$d/checkclosed" ] && { printf 'EOF\nConnection closed by UNKNOWN port 65535\n' >&2; exit 255; }; [ -f "$d/checkfail" ] && { echo "Permission denied (publickey)." >&2; exit 255; }; true ;;
 *"tifa: read nginx"*) echo "nginxread $user" >> "$d/calls"; cat "$d/nginxfacts" 2>/dev/null; true ;;
 *"tifa: install nginx"*) echo "nginxinstall $user" >> "$d/calls"; echo "installed" ;;
@@ -255,14 +258,14 @@ const hostKeysFact = "hostkey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\nhostkey ssh-
 // factsOf is the probe output of a prepared server with the app set up on port: 80 serves
 // visitors itself over plain HTTP, others are loopback ports behind the tunnel.
 func factsOf(app string, port int, extra string) string {
-	u := unitsOf(app, port, "", false)
+	u := unitsOf(app, port, "", false, false)
 	return fmt.Sprintf("os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nport %d\nunit-socket %s\nunit-service %s\nmachine vps-1234\napt yes\n%s%s",
 		port, sha(u.socket), sha(u.service), hostKeysFact, extra)
 }
 
 // factsHTTPS is the probe output of a prepared server with the app serving HTTPS for domain itself.
 func factsHTTPS(app, domain, extra string) string {
-	u := unitsOf(app, httpsPort, domain, false)
+	u := unitsOf(app, httpsPort, domain, false, false)
 	return fmt.Sprintf("os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nport 443\nhttps %s\nunit-socket %s\nunit-http %s\nunit-service %s\nmachine vps-1234\napt yes\n%s%s",
 		domain, sha(u.socket), sha(u.http), sha(u.service), hostKeysFact, extra)
 }
@@ -414,7 +417,7 @@ func TestSetupNothingToChange(t *testing.T) {
 	}
 	// Units that differ are written again.
 	root = setupApp(t, "deploy:\n", nil)
-	newSetupServer(t, "", strings.Replace(factsOf("shop", 80, ""), "unit-service "+sha(unitsOf("shop", 80, "", false).service), "unit-service 00", 1))
+	newSetupServer(t, "", strings.Replace(factsOf("shop", 80, ""), "unit-service "+sha(unitsOf("shop", 80, "", false, false).service), "unit-service 00", 1))
 	out, _ = runSetup(t, root, false, "")
 	if strings.Contains(out, "alias") || !strings.Contains(out, "change  app: write the systemd units of shop again") {
 		t.Errorf("out:\n%s", out)

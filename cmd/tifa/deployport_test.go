@@ -10,7 +10,7 @@ import (
 // factsOpen is the probe output of a prepared server with the app set up behind deploy.front
 // external on port, on every address of the server.
 func factsOpen(app string, port int, extra string) string {
-	u := unitsOf(app, port, "", true)
+	u := unitsOf(app, port, "", true, false)
 	return fmt.Sprintf("os Linux\narch x86_64\nhome /srv/tifa\nbus yes\nlinger yes\nport %d\nunit-socket %s\nunit-service %s\nmachine vps-1234\napt yes\n%s%s",
 		port, sha(u.socket), sha(u.service), hostKeysFact, extra)
 }

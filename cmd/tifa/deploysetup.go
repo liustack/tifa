@@ -565,6 +565,8 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 				why:  fmt.Sprintf("ufw is on, and blocks port %d unless a rule allows it. Run sudo ufw allow from <addresses of the load balancer or proxy> to any port %[1]d proto tcp on the server", port),
 			})
 		}
+	case port == httpsPort && r.cert != nil:
+		serves = fmt.Sprintf("serving visitors itself on ports 80 and 443, with HTTPS for %s and your certificate in %s/%s/%s", domain, deployHome, app, tlsDir)
 	case port == httpsPort:
 		serves = fmt.Sprintf("serving visitors itself on ports 80 and 443, with HTTPS for %s and its certificate from Let's Encrypt kept in %s/%s/certs", domain, deployHome, app)
 	case port == httpPort:
@@ -587,7 +589,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 			return strings.TrimSpace(out.String()), nil
 		})
 	}
-	u := unitsOf(app, port, domain, t.open)
+	u := unitsOf(app, port, domain, t.open, r.cert != nil)
 	httpSum := ""
 	if u.http != "" {
 		httpSum = sha(u.http)
@@ -610,13 +612,16 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		}
 		r.port = port
 		var out strings.Builder
-		if err := t.ssh(ctx, deployUser, appScript(app, port, t.ownFor(port), t.open, move, restart, t.healthWait()), nil, &out, r.stderr); err != nil {
+		if err := t.ssh(ctx, deployUser, appScript(app, port, t.ownFor(port), t.open, r.cert != nil, move, restart, t.healthWait()), nil, &out, r.stderr); err != nil {
 			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
 		}
 		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 		return lines[len(lines)-1], r.refresh(ctx)
 	}
 	after := r.firewallSteps(ctx, p, port, t.open)
+	if port == httpsPort && !t.open {
+		r.ownCertSteps(ctx, p)
+	}
 	switch {
 	case r.st.Port == 0:
 		p.add(opAdd, fmt.Sprintf("app: %s/%s with an empty shared/.env, %s, the systemd %s and service tifa-%s", deployHome, app, serves, pick(u.http != "", "sockets", "socket"), app), apply)
@@ -625,10 +630,14 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		switch {
 		case r.st.HTTPSum != "":
 			was = portsText(r.st.Port)
-		case r.st.SocketSum != sha(unitsOf(app, r.st.Port, "", true).socket) && !servesVisitors(r.st.Port):
+		case r.st.SocketSum != sha(unitsOf(app, r.st.Port, "", true, false).socket) && !servesVisitors(r.st.Port):
 			was = fmt.Sprintf("127.0.0.1:%d, which only the server reaches,", r.st.Port)
 		}
 		p.add(opChange, fmt.Sprintf("app: move %s from %s to %s. New systemd %s, and the app restarts on %s", app, was, serves, pick(u.http != "", "sockets", "socket"), pick(u.http != "", "them", "it")), apply)
+	case restart && port == httpsPort && r.cert != nil && r.st.TLSCertSum == "":
+		p.add(opChange, fmt.Sprintf("app: serve HTTPS for %s with your certificate in %s/%s/%s, in place of one from Let's Encrypt. New service unit, and the app restarts", domain, deployHome, app, tlsDir), apply)
+	case restart && port == httpsPort && r.cert == nil && r.st.TLSCertSum != "":
+		p.add(opChange, fmt.Sprintf("app: serve HTTPS for %s with a certificate from Let's Encrypt kept in %s/%s/certs, in place of yours. New service unit, and the app restarts", domain, deployHome, app), apply)
 	case restart || !had:
 		p.add(opChange, fmt.Sprintf("app: write the systemd units of %s again", app), apply)
 	default:
@@ -637,6 +646,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	if after != nil {
 		after()
 	}
+	r.ownCertRemoval(p)
 	return nil
 }
 
@@ -1678,6 +1688,14 @@ func deploySetupOne(ctx context.Context, t deployTarget, f setupFlags, in io.Rea
 			return nil, fmt.Errorf("--tailscale-client-id: %w", err)
 		}
 	}
+	// The certificate of the app is checked on this machine before anything is read or changed.
+	cert, err := loadOwnCert(t)
+	if err != nil {
+		return nil, err
+	}
+	if f.cert = cert; cert != nil {
+		sayOwnCertWins(t, stdout)
+	}
 	plan, run, err := buildSetupPlan(ctx, t, f, true, in, stdout, stderr)
 	if err != nil {
 		return run, err
@@ -1784,6 +1802,9 @@ type setupFlags struct {
 	skipMachine bool
 	// group is what the setups of an app on several servers share, nil for one server.
 	group *setupGroup
+	// cert is the certificate of the app that setup uploads, read from the files that
+	// TIFA_DEPLOY_TLS_CERT and TIFA_DEPLOY_TLS_KEY name, nil without them.
+	cert *ownCert
 }
 
 // setupGroup is what the setups of an app on several servers share. Each server is set up in turn,

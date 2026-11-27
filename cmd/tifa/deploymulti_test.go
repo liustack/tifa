@@ -441,7 +441,7 @@ func TestDeployLoadBalancer(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	socket, _ := os.ReadFile(filepath.Join(home, ".config", "systemd", "user", "tifa-shop.socket"))
-	if !strings.Contains(string(socket), "ListenStream=9527\n") || string(socket) != unitsOf("shop", 9527, "", true).socket {
+	if !strings.Contains(string(socket), "ListenStream=9527\n") || string(socket) != unitsOf("shop", 9527, "", true, false).socket {
 		t.Errorf("socket unit %q", socket)
 	}
 	for _, want := range []string{
@@ -461,7 +461,7 @@ func TestDeployLoadBalancer(t *testing.T) {
 		t.Errorf("calls:\n%s", calls())
 	}
 	// Behind Cloudflare or nginx the socket stays on the loopback, byte for byte as before.
-	if u := unitsOf("shop", 9527, "", false).socket; !strings.Contains(u, "ListenStream=127.0.0.1:9527\n") {
+	if u := unitsOf("shop", 9527, "", false, false).socket; !strings.Contains(u, "ListenStream=127.0.0.1:9527\n") {
 		t.Errorf("loopback unit %q", u)
 	}
 }

@@ -1106,6 +1106,12 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 **Why.** The same setting fits every front the user runs, and the old name said load balancer only, so a user with their own Cloudflare in Flexible mode, or their own proxy, would not have found it. Cloudflare proxies only some ports of the origin (HTTP 80, 8080, 8880, 2052, 2082, 2086, 2095, [network ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)), and none of them is in the range setup picks from.
 
+### Your own certificate with front none
+
+**Settled (2026-11-27).** An app with `front: none` and a domain can serve HTTPS with a certificate of the user's, such as a Cloudflare Origin CA certificate. The files are named on the developer's machine by `TIFA_DEPLOY_TLS_CERT` and `TIFA_DEPLOY_TLS_KEY`, read like `TIFA_DEPLOY_HOST` (the environment, else the `.env` of the app), never in `tifa.yaml`. Both or neither, and only with `front: none` and a domain. Setup checks them on the machine first (PEM, the key matches, the certificate covers the host of `site.url`, not expired), uploads them to `/srv/tifa/<app>/shared/tls/` (owned by `tifa`, folder `0700`, files `0600`, each written beside its place and renamed), and the service gets `SERVER_TLS_CERT` and `SERVER_TLS_KEY` in place of `SERVER_TLS_DOMAINS` and `SERVER_TLS_CACHE`. The local files are the truth: other files on the server are replaced in the plan, which shows both, with no restart since the program reloads them. Without the inputs, setup goes back to Let's Encrypt and deletes `shared/tls`. Only setup uploads, never deploy. `server.tls_cert` in `tifa.yaml` stays a runtime setting, for the place the program runs, and setup says when the service overrides it.
+
+**Why.** The certificate belongs to the developer's machine like the host, and a path on the server that Tifa owns is one setup can check, replace and delete. CI runners do not have the files, so a deploy must not need them. Writing the paths into `tifa.yaml` would commit a path of one machine, and reading the server's `.env` would leave setup unable to see or check the certificate.
+
 ### A secret that passes through the agent
 
 **Turned down (2026-11-23).** Asking for a token in the chat, on stdin of a command the agent runs, or printing one.

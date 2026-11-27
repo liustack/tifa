@@ -102,7 +102,23 @@ With `front: none` the program meets visitors directly, with no nginx, Caddy or 
 - **With a domain**, the host of `site.url` such as `https://shop.example.com`: systemd opens ports 443 and 80 for the app, and the app runs its [built-in HTTPS](https.md#https). Setup writes `SERVER_TLS_DOMAINS=<domain>` and `SERVER_TLS_CACHE=%h/<app>/certs` into the environment of the service, so the program gets its certificate from Let's Encrypt and keeps it in `/srv/tifa/<app>/certs`, which every release shares. Port 80 answers the checks of Let's Encrypt and sends everything else to HTTPS. DNS must point the domain at the server before the first deploy: until the program has its certificate it answers no HTTPS, and the health check of the deploy fails and says so.
 - **Without a domain**: no `site.url`, or its host is an IP address or `localhost`. The app serves plain HTTP on port 80.
 
-systemd holds the ports, so the app runs as `tifa` with no root and no capability, and restarts without refusing a connection. A user's systemd may only open ports from 1024 on Linux, so setup, once per server and as root, writes `net.ipv4.ip_unprivileged_port_start = 80` to `/etc/sysctl.d/60-tifa-ports.conf`. Ports from 80 to 1023 are then open to every user of the server, not only root. `tifa deploy remove` of the app deletes the file and puts back the value from before.
+**Your own certificate.** To serve HTTPS with a certificate you have, such as a Cloudflare Origin CA certificate, name its files on your machine in the `.env` of the app (git ignores it), or in the environment, never in `tifa.yaml`:
+
+```sh
+TIFA_DEPLOY_TLS_CERT=certs/origin.pem
+TIFA_DEPLOY_TLS_KEY=certs/origin.key
+```
+
+A path that is not absolute is from the root of the app. Set both or neither. They work only with `front: none` and a domain in `site.url`, and the certificate must cover that domain. Before setup reads the server, it checks on your machine that both files are PEM, that the key belongs to the certificate, that the certificate covers the host of `site.url` and that it has not expired, and stops with the reason when one is wrong.
+
+Setup uploads the two files over ssh into `/srv/tifa/<app>/shared/tls/` as `cert.pem` and `key.pem`, which only the user `tifa` can read (folder `0700`, files `0600`), and writes `SERVER_TLS_CERT` and `SERVER_TLS_KEY` with their paths into the environment of the service, in place of `SERVER_TLS_DOMAINS` and `SERVER_TLS_CACHE`. The key never goes on a command line or into the output. Port 80 still sends visitors to HTTPS.
+
+- **Files on your machine are what counts.** When the files on the server differ, the plan shows both certificates, the names each covers and the date each expires, and replaces them once you agree, or with `--yes`. Each file is written next to its place and then renamed over it. The program sees the new files and loads them without a restart, and keeps the pair it has while a new pair does not load.
+- **Only setup uploads.** A deploy never needs the files, so CI does not have them. Run setup again with the new files when the certificate is renewed.
+- **Back to Let's Encrypt.** Without the two inputs, setup plans the move back: the service gets `SERVER_TLS_DOMAINS` again and restarts, then `shared/tls` is deleted.
+- `server.tls_cert` and `server.tls_key` in `tifa.yaml` are the paths where the program runs, for a deploy by hand or in Kubernetes. With the inputs set, the environment of the service wins, and setup says so in one line.
+
+systemd holds the ports, so the app runs as `tifa` with no root and no capability, and restarts without refusing a connection. A user's systemd may only open ports from 1024 on Linux, so setup, once per server and as root, writes `net.ipv4.ip_unprivileged_port_start = 80` to `/etc/sysctl.d/60-tifa-ports.conf`. Ports from 80 to 1023 are then open to every user of the server, not only root. `tifa deploy remove` of the last app on a port below 1024 deletes the file and puts back the value from before.
 
 **One app per server.** Only one program can listen on a port, so only one app on a server can serve visitors itself. Before it changes anything, setup looks at what listens on the ports the app needs (80, and 443 with a domain): `ss -ltnp`, and the sockets the systemd of `tifa` holds. When another app of Tifa holds them, or a program such as nginx, Caddy or Apache, setup stops, names it and the port, and changes nothing. Stop that program and keep it from starting at boot, remove the other app, or use `front: cloudflare` or `front: nginx` for this app and the other, where several apps share a server (see [Behind nginx](deploy-proxy.md#behind-nginx)).
 

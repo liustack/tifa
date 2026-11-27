@@ -173,7 +173,7 @@ func TestDeployPrune(t *testing.T) {
 // The units listen on the loopback port of the app and run the program of the current release
 // in the shared folder, which holds .env and the data.
 func TestDeployUnits(t *testing.T) {
-	socket, service := unitsOf("shop", 9531, "", false).socket, unitsOf("shop", 9531, "", false).service
+	socket, service := unitsOf("shop", 9531, "", false, false).socket, unitsOf("shop", 9531, "", false, false).service
 	for _, want := range []string{"[Socket]\nListenStream=127.0.0.1:9531\n", "WantedBy=sockets.target"} {
 		if !strings.Contains(socket, want) {
 			t.Errorf("socket unit lacks %q:\n%s", want, socket)
@@ -568,7 +568,7 @@ func TestDeployCreatesTheApp(t *testing.T) {
 		t.Errorf(".env: %v", err)
 	}
 	socket, _ := os.ReadFile(filepath.Join(home, ".config", "systemd", "user", "tifa-shop.socket"))
-	if string(socket) != unitsOf("shop", 80, "", false).socket {
+	if string(socket) != unitsOf("shop", 80, "", false, false).socket {
 		t.Errorf("socket unit %q", socket)
 	}
 	for _, want := range []string{"ssh tifa vps", "systemctl --user enable --now tifa-shop.socket"} {

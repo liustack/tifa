@@ -176,6 +176,9 @@ type serverState struct {
 	// HTTPS is the domain the app serves HTTPS for itself, empty without. HTTPSum is the SHA-256
 	// of the unit of its port 80, tifa-<app>-http.socket, empty when missing.
 	HTTPS, HTTPSum string
+	// TLSCertSum and TLSKeySum are the SHA-256 of the certificate and key setup uploaded into
+	// shared/tls, empty without them.
+	TLSCertSum, TLSKeySum string
 	// LowPort is the first port the deploy user may listen on, 0 when the server did not say.
 	// PortsConf says the server has portsConf, which setup wrote.
 	LowPort   int
@@ -316,6 +319,10 @@ func parseServerState(out string) (serverState, error) {
 			s.HTTPS = strings.TrimSpace(value)
 		case "unit-http":
 			s.HTTPSum = strings.TrimSpace(value)
+		case "tls-cert":
+			s.TLSCertSum = strings.TrimSpace(value)
+		case "tls-key":
+			s.TLSKeySum = strings.TrimSpace(value)
 		case "lowport":
 			p, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil || p < 0 || p > 65535 {
@@ -518,7 +525,7 @@ type appUnits struct{ socket, http, service string }
 // The sockets hold the ports while the program restarts, see docs/build-and-deploy/deploy-by-hand.md. With
 // HTTPS the program gets two, each named by the setting it serves, and the settings of the
 // built-in HTTPS in its environment: the certificates stay in certs, next to the releases.
-func unitsOf(app string, port int, domain string, open bool) appUnits {
+func unitsOf(app string, port int, domain string, open, cert bool) appUnits {
 	unit := unitName(app)
 	itself := !open && servesVisitors(port)
 	listen := fmt.Sprintf("ListenStream=127.0.0.1:%d\n", port)
@@ -555,6 +562,9 @@ WantedBy=sockets.target
 `, app, unit)
 		sockets += " " + unit + "-http.socket"
 		extra = fmt.Sprintf("Sockets=%s\nEnvironment=SERVER_TLS_DOMAINS=%s SERVER_TLS_CACHE=%%h/%s/certs\n", sockets, domain, app)
+		if cert {
+			extra = fmt.Sprintf("Sockets=%s\nEnvironment=SERVER_TLS_CERT=%%h/%[2]s/%[3]s/cert.pem SERVER_TLS_KEY=%%h/%[2]s/%[3]s/key.pem\n", sockets, app, tlsDir)
+		}
 	}
 	u.service = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
@@ -768,8 +778,8 @@ exit 3
 // appScript is appBody for app on port, with domain for HTTPS, and with open on every address of
 // the server. move says its sockets listen elsewhere than before, restart that its units changed. It
 // checks the restarted app for up to wait seconds.
-func appScript(app string, port int, domain string, open, move, restart bool, wait int) string {
-	u := unitsOf(app, port, domain, open)
+func appScript(app string, port int, domain string, open, cert, move, restart bool, wait int) string {
+	u := unitsOf(app, port, domain, open, cert)
 	flag := map[bool]string{true: "1"}
 	return script(appBody, "app", app, "port", strconv.Itoa(port), "domain", domain,
 		"move", flag[move], "restart", flag[restart], "health", healthPath, "wait", strconv.Itoa(wait),
@@ -819,6 +829,9 @@ EOF
 	fi
 fi
 if [ -s "$d/https" ]; then echo "https $(cat "$d/https")"; fi
+for n in cert key; do
+	if [ -f "$d/` + tlsDir + `/$n.pem" ]; then echo "tls-$n $(sha256sum < "$d/` + tlsDir + `/$n.pem" | cut -d' ' -f1)"; fi
+done
 if [ -r "$lowport_file" ]; then echo "lowport $(cat "$lowport_file")"; fi
 if [ -f ` + portsConf + ` ]; then echo "ports-conf yes"; fi
 ` + ufwProbe + `# ss names only the programs of this user. systemd names the sockets it holds for this user.

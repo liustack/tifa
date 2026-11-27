@@ -33,14 +33,14 @@ func TestDeployUnitsServeVisitors(t *testing.T) {
 			}
 		}
 	}
-	plain := unitsOf("shop", httpPort, "", false)
+	plain := unitsOf("shop", httpPort, "", false, false)
 	has("plain socket", plain.socket, "[Socket]\nListenStream=80\n\n[Install]")
 	has("plain service", plain.service, "Requires=tifa-shop.socket\nAfter=tifa-shop.socket\n", "ExecStart=%h/shop/current/shop\n")
 	if plain.http != "" || strings.Contains(plain.service, "Environment=") || strings.Contains(plain.socket, "127.0.0.1") {
 		t.Errorf("plain HTTP: %+v", plain)
 	}
 
-	tls := unitsOf("shop", httpsPort, "shop.example.com", false)
+	tls := unitsOf("shop", httpsPort, "shop.example.com", false, false)
 	has("HTTPS socket", tls.socket, "ListenStream=443\nFileDescriptorName=server.addr\n")
 	has("HTTP socket", tls.http, "ListenStream=80\nFileDescriptorName=server.http_addr\nService=tifa-shop.service\n", "WantedBy=sockets.target")
 	has("HTTPS service", tls.service,
@@ -49,7 +49,7 @@ func TestDeployUnitsServeVisitors(t *testing.T) {
 		"Environment=SERVER_TLS_DOMAINS=shop.example.com SERVER_TLS_CACHE=%h/shop/certs\n",
 		"WorkingDirectory=%h/shop/shared\n")
 
-	tunnel := unitsOf("shop", 9531, "", false)
+	tunnel := unitsOf("shop", 9531, "", false, false)
 	has("tunnel socket", tunnel.socket, "[Socket]\nListenStream=127.0.0.1:9531\n")
 	if tunnel.http != "" || strings.Contains(tunnel.service, "Environment=") {
 		t.Errorf("behind the tunnel: %+v", tunnel)
@@ -172,7 +172,7 @@ func TestSetupMovesTheLoopbackApp(t *testing.T) {
 
 	// The script itself: the old socket stops before the units change, and the app restarts on the
 	// new one and passes its check.
-	body := appScript("shop", httpPort, "", false, true, true, 30)
+	body := appScript("shop", httpPort, "", false, false, true, true, 30)
 	stop, write := strings.Index(body, `systemctl --user stop $old`), strings.Index(body, `printf '%s' "$socket_unit"`)
 	if stop < 0 || write < 0 || stop > write || !strings.Contains(body, `systemctl --user restart "$unit.service"`) || !strings.Contains(body, "if check; then exit 0; fi") {
 		t.Errorf("app script:\n%s", body)
