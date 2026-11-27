@@ -601,7 +601,7 @@ func TestDeployParseProbeFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := serverState{OS: "Linux", Arch: "aarch64", Home: "/srv/tifa", Bus: true, Linger: true, Port: 9528,
-		Used: []int{9527, 9600, 443}, SocketSum: "aa", ServiceSum: "bb", TunnelID: "t-1", Machine: "vps-1234",
+		Used: []int{9527, 9600, 443}, OtherPorts: []int{9527}, SocketSum: "aa", ServiceSum: "bb", TunnelID: "t-1", Machine: "vps-1234",
 		Cloudflared: "/usr/bin/cloudflared", TunnelActive: true, Apt: true,
 		HostKeys: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"}, GitHubKeys: []string{"acme/shop"},
 		AppDir: true, Others: []string{"notes"}, CloudflaredByTifa: true,

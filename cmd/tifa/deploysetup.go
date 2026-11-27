@@ -617,8 +617,11 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	case r.st.Port == 0:
 		p.add(opAdd, fmt.Sprintf("app: %s/%s with an empty shared/.env, %s, the systemd %s and service tifa-%s", deployHome, app, serves, pick(u.http != "", "sockets", "socket"), app), apply)
 	case port != r.st.Port:
-		was := portsText(r.st.Port)
-		if !servesVisitors(r.st.Port) {
+		was := fmt.Sprintf("port %d", r.st.Port)
+		switch {
+		case r.st.HTTPSum != "":
+			was = portsText(r.st.Port)
+		case r.st.SocketSum != sha(unitsOf(app, r.st.Port, "", true).socket) && !servesVisitors(r.st.Port):
 			was = fmt.Sprintf("127.0.0.1:%d, which only the server reaches,", r.st.Port)
 		}
 		p.add(opChange, fmt.Sprintf("app: move %s from %s to %s. New systemd %s, and the app restarts on %s", app, was, serves, pick(u.http != "", "sockets", "socket"), pick(u.http != "", "them", "it")), apply)
@@ -1563,7 +1566,7 @@ func deploySetupAll(ctx context.Context, ts []deployTarget, f setupFlags, in io.
 	for i, t := range ts {
 		states[i] = readGroupState(ctx, t)
 	}
-	port, err := groupPort(states)
+	port, err := groupPort(ts[0].app, states)
 	if err != nil {
 		return err
 	}
@@ -1625,23 +1628,28 @@ func readGroupState(ctx context.Context, t deployTarget) serverState {
 	return st
 }
 
-// groupPort is the port of an app on several servers: the first port one of them gives it that
-// is free on all, else the first port free on all.
-func groupPort(states []serverState) (int, error) {
-	var used []int
-	for _, st := range states {
-		used = append(used, st.Used...)
+// groupPort is the port of app on several servers: the first port one of them gives it that is
+// free for it on all, else the first port free for it on all. Its own socket takes no port.
+func groupPort(app string, states []serverState) (int, error) {
+	free := func(p int) bool {
+		for _, st := range states {
+			if !st.freeFor(app, p) {
+				return false
+			}
+		}
+		return true
 	}
 	for _, st := range states {
-		if st.Port >= firstPort && st.Port <= lastPort && !slices.Contains(used, st.Port) {
+		if st.Port >= firstPort && st.Port <= lastPort && free(st.Port) {
 			return st.Port, nil
 		}
 	}
-	p, err := pickPort(used)
-	if err != nil {
-		return 0, fmt.Errorf("every port from %d to %d is taken on one of the servers", firstPort, lastPort)
+	for p := firstPort; p <= lastPort; p++ {
+		if free(p) {
+			return p, nil
+		}
 	}
-	return p, nil
+	return 0, fmt.Errorf("every port from %d to %d is taken on one of the servers", firstPort, lastPort)
 }
 
 // deploySetup plans, asks and applies. It fails when something needs the developer, after it did

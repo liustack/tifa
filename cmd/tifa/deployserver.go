@@ -130,9 +130,12 @@ type serverState struct {
 	Home     string // home of the deploy user
 	Port     int    // 0 before the app exists on the server
 	Used     []int  // ports of the other apps, and ports something listens on
-	Current  string // the release current links to, empty before the first deploy
-	Releases []string
-	Records  []deployRecord
+	// OtherPorts are the ports of the other apps of the deploy user, which they keep while they
+	// do not run.
+	OtherPorts []int
+	Current    string // the release current links to, empty before the first deploy
+	Releases   []string
+	Records    []deployRecord
 	// Linger and Bus say the systemd of the deploy user runs without a login: what the units of
 	// an app need.
 	Linger, Bus bool
@@ -256,6 +259,12 @@ func (s serverState) holder(app string, port int) (otherApp string, programs []s
 	return "", nil, false
 }
 
+// freeFor says nothing but app listens on port, and no other app of the deploy user has it.
+func (s serverState) freeFor(app string, port int) bool {
+	_, _, taken := s.holder(app, port)
+	return !taken && !slices.Contains(s.OtherPorts, port)
+}
+
 // Prepared reports whether the server can hold an app: the systemd of the deploy user runs.
 func (s serverState) Prepared() bool { return s.Linger && s.Bus }
 
@@ -287,6 +296,7 @@ func parseServerState(out string) (serverState, error) {
 				s.Port = p
 			} else {
 				s.Used = append(s.Used, p)
+				s.OtherPorts = append(s.OtherPorts, p)
 			}
 		case "listen":
 			s.Used = append(s.Used, listeningPorts(value)...)

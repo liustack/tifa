@@ -459,7 +459,7 @@ func (t deployTarget) visitorPort(s serverState) (int, error) {
 		return httpsPort, nil
 	case t.front == "none":
 		return httpPort, nil
-	case t.port != 0 && slices.Contains(s.Used, t.port):
+	case t.port != 0 && !s.freeFor(t.app, t.port):
 		return 0, fmt.Errorf("port %d of %s is taken, and the app needs the same port on each of its servers: run go tool tifa deploy setup again, which picks a port free on all of them", t.port, t.host)
 	case t.port != 0:
 		return t.port, nil
