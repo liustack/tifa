@@ -36,7 +36,7 @@ SERVER_ADDR=0.0.0.0:9527 ./myapp
 - Platforms that tell the program its port in `PORT`, such as Cloud Run or Fly, work without more settings (see [PORT and HOST](config.md#port-and-host)).
 - Run it from the folder it keeps data in. A relative path such as the `app.db` of the `tifa new` template (the setting `db.path`) is resolved against the working directory. Back that folder up, or mount it in a container.
 - SIGINT and SIGTERM stop it gracefully: new connections stop, requests in flight get `server.shutdown_timeout` to finish, then `OnShutdown` runs. A stream with no end of its own, such as server-sent events, returns at once when it watches `tifa.ShuttingDown` (see [Streaming](../guides/streaming.md#when-the-program-stops)). A systemd unit or a container needs nothing more than the executable, the environment and a writable data folder.
-- A `FROM scratch` container works. The program holds the time zone data its renders need.
+- A `FROM scratch` container works. The program holds the time zone data its renders need. A Dockerfile and the manifests for Kubernetes are in [Deploy to Kubernetes](kubernetes.md).
 - Size the machine with [Performance](../reference/performance.md#sizing-a-machine). `ssr.vms` follows the CPU limit of a container, up to 4 VMs. On more CPUs, set it.
 
 ## Restart without dropping requests

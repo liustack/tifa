@@ -2,7 +2,7 @@
 summary: '不用 `tifa deploy` 部署：为服务器构建、运行程序、不丢请求地重启、健康检查和指标'
 audience: app
 order: 16
-translatedFrom: c286f973fc51
+translatedFrom: 1ef70a6260b0
 read_when:
   - '部署之后页面显示旧内容或缺少脚本'
   - '决定 Tifa 应用的 systemd 单元或 Dockerfile 需要什么'
@@ -37,7 +37,7 @@ SERVER_ADDR=0.0.0.0:9527 ./myapp
 - 通过 `PORT` 告诉程序端口的平台，比如 Cloud Run 或 Fly，不需要更多设置就能用（见 [PORT 和 HOST](config.zh-CN.md#port-and-host)）。
 - 从它保存数据的文件夹里运行它。相对路径，比如 `tifa new` 模板的 `app.db`（设置 `db.path`），是相对工作目录解析的。请备份那个文件夹，或者在容器里把它挂载出来。
 - SIGINT 和 SIGTERM 会让它优雅地停止：新连接停止，正在处理的请求有 `server.shutdown_timeout` 的时间来完成，然后 `OnShutdown` 运行。自己没有终点的流，比如 server-sent events，在监视 `tifa.ShuttingDown` 时会立刻返回（见[流式传输](../guides/streaming.zh-CN.md#when-the-program-stops)）。systemd 单元或容器只需要可执行文件、环境和一个可写的数据文件夹。
-- `FROM scratch` 的容器能用。程序里带着它的渲染需要的时区数据。
+- `FROM scratch` 的容器能用。程序里带着它的渲染需要的时区数据。Kubernetes 用的 Dockerfile 和清单见[部署到 Kubernetes](kubernetes.zh-CN.md)。
 - 用[性能](../reference/performance.zh-CN.md#sizing-a-machine)来给机器定规格。`ssr.vms` 跟随容器的 CPU 限制，最多 4 个 VM。CPU 更多时，请自己设置。
 
 ## 重启而不丢请求 {#restart-without-dropping-requests}
