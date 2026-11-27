@@ -1,8 +1,8 @@
 ---
-summary: '在 Kubernetes 上运行 Tifa 应用：Dockerfile、带探针和停止时间的 Deployment、Service 和 Ingress、用 Job 或在启动时做迁移、SQLite 或 Postgres 的存储'
+summary: '在 Kubernetes 上运行 Tifa 应用：带探针和停止时间的 Deployment、Service 和 Ingress、用 Job 或在启动时做迁移、SQLite 或 Postgres 的存储'
 audience: app
 order: 21
-translatedFrom: 83bfa3ab3352
+translatedFrom: 9256978d7a61
 read_when:
   - '把 Tifa 应用打进容器镜像，或者在 Kubernetes、k3s、托管集群上运行它'
   - '在 `tifa deploy` 和 Kubernetes 之间做选择'
@@ -13,7 +13,7 @@ read_when:
 
 # 部署到 Kubernetes {#deploy-to-kubernetes}
 
-Tifa 应用是一个静态程序，所以它的镜像里只有这个程序。这一篇给出 Dockerfile、围着它的清单，以及属于 Tifa 的几个选择：探针、停止时间、迁移和数据放在哪里。
+Tifa 应用是一个静态程序，所以它的镜像里只有这个程序。这一篇给出围着[容器平台那一篇](containers.zh-CN.md)里镜像的清单，以及属于 Tifa 的几个选择：探针、停止时间、迁移和数据放在哪里。
 
 ## 什么时候用它 {#when-to-use-it}
 
@@ -21,51 +21,7 @@ Tifa 应用是一个静态程序，所以它的镜像里只有这个程序。这
 
 ## 镜像 {#the-image}
 
-构建阶段需要 Go，还需要带 pnpm 的 Node，因为前端用 Vite 打包。最终镜像里只有程序：没有 Node，因为程序从不需要它。
-
-```dockerfile
-# Dockerfile
-FROM golang:1.27 AS go
-
-FROM node:24-bookworm AS build
-COPY --from=go /usr/local/go /usr/local/go
-ENV PATH=/usr/local/go/bin:$PATH CGO_ENABLED=0
-RUN npm install -g pnpm@10
-WORKDIR /src
-# 先复制写明依赖的文件，这样改代码时可以复用这些层。
-COPY go.mod go.sum ./
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN go mod download && pnpm install --frozen-lockfile --ignore-scripts
-COPY . .
-RUN go tool tifa build -o /out/app && mkdir /data
-
-FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/app /app
-COPY --from=build --chown=65532:65532 /data /data
-WORKDIR /data
-ENV SERVER_ADDR=0.0.0.0:9527
-EXPOSE 9527
-USER 65532:65532
-ENTRYPOINT ["/app"]
-```
-
-```
-# .dockerignore
-.git
-.tifa
-bin
-node_modules
-*.db
-*.db-*
-.env
-```
-
-- `pnpm install --ignore-scripts` 跳过 `prepare` 脚本，`tifa new` 写的 CI 也是这样：`tifa build` 自己会写 `.tifa/`。用 npm 的应用改成运行 `npm ci --ignore-scripts`，并复制 `package-lock.json`。
-- `go tool tifa build` 运行[构建程序](build.zh-CN.md#tifa-build)里说的 Go 和 Node 步骤，写出一个文件。请在运行它的系统上构建镜像，或者用 `docker buildx --platform`。在 ARM Mac 上不带 `--platform` 为 x86 集群构建，得到的镜像启动不了。
-- 程序是静态的（`CGO_ENABLED=0`），所以 distroless 镜像就够了。`distroless/static` 带着程序对外发 HTTPS 请求所需的 CA 证书，还有编号 65532 的用户 `nonroot`。`FROM scratch` 也行，只要你自己从构建阶段复制 `/etc/ssl/certs/ca-certificates.crt`。
-- `SERVER_ADDR=0.0.0.0:9527` 让程序监听所有网卡，因为默认的 `127.0.0.1` 从 pod 外面连不上。
-- `/data` 是工作文件夹，所以相对路径的 `db.path`（比如新应用的 `app.db`）会落在这里。应用要保存文件时，在它上面挂一个卷。
-- 把镜像交给别人时，请把许可证声明一起带上（见[随程序一起发出的声明](build.zh-CN.md#notices-to-ship-with-the-program)）。
+Dockerfile 和 `.dockerignore` 在容器平台那一篇的[镜像](containers.zh-CN.md#the-image)里。镜像监听所有网卡（`HOST=0.0.0.0`），端口是 9527，除非 `PORT` 另有指定，所以下面的 `containerPort: 9527` 与它一致。`/data` 是镜像的工作文件夹：应用要保存文件时，在它上面挂一个卷。
 
 ## Deployment {#the-deployment}
 
