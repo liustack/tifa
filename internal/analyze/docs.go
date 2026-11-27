@@ -15,6 +15,7 @@ const (
 	docLoadCtx      = "docs/pages-and-data/loading-data.md#how-load-may-use-ctx"
 	docHandlers     = "docs/pages-and-data/handlers.md#method-handlers-with-input-and-result"
 	docFilesInput   = "docs/pages-and-data/handlers.md#files-in-the-input"
+	docConnect      = "docs/pages-and-data/handlers.md#connect"
 	docCache        = "docs/pages-and-data/ssr-and-cache.md#cache-for-cdns"
 	docPrivate      = "docs/pages-and-data/ssr-and-cache.md#user-independent-pages-and-private-data"
 	docSession      = "docs/pages-and-data/sessions.md#checks-at-build-time"

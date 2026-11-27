@@ -2,7 +2,7 @@
 summary: '一页看完 Tifa 应用的全部约定：文件和文件夹、route.go 认的名字、根目录的 hooks 和选项、构建拒绝的写法，以及生成的文件'
 audience: app
 order: 1
-translatedFrom: e3911b418d39
+translatedFrom: 90cfd470eb35
 read_when:
   - '查一个文件、一个文件夹或一个名字在 Tifa 应用里做什么，或者该写哪一个'
   - '构建拒绝了一个文件夹名、一个文件或 `route.go` 里的一个名字，或者你写的名字好像被忽略了'
@@ -92,10 +92,11 @@ Tifa 读取的每样东西占一行，后面链到讲它的那一页。名字按
 | `Memo` | `const Memo = false` 为这个页面关掉渲染记忆。默认是 `true`。见 [SSR 和缓存](../pages-and-data/ssr-and-cache.zh-CN.md#ssr-and-cache) | 有 `page.tsx` 的文件夹 |
 | `Cache` | `const Cache = true`、`false`，或不少于一秒的 `time.Duration` 常量，比如 `10 * time.Minute`。让 CDN 保存这个页面。见[给 CDN 的缓存](../pages-and-data/ssr-and-cache.zh-CN.md#cache-for-cdns) | 有 `page.tsx` 的文件夹 |
 | `GET`、`POST`、`PUT`、`PATCH`、`DELETE` | 一个方法处理函数，是 `func(c *tifa.Ctx) error`、`func(c *tifa.Ctx, in In) error`、`func(c *tifa.Ctx) (Out, error)` 和 `func(c *tifa.Ctx, in In) (Out, error)` 之一。`In` 是结构体。见[方法处理函数](../pages-and-data/handlers.zh-CN.md#method-handlers-with-input-and-result) | 任何有 `route.go` 的文件夹。`GET` 不能和 `page.tsx` 放一起，因为页面由 Tifa 渲染 |
-| `HEAD`、`OPTIONS`、`CONNECT`、`TRACE` | 一个方法处理函数 `func(c *tifa.Ctx) error`，自己写回答。没有 `HEAD` 时由 `GET` 回答 HEAD。没有 `OPTIONS` 时 Tifa 回答 204 和 `Allow`。见 [HEAD、OPTIONS、CONNECT 和 TRACE](../pages-and-data/handlers.zh-CN.md#head-options-connect-and-trace) | 任何有 `route.go` 的文件夹。`HEAD` 不能和 `page.tsx` 放一起 |
+| `HEAD`、`OPTIONS`、`TRACE` | 一个方法处理函数 `func(c *tifa.Ctx) error`，自己写回答。没有 `HEAD` 时由 `GET` 回答 HEAD。没有 `OPTIONS` 时 Tifa 回答 204 和 `Allow`。见 [HEAD、OPTIONS 和 TRACE](../pages-and-data/handlers.zh-CN.md#head-options-and-trace) | 任何有 `route.go` 的文件夹。`HEAD` 不能和 `page.tsx` 放一起 |
 
 - 开关都是常量，要写大写字母：名叫 `ssr`、`memo` 或 `cache` 的 bool 常量会让构建失败，而 `Cahce` 这样的拼错只是你自己的名字，会被悄悄跳过。
-- 方法处理函数也要写大写字母。第一个参数是 `*tifa.Ctx`、名字是九个方法名之一换了大小写的函数（比如 `Post`、`get`），会让构建失败，因为它永远不会被调用。应用自己调用了的这种函数算辅助函数，构建不管。
+- 方法处理函数也要写大写字母。第一个参数是 `*tifa.Ctx`、名字是八个方法名之一换了大小写的函数（比如 `Post`、`get`），会让构建失败，因为它永远不会被调用。应用自己调用了的这种函数算辅助函数，构建不管。
+- `route.go` 里没有 `CONNECT`：第一个参数是 `*tifa.Ctx` 的函数 `CONNECT` 会让构建失败，应用没有调用的 `Connect` 这类换了大小写的函数也一样。CONNECT 作用在连接上，不在路由上，所以在 `tifa.SetHTTPHandler` 的包装里处理它：见 [CONNECT](../pages-and-data/handlers.zh-CN.md#connect)。
 - `Load` 和 `Layout` 的第二个参数，以及方法处理函数的输入，可以有 `Validate() error` 或 `Validate(c *tifa.Ctx) error` 方法。它在解码之后、函数运行之前执行。
 - `GET` 和 `DELETE` 从查询字符串解码输入，其他方法从请求体解码，格式是 JSON 或表单。字段按它们的 `json` 标签命名。上传见[输入里的文件](../pages-and-data/handlers.zh-CN.md#files-in-the-input)，类型见 [JSON 规则](json.zh-CN.md)。
 - 每种写入都有自己的地址：一个方法加一个文件夹。见[一次写入放在哪](../pages-and-data/handlers.zh-CN.md#where-a-write-goes)。
