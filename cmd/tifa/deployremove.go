@@ -184,11 +184,11 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 			return "", t.ssh(ctx, deployUser, script(removeAppBody, "app", app), nil, io.Discard, r.stderr)
 		})
 	}
-	// The app that served visitors itself is the one that needed ports 80 and 443 open to the
-	// systemd of the deploy user, and in ufw: what setup set for it goes with it.
+	// What setup set for the app in ufw goes with it, and so does the setting that lets the systemd
+	// of the deploy user open ports below 1024, with the last app that has one.
 	r.removeFirewall(ctx, &p)
-	if servesVisitors(st.Port) && st.PortsConf {
-		p.add(opRemove, fmt.Sprintf("server: %s, which let the systemd of %s open ports 80 and 443, and the value from before it, as root", portsConf, deployUser), func(ctx context.Context) (string, error) {
+	if st.Port < 1024 && st.PortsConf && !slices.ContainsFunc(st.OtherPorts, func(p int) bool { return p < 1024 }) {
+		p.add(opRemove, fmt.Sprintf("server: %s, which let the systemd of %s open ports below 1024, and the value from before it, as root", portsConf, deployUser), func(ctx context.Context) (string, error) {
 			var out strings.Builder
 			if err := t.ssh(ctx, "root", unportsBody, nil, &out, r.stderr); err != nil {
 				return "", err

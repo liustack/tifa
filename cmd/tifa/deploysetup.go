@@ -556,10 +556,6 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	app, domain := t.app, t.ownFor(port)
 	serves := portsText(port)
 	switch {
-	case port == httpsPort:
-		serves = fmt.Sprintf("serving visitors itself on ports 80 and 443, with HTTPS for %s and its certificate from Let's Encrypt kept in %s/%s/certs", domain, deployHome, app)
-	case port == httpPort:
-		serves = "serving visitors itself on port 80, over plain HTTP since site.url names no domain"
 	case t.open:
 		serves = fmt.Sprintf("port %d on every address of the server, for the load balancer or proxy in front", port)
 		p.firewall = fmt.Sprintf("The load balancer or proxy in front needs port %d of the server. Let only it reach port %[1]d, in the firewall or security groups of your provider (or ufw): a port open to everyone lets visitors past it. Tifa opens no port for it.", port)
@@ -569,19 +565,27 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 				why:  fmt.Sprintf("ufw is on, and blocks port %d unless a rule allows it. Run sudo ufw allow from <addresses of the load balancer or proxy> to any port %[1]d proto tcp on the server", port),
 			})
 		}
+	case port == httpsPort:
+		serves = fmt.Sprintf("serving visitors itself on ports 80 and 443, with HTTPS for %s and its certificate from Let's Encrypt kept in %s/%s/certs", domain, deployHome, app)
+	case port == httpPort:
+		serves = "serving visitors itself on port 80, over plain HTTP since site.url names no domain"
 	}
-	if servesVisitors(port) {
+	if !t.open && servesVisitors(port) {
 		p.firewall = fmt.Sprintf("Visitors need %s of the server open. Tifa does not change your provider's firewall or security groups: if they block %s, open %[2]s there.",
 			portsText(port), pick(port == httpsPort, "them", "it"))
-		if r.st.LowPort > httpPort {
-			p.add(opChange, fmt.Sprintf("server: let the systemd of %s open ports 80 and 443, with net.ipv4.ip_unprivileged_port_start = 80 (now %d) in %s, as root. Ports from 80 to 1023 are then open to every user of the server, not only root", deployUser, r.st.LowPort, portsConf), func(ctx context.Context) (string, error) {
-				var out strings.Builder
-				if err := t.ssh(ctx, "root", script(portsBody, "lowport_file", lowPortFile), nil, &out, r.stderr); err != nil {
-					return "", err
-				}
-				return strings.TrimSpace(out.String()), nil
-			})
+	}
+	if low := t.lowPort(port); low != 0 && r.st.LowPort > low {
+		opens := "ports 80 and 443"
+		if t.open {
+			opens = fmt.Sprintf("port %d", port)
 		}
+		p.add(opChange, fmt.Sprintf("server: let the systemd of %s open %s, with net.ipv4.ip_unprivileged_port_start = 80 (now %d) in %s, as root. Ports from 80 to 1023 are then open to every user of the server, not only root", deployUser, opens, r.st.LowPort, portsConf), func(ctx context.Context) (string, error) {
+			var out strings.Builder
+			if err := t.ssh(ctx, "root", script(portsBody, "lowport_file", lowPortFile), nil, &out, r.stderr); err != nil {
+				return "", err
+			}
+			return strings.TrimSpace(out.String()), nil
+		})
 	}
 	u := unitsOf(app, port, domain, t.open)
 	httpSum := ""
@@ -612,7 +616,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 		return lines[len(lines)-1], r.refresh(ctx)
 	}
-	after := r.firewallSteps(ctx, p, port)
+	after := r.firewallSteps(ctx, p, port, t.open)
 	switch {
 	case r.st.Port == 0:
 		p.add(opAdd, fmt.Sprintf("app: %s/%s with an empty shared/.env, %s, the systemd %s and service tifa-%s", deployHome, app, serves, pick(u.http != "", "sockets", "socket"), app), apply)
@@ -628,7 +632,7 @@ func (r *setupRun) appSteps(ctx context.Context, p *setupPlan) error {
 	case restart || !had:
 		p.add(opChange, fmt.Sprintf("app: write the systemd units of %s again", app), apply)
 	default:
-		p.ok(fmt.Sprintf("app: %s/%s, %s, systemd units", deployHome, app, portsText(port)))
+		p.ok(fmt.Sprintf("app: %s/%s, %s, systemd units", deployHome, app, t.portsText(port)))
 	}
 	if after != nil {
 		after()
@@ -678,7 +682,7 @@ func (r *setupRun) printVisitors(ctx context.Context, w io.Writer) {
 		}
 		var closed []string
 		for _, p := range []int{httpPort, httpsPort} {
-			if (p == httpPort || r.port == httpsPort) && !portAnswers(ctx, host, p) {
+			if (p == httpPort || r.port == httpsPort) && !portAnswers(ctx, pick(p == httpsPort, "https", "http"), host, p) {
 				closed = append(closed, strconv.Itoa(p))
 			}
 		}
@@ -1566,9 +1570,12 @@ func deploySetupAll(ctx context.Context, ts []deployTarget, f setupFlags, in io.
 	for i, t := range ts {
 		states[i] = readGroupState(ctx, t)
 	}
-	port, err := groupPort(ts[0].app, states)
-	if err != nil {
-		return err
+	port := ts[0].fixedPort
+	if port == 0 {
+		var err error
+		if port, err = groupPort(ts[0].app, states); err != nil {
+			return err
+		}
 	}
 	g := &setupGroup{ts: ts, states: make([]serverState, len(ts))}
 	f.group = g

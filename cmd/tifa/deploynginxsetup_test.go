@@ -621,7 +621,7 @@ func TestDeployNginxPrintsVisitors(t *testing.T) {
 	out.Reset()
 	old := portAnswers
 	t.Cleanup(func() { portAnswers = old })
-	portAnswers = func(_ context.Context, host string, port int) bool { return port == 80 }
+	portAnswers = func(_ context.Context, _, host string, port int) bool { return port == 80 }
 	t1.printVisitors(t.Context(), &out, serverState{Port: 9527, NginxSites: []string{"shop"}})
 	if !strings.Contains(out.String(), "visitors: https://shop.example.com, once ports 80 and 443 are open to them. Port 443 did not answer") {
 		t.Errorf("site: %q", out.String())

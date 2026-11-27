@@ -96,6 +96,16 @@ deploy:
 
 **The port.** The app listens on its own port, from 9527 up, on every address of the server, not only on the loopback as behind the tunnel or nginx. With several servers it has the same port on all of them, which setup picks free on each. The plan names it: `port 9527 on every address of the server, for the load balancer or proxy in front`.
 
+To choose the port, set `deploy.port`, from 80 to 65535. Some proxies reach only certain ports of the server, Cloudflare among them ([its ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)):
+
+```yaml
+deploy:
+  front: external
+  port: 8080
+```
+
+Setup stops before it changes anything when another app or program listens on that port on a server, and names it. On port 80 or 443 the app still serves plain HTTP, with no certificate. A port below 1024 needs root once per server: the plan lets the user `tifa` open ports from 80, as it does for an app that serves visitors itself, and `tifa deploy remove` of the last app on such a port puts the setting back. Changing `deploy.port` moves the app at the next setup: the plan says so, and the app restarts on the new port and passes its health check. A deploy alone never moves it, and stops with a line that says to run setup.
+
 **What to enter in the balancer.** Setup and each deploy end with the targets:
 
 ```text

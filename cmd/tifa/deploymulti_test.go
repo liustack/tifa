@@ -505,7 +505,7 @@ func TestDeploySeveralServersEnv(t *testing.T) {
 func fakePorts(t *testing.T) {
 	old := portAnswers
 	t.Cleanup(func() { portAnswers = old })
-	portAnswers = func(context.Context, string, int) bool { return false }
+	portAnswers = func(context.Context, string, string, int) bool { return false }
 }
 
 // box2Facts is the probe of a second server that setup prepared, without the app.

@@ -570,6 +570,8 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	want.SSR.VMs = c.SSR.VMs
 	// deploy.release_command runs nothing by default, so the file shows the migrate command of the app.
 	want.Deploy.ReleaseCommand = []string{"migrate"}
+	// deploy.port is for front external only, and picked by setup when left out: the file shows one.
+	want.Deploy.Port = 8080
 	// The block deploy.auto turns deploys on by being there, with the branch the file shows.
 	want.Deploy.Auto = config.Auto{On: true, Branch: "main", Needs: "ci.yml"}
 	if !reflect.DeepEqual(c, want) {

@@ -382,7 +382,7 @@ echo the app said goodbye`)
 	t.Cleanup(func() { ufwConf, ufwProgram = oldConf, oldProgram })
 	// This machine reaches a port of the server when the test wrote .run/open-<port>.
 	oldAnswers := portAnswers
-	portAnswers = func(_ context.Context, host string, port int) bool {
+	portAnswers = func(_ context.Context, _, host string, port int) bool {
 		if !strings.HasPrefix(host, "203.0.113.") && !strings.HasSuffix(host, ".example.com") {
 			t.Errorf("asked %s for port %d", host, port)
 		}

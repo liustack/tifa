@@ -2,7 +2,7 @@
 summary: '在 Tifa 应用前面放 nginx、负载均衡器、CDN 或反向代理：`deploy.front: nginx` 和 `external`、CDN 的设置，以及代理后面的跨站 403'
 audience: app
 order: 14
-translatedFrom: e93b727c182f
+translatedFrom: f673451de0d7
 read_when:
   - '不用 Cloudflare，用 `deploy.front: nginx` 把几个 Tifa 应用放在同一台服务器上，或者 setup 因为服务器上有一个不是 Tifa 装的 nginx 而停下'
   - '用 `deploy.front: external` 在 Tifa 应用前面放服务商的负载均衡器或你自己的代理，并把目标和健康检查填进去'
@@ -96,6 +96,16 @@ deploy:
 ```
 
 **端口。** 应用在自己的端口上监听（从 9527 起），监听服务器的所有地址，不像在隧道或 nginx 后面那样只监听回环地址。放在几台服务器上时，每台的端口都一样，由 setup 挑一个每台都空着的。方案里会写出来：`port 9527 on every address of the server, for the load balancer or proxy in front`。
+
+想自己定端口，就设 `deploy.port`，从 80 到 65535。有些代理只能连到服务器的某些端口，Cloudflare 就是这样（见[它支持的端口](https://developers.cloudflare.com/fundamentals/reference/network-ports/)）：
+
+```yaml
+deploy:
+  front: external
+  port: 8080
+```
+
+某台服务器上已有别的应用或程序在这个端口上监听时，setup 在改动任何东西之前就停下，并说出是谁。用 80 或 443 端口时，应用照样回答普通 HTTP，没有证书。低于 1024 的端口每台服务器要用一次 root：方案会让用户 `tifa` 能打开 80 起的端口，和应用自己接待访客时一样，用这类端口的最后一个应用被 `tifa deploy remove` 时，这个设置会还原。改了 `deploy.port`，下次 setup 会挪动应用：方案里会写出来，应用在新端口上重启并通过健康检查。光部署不会挪，它会停下并提示你运行 setup。
 
 **要填进负载均衡器的东西。** setup 和每次部署最后都会列出目标：
 

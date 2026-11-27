@@ -358,7 +358,7 @@ func TestDeployRemoveServesVisitors(t *testing.T) {
 	}
 	for _, want := range []string{
 		"remove  server: stop and disable tifa-shop.socket, tifa-shop-http.socket and tifa-shop.service, delete their unit files and /srv/tifa/shop with its releases, shared/.env, the data in shared/ and deploys.log, and its certificates in certs/",
-		"remove  server: /etc/sysctl.d/60-tifa-ports.conf, which let the systemd of tifa open ports 80 and 443, and the value from before it, as root",
+		"remove  server: /etc/sysctl.d/60-tifa-ports.conf, which let the systemd of tifa open ports below 1024, and the value from before it, as root",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)

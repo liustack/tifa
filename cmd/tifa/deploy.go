@@ -84,6 +84,9 @@ type deployTarget struct {
 	// port is the port setup gives the app on each of several servers, the same on every one: a
 	// target group of a load balancer names one port. 0 picks it per server.
 	port int
+	// fixedPort is deploy.port: the port of the app with front external on every server, 0 when
+	// not set.
+	fixedPort int
 }
 
 // several says the app runs on more than one server.
@@ -130,6 +133,10 @@ func deployDomain(d config.Deploy, siteURL string) (string, error) {
 		domain = u.Hostname()
 	}
 	switch {
+	case d.Port != 0 && d.Front != "external":
+		return "", fmt.Errorf("deploy.port is %d, and deploy.front is %s: deploy.port is for deploy.front external, where the app listens on that port for the load balancer or proxy in front. Remove deploy.port, or set deploy.front to external", d.Port, d.Front)
+	case d.Port != 0 && d.Port < httpPort:
+		return "", fmt.Errorf("deploy.port is %d, below 80: setup lets the user %s open ports from 80 only. Use port 80 or a higher one", d.Port, deployUser)
 	case d.Connect == "cloudflare" && d.Front != "cloudflare":
 		return "", errors.New("deploy.connect is cloudflare, and the ssh host name is made from the domain of site.url: set deploy.front to cloudflare")
 	case d.Connect == "tailscale" && !d.Auto.On:
@@ -240,7 +247,7 @@ func loadDeployTargets(dir string, hostFlags []string, notice io.Writer) ([]depl
 	for i, h := range hosts {
 		ts[i] = deployTarget{root: root, app: app, host: h.addr(), dest: h, domain: domain, front: d.Front, own: own,
 			connectMode: d.Connect, startTimeout: d.StartTimeout, releaseCmd: d.ReleaseCommand, github: d.Auto.On, auto: d.Auto,
-			index: i, count: len(hosts), open: d.Front == "external"}
+			index: i, count: len(hosts), open: d.Front == "external", fixedPort: d.Port}
 	}
 	return ts, nil
 }
@@ -451,14 +458,16 @@ func (t deployTarget) checkMachine(got string) error {
 		t.host, t.dest.from, t.host, got, t.dest.knownID, deployHostEnv)
 }
 
-// visitorPort is the port the app on s listens on: with front none 80, or 443 with a domain, and
-// else its loopback port behind the tunnel or nginx, which it keeps, or the first one free.
+// visitorPort is the port the app on s listens on: with front none 80, or 443 with a domain, with
+// deploy.port that port, and else the port it has, which it keeps, or the first one free.
 func (t deployTarget) visitorPort(s serverState) (int, error) {
 	switch {
 	case t.front == "none" && t.own != "":
 		return httpsPort, nil
 	case t.front == "none":
 		return httpPort, nil
+	case t.fixedPort != 0:
+		return t.fixedPort, nil
 	case t.port != 0 && !s.freeFor(t.app, t.port):
 		return 0, fmt.Errorf("port %d of %s is taken, and the app needs the same port on each of its servers: run go tool tifa deploy setup again, which picks a port free on all of them", t.port, t.host)
 	case t.port != 0:
@@ -469,25 +478,53 @@ func (t deployTarget) visitorPort(s serverState) (int, error) {
 	return pickPort(s.Used)
 }
 
-// portsFree checks that nothing but the app listens on the ports an app that serves visitors
-// itself needs, and that the deploy user may open them. It names what is in the way and says what to
-// do. programs names the programs of a port when s could not, as only root can: nil when it cannot.
-// The nginx of Tifa is in the way too, unless gone says setup removes it before the app moves, which
-// it does when this app is the only one the nginx has.
+// fixedPorts are the ports the app on port needs for itself, whoever else wants them: those of an
+// app that serves visitors itself, and deploy.port. Nil for a port setup picks free.
+func (t deployTarget) fixedPorts(port int) []int {
+	switch {
+	case t.open && t.fixedPort != 0:
+		return []int{port}
+	case !t.open && servesVisitors(port):
+		return visitorPorts(port)
+	}
+	return nil
+}
+
+// lowPort is the lowest of the fixedPorts below 1024, which only root may open until setup lets the
+// deploy user, 0 when there is none.
+func (t deployTarget) lowPort(port int) int {
+	ports := t.fixedPorts(port)
+	if len(ports) == 0 || ports[0] >= 1024 {
+		return 0
+	}
+	return ports[0]
+}
+
+// portsFree checks that nothing but the app listens on the fixedPorts of the app. It names what is
+// in the way and says what to do. programs names the programs of a port when s could not, as only
+// root can: nil when it cannot. The nginx of Tifa is in the way too, unless gone says setup removes
+// it before the app moves, which it does when this app is the only one the nginx has.
 func (t deployTarget) portsFree(s serverState, port int, programs func() []listener, gone bool) error {
-	if !servesVisitors(port) {
-		return nil
-	}
-	ports := []int{httpPort}
-	if port == httpsPort {
-		ports = append(ports, httpsPort)
-	}
+	ports := t.fixedPorts(port)
 	instead := fmt.Sprintf("or put %s behind Cloudflare with deploy.front: cloudflare in tifa.yaml", t.app)
+	if t.open {
+		instead = "or set another deploy.port in tifa.yaml"
+	}
 	for _, p := range ports {
 		other, names, taken := s.holder(t.app, p)
+		if !taken && slices.Contains(s.OtherPorts, p) {
+			// An app that does not run keeps its port: holder names the apps that listen.
+			for i, q := range s.OtherPorts {
+				if q == p && i < len(s.Others) {
+					other, taken = s.Others[i], true
+				}
+			}
+		}
 		switch {
 		case !taken:
 			continue
+		case other != "" && t.open:
+			return fmt.Errorf("port %d of %s is taken by %s, an app Tifa set up there: set another deploy.port in tifa.yaml, or remove %s from the server (go tool tifa deploy remove in its folder). Nothing was changed", p, t.host, other, other)
 		case other != "":
 			return fmt.Errorf("port %d of %s is taken by %s, an app Tifa set up there. Only one app on a server can serve visitors on ports 80 and 443 itself: remove %s from the server (go tool tifa deploy remove in its folder), %s. Nothing was changed", p, t.host, other, other, instead)
 		}
@@ -499,7 +536,10 @@ func (t deployTarget) portsFree(s serverState, port int, programs func() []liste
 			}
 		}
 		if s.NginxTifa && (len(names) == 0 || slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "nginx ") })) {
-			if apps := slices.DeleteFunc(slices.Clone(s.NginxSites), func(a string) bool { return a == t.app }); len(apps) > 0 || !gone {
+			if apps := slices.DeleteFunc(slices.Clone(s.NginxSites), func(a string) bool { return a == t.app }); (len(apps) > 0 || !gone) && t.open {
+				return fmt.Errorf("port %d of %s is held by the nginx of Tifa, which serves %s: set another deploy.port in tifa.yaml, or remove its apps from the server first (go tool tifa deploy remove in their folders). Nothing was changed",
+					p, t.host, pick(len(s.NginxSites) == 0, "no app", strings.Join(s.NginxSites, ", ")))
+			} else if len(apps) > 0 || !gone {
 				return fmt.Errorf("port %d of %s is held by the nginx of Tifa, which serves %s. Only one program can listen on a port, so %s cannot serve visitors itself while it runs: set deploy.front: nginx (or cloudflare) in tifa.yaml, or remove its apps from the server first (go tool tifa deploy remove in their folders). Nothing was changed",
 					p, t.host, pick(len(s.NginxSites) == 0, "no app", strings.Join(s.NginxSites, ", ")), t.app)
 			}
@@ -527,14 +567,26 @@ func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stde
 	if err := t.portsFree(s, port, nil, false); err != nil {
 		return s, err
 	}
-	if servesVisitors(port) && s.LowPort > httpPort {
+	if low := t.lowPort(port); low != 0 && s.LowPort > low {
+		if t.open {
+			return s, fmt.Errorf("%s listens on port %d, which only root may open on %s yet: run go tool tifa deploy setup", t.app, port, t.host)
+		}
 		return s, fmt.Errorf("%s serves visitors on %s itself, which only root may open on %s yet: run go tool tifa deploy setup", t.app, portsText(port), t.host)
 	}
 	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), t.open, false, false, t.healthWait()), nil, io.Discard, stderr); err != nil {
 		return s, err
 	}
-	fmt.Fprintf(stdout, "created %s on %s: %s/%s, %s, empty shared/.env\n", t.app, t.host, s.Home, t.app, portsText(port))
+	fmt.Fprintf(stdout, "created %s on %s: %s/%s, %s, empty shared/.env\n", t.app, t.host, s.Home, t.app, t.portsText(port))
 	return t.state(ctx, stderr)
+}
+
+// portsText names the ports of the app on port: those visitors reach an app that serves them
+// itself on, or the one port behind something of the user's.
+func (t deployTarget) portsText(port int) string {
+	if t.open {
+		return "port " + strconv.Itoa(port)
+	}
+	return portsText(port)
 }
 
 // ownFor is the domain of HTTPS on port: own on 443, else none.
@@ -706,6 +758,8 @@ func deploy(ctx context.Context, ts []deployTarget, stdout, stderr io.Writer) (e
 			if s, err = t.createApp(ctx, s, stdout, stderr); err != nil {
 				return err
 			}
+		case t.fixedPort != 0 && s.Port != t.fixedPort:
+			return fmt.Errorf("%s has port %d on %s, and deploy.port is %d: run go tool tifa deploy setup, which moves it", t.app, s.Port, t.host, t.fixedPort)
 		case i > 0 && s.Port != states[0].Port:
 			return fmt.Errorf("%s has port %d on %s and %d on %s: run go tool tifa deploy setup, which gives it one port on every server", t.app, states[0].Port, first.host, s.Port, t.host)
 		}
@@ -952,8 +1006,8 @@ func moveBack(ctx context.Context, ts []deployTarget, states []serverState, fail
 // followed. A connection alone proves nothing: a proxy on this machine, such as one that takes
 // all traffic, accepts it and then fails. The certificate is not checked, since the question is
 // whether the port is open. Tests replace it.
-var portAnswers = func(ctx context.Context, host string, port int) bool {
-	return askPort(ctx, pick(port == httpsPort, "https", "http"), host, port)
+var portAnswers = func(ctx context.Context, scheme, host string, port int) bool {
+	return askPort(ctx, scheme, host, port)
 }
 
 // askPort is portAnswers with the scheme given.
@@ -1033,7 +1087,7 @@ func (t deployTarget) printVisitors(ctx context.Context, w io.Writer, s serverSt
 	}
 	var closed []int
 	for _, p := range ports {
-		if !portAnswers(ctx, host, p) {
+		if !portAnswers(ctx, pick(p == httpsPort, "https", "http"), host, p) {
 			closed = append(closed, p)
 		}
 	}
@@ -1255,7 +1309,7 @@ func printBalancerTargets(ctx context.Context, ts []deployTarget, states []serve
 		addr := t.serverAddress(ctx)
 		target := net.JoinHostPort(addr, strconv.Itoa(states[i].Port))
 		fmt.Fprintf(w, "  %-24s %s\n", target, t.host)
-		if portAnswers(ctx, addr, states[i].Port) {
+		if portAnswers(ctx, "http", addr, states[i].Port) {
 			open = append(open, target)
 		}
 	}

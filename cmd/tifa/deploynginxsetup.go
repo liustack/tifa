@@ -228,7 +228,7 @@ func (r *setupRun) printNginxVisitors(ctx context.Context, w io.Writer) {
 		}
 		var closed []string
 		for _, q := range ports {
-			if !portAnswers(ctx, host, q) {
+			if !portAnswers(ctx, pick(q == httpsPort, "https", "http"), host, q) {
 				closed = append(closed, strconv.Itoa(q))
 			}
 		}

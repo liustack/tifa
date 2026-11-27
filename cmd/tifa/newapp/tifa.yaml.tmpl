@@ -65,6 +65,7 @@
 # are read the same way: the environment, else .env.
 # deploy:
 #   front: none             # what visitors come through before the server: none (the app serves them itself on port 80, and on 443 with HTTPS for the host of site.url) | cloudflare (Tunnel, DNS and cache of the host of site.url, and deploys clear its CDN cache) | nginx (an nginx that setup installs routes visitors by the host of site.url, so apps share the server) | external (what you put in front, such as your load balancer, your own Cloudflare or a proxy, ends HTTPS and sends plain HTTP to the app on each server, for one server or several)
+#   port: 8080              # example: with front external only, the port the app listens on, on every address of each server, from 80 to 65535. Left out: the first port free from 9527, which setup picks
 #   connect: direct         # how deploys reach the server over ssh: direct | cloudflare (through the Cloudflare Tunnel) | tailscale (CI joins your tailnet)
 #   release_command: migrate   # example: a command of the app that each deploy runs once with the new release, before it starts it and while the old release serves, so a long migration does not stall the site. If it fails, the deploy stops and nothing changes. Left out: none, and OnStart migrates
 #   start_timeout: 30s      # how long a new release may take to start and answer /healthz, from 1s to 10m. Visitors wait while it starts, so a longer wait is a longer stall of the site

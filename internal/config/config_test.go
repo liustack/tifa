@@ -294,7 +294,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.public_dotfiles build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.connect deploy.release_command deploy.start_timeout deploy.auto.branch deploy.auto.needs"
+	want := "build.target build.public build.public_dotfiles build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.port deploy.connect deploy.release_command deploy.start_timeout deploy.auto.branch deploy.auto.needs"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -915,6 +915,21 @@ func TestDeployConnect(t *testing.T) {
 	}
 }
 
+// deploy.port is a TCP port. Which front it goes with is for tifa deploy to check.
+func TestDeployPort(t *testing.T) {
+	if c, _, err := Project([]byte("deploy:\n  front: external\n  port: 8080\n")); err != nil || c.Deploy.Port != 8080 {
+		t.Errorf("8080: %+v, %v", c.Deploy, err)
+	}
+	if c, _, err := Project([]byte("deploy:\n  front: external\n")); err != nil || c.Deploy.Port != 0 {
+		t.Errorf("left out: %+v, %v", c.Deploy, err)
+	}
+	for _, bad := range []string{"0", "65536", "http"} {
+		if _, _, err := Project([]byte("deploy:\n  port: " + bad + "\n")); err == nil || !strings.Contains(err.Error(), "deploy.port") {
+			t.Errorf("port %s: got %v", bad, err)
+		}
+	}
+}
+
 // deploy.start_timeout is how long a new release may take to pass its check: a whole number of
 // seconds from one second to ten minutes, 30s when not set.
 func TestDeployStartTimeout(t *testing.T) {
@@ -1064,7 +1079,7 @@ func TestUnknownKeyInTifaYamlFails(t *testing.T) {
 		want  []string
 		avoid []string
 	}{
-		"old key":          {"deploy:\n  front: none\n  ssh: cloudflare\n", []string{"tifa.yaml line 3: deploy.ssh is not a setting of tifa.yaml", "the settings of deploy are front, connect, release_command, start_timeout, auto"}, []string{"did you mean"}},
+		"old key":          {"deploy:\n  front: none\n  ssh: cloudflare\n", []string{"tifa.yaml line 3: deploy.ssh is not a setting of tifa.yaml", "the settings of deploy are front, port, connect, release_command, start_timeout, auto"}, []string{"did you mean"}},
 		"typo":             {"deploy:\n  conect: direct\n", []string{"tifa.yaml line 2: deploy.conect is not a setting of tifa.yaml: did you mean deploy.connect?"}, nil},
 		"dotted":           {"server.adr: :8080\n", []string{"tifa.yaml line 1: server.adr is not a setting of tifa.yaml: did you mean server.addr?"}, nil},
 		"unknown section":  {"servr:\n  addr: :8080\n", []string{"tifa.yaml line 1: servr is not a setting of tifa.yaml: did you mean server?"}, []string{"servr.addr"}},

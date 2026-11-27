@@ -1102,7 +1102,9 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 **Settled (2026-11-27).** `deploy.front: external` says that something of the user's stands in front of the servers: a load balancer at the provider, the user's own Cloudflare, or a proxy of their own. Tifa only deploys. The app serves plain HTTP on its port on every address of the server, with no certificate and no redirect to HTTPS, on one server or several. It replaced `loadbalancer` before any release, with no alias.
 
-**Why.** The same setting fits every front the user runs, and the old name said load balancer only, so a user with their own Cloudflare in Flexible mode, or their own proxy, would not have found it.
+`deploy.port` (settled the same day) sets the port of the app with `front: external` only, from 80 to 65535, and any other front with it fails with the reason. Without it setup picks the first port free from 9527, as before. Setup fails when another app or program holds the port, and a port below 1024 reuses the sysctl of `front: none` (`net.ipv4.ip_unprivileged_port_start = 80`, removed with the last app that has a port below 1024). A port below 80 is refused: the sysctl opens ports from 80. Changing the port is a move in the setup plan: new socket, restart, health check. A deploy alone refuses to run on the old port.
+
+**Why.** The same setting fits every front the user runs, and the old name said load balancer only, so a user with their own Cloudflare in Flexible mode, or their own proxy, would not have found it. Cloudflare proxies only some ports of the origin (HTTP 80, 8080, 8880, 2052, 2082, 2086, 2095, [network ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)), and none of them is in the range setup picks from.
 
 ### A secret that passes through the agent
 

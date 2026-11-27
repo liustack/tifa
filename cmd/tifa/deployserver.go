@@ -512,21 +512,22 @@ type appUnits struct{ socket, http, service string }
 
 // unitsOf writes the units of app for its port: 80 or 443 when it serves visitors itself, else a
 // loopback port behind the Cloudflare Tunnel or nginx, or with open that port on every address of
-// the server, for the load balancer of the user. domain is the domain it serves HTTPS for, on 443.
+// the server, for the load balancer or proxy of the user, plain HTTP whatever the port. domain is
+// the domain it serves HTTPS for itself, on 443.
 //
 // The sockets hold the ports while the program restarts, see docs/build-and-deploy/deploy-by-hand.md. With
 // HTTPS the program gets two, each named by the setting it serves, and the settings of the
 // built-in HTTPS in its environment: the certificates stay in certs, next to the releases.
 func unitsOf(app string, port int, domain string, open bool) appUnits {
 	unit := unitName(app)
+	itself := !open && servesVisitors(port)
 	listen := fmt.Sprintf("ListenStream=127.0.0.1:%d\n", port)
-	if open && !servesVisitors(port) {
+	switch {
+	case open:
 		listen = fmt.Sprintf("ListenStream=%d\n", port)
-	}
-	switch port {
-	case httpPort:
+	case port == httpPort:
 		listen = "ListenStream=80\n"
-	case httpsPort:
+	case port == httpsPort:
 		listen = "ListenStream=443\nFileDescriptorName=server.addr\n"
 	}
 	u := appUnits{socket: fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
@@ -539,7 +540,7 @@ Description=%s socket (Tifa)
 WantedBy=sockets.target
 `, app, listen)}
 	sockets, extra := unit+".socket", ""
-	if port == httpsPort {
+	if itself && port == httpsPort {
 		u.http = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
 Description=%s plain HTTP socket (Tifa): Let's Encrypt and the redirect to HTTPS
@@ -627,8 +628,9 @@ ss -Hltnp | sed 's/^/listen /'
 `
 
 // portsBody runs as root. It lets users other than root listen on ports from 80, so the systemd
-// of the deploy user can open ports 80 and 443 for the app that serves visitors itself, with no
-// right given to the app. The value it found goes into the file, so remove can put it back.
+// of the deploy user can open ports below 1024 for the apps that need them: 80 and 443 for the app
+// that serves visitors itself, deploy.port behind something of the user's. No right goes to the
+// app. The value it found goes into the file, so remove can put it back.
 const portsBody = `set -eu
 # tifa: open ports 80 and 443 to the systemd of the deploy user
 f=` + portsConf + `
@@ -638,8 +640,8 @@ if [ -f "$f" ]; then
 	if [ -n "$kept" ]; then before=$kept; fi
 fi
 printf '%s\n' "# Written by tifa deploy setup: users other than root may listen on ports from 80, so the systemd" \
-	"# of the user tifa opens ports 80 and 443 for the app that serves visitors itself. tifa deploy remove" \
-	"# of that app deletes this file and puts back the value from before." \
+	"# of the user tifa opens the ports below 1024 of its apps. tifa deploy remove of the last app" \
+	"# that needs one deletes this file and puts back the value from before." \
 	"# before: $before" "net.ipv4.ip_unprivileged_port_start = 80" > "$f.part"
 mv "$f.part" "$f"
 sysctl -q -w net.ipv4.ip_unprivileged_port_start=80

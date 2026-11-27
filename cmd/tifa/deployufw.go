@@ -247,8 +247,12 @@ func (r *setupRun) ufwRun(body string) func(context.Context) (string, error) {
 // The caller plans it before the app moves, since an app restarted on 443 gets no certificate
 // until Let's Encrypt reaches it, and its health check fails until then. The rules of the ports
 // the app gives up go after the move, in the step that the returned function adds, nil when none.
-func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int) (after func()) {
+func (r *setupRun) firewallSteps(ctx context.Context, p *setupPlan, port int, open bool) (after func()) {
 	need := visitorPorts(port)
+	if open {
+		// Behind something of the user's, who decides who reaches the port.
+		need = nil
+	}
 	var gone []int
 	for _, q := range visitorPorts(r.st.Port) {
 		if !slices.Contains(need, q) {
@@ -375,7 +379,7 @@ func ufwCommandsFor(verb, comment string, ports []int) []string {
 // served visitors itself, once root read them.
 func (r *setupRun) removeFirewall(ctx context.Context, p *setupPlan) {
 	app := r.t.app
-	if !servesVisitors(r.st.Port) || r.st.UFW == "" {
+	if !servesVisitors(r.st.Port) || r.t.open || r.st.UFW == "" {
 		return
 	}
 	u, err := r.readUFW(ctx)
