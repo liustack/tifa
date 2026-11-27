@@ -20,9 +20,13 @@ The app must keep what it shares somewhere all servers reach: see [What the app 
 Several servers need `front: external`, a load balancer of yours in front of them ([Behind your load balancer](deploy-proxy.md#behind-your-load-balancer)):
 
 ```yaml
+server:
+  addr: ":9527"      # the port the balancer connects to, on every address of each server
 deploy:
   front: external
 ```
+
+With several servers `server.addr` takes only the form `":port"`, because an address that fits one server is not the address of the others. Setup refuses `10.0.0.5:9527` and the default `127.0.0.1:9527`, and says why. Every server listens on that port, so it must be free on all of them.
 
 Name the servers as you name one, with commas between them, first match wins as in [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy):
 
@@ -35,7 +39,7 @@ Or give `--host` more than once, or with commas: `go tool tifa deploy setup --ho
 
 With one server, everything is as before.
 
-**The other fronts work with one server only.** With several servers, `none`, `nginx` and `cloudflare` are refused before anything is changed, and the error says to use `external`:
+**The other fronts work with one server only.** `front` has no default, and with several servers only `external` is accepted. `none`, `nginx` and `cloudflare` are refused before anything is changed, and the error says to use `external`:
 
 - `none`: each server would serve visitors itself, with its own certificate, and nothing would spread the load.
 - `nginx`: the nginx of Tifa serves the apps of one server. Sending visitors from it to other servers needs a network between the servers, which is yours and differs at every provider.
@@ -43,7 +47,7 @@ With one server, everything is as before.
 
 ## Set up
 
-`go tool tifa deploy setup` sets up each server in turn, the first first, with a plan for each: `Plan for shop on vps2 (2 of 3)`. It gives the app one port that is free on every server, so the balancer has one port to send to. When the port the app has on one server is taken on another, the app moves to a port free on all of them.
+`go tool tifa deploy setup` sets up each server in turn, the first first, with a plan for each: `Plan for shop on vps2 (2 of 3)`. The app gets the port of `server.addr` on every server, so the balancer has one port to send to. Setup stops and names what holds it when another app or program listens on that port on one of the servers.
 
 Setup stops at the first server that fails or needs you. Fix what it says and run it again: the servers that are right show one line each, and setup goes on from there.
 

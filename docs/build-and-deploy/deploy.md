@@ -6,6 +6,7 @@ read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
   - Running tifa deploy, tifa deploy setup or tifa deploy rollback, or a deploy failed its health check and went back
   - Naming the server of tifa deploy with TIFA_DEPLOY_HOST, or finding out which server it uses when you named none (~/.tifa/config.yaml, TIFA_HOME), or choosing deploy.front, deploy.connect or deploy.auto in tifa.yaml
+  - Choosing deploy.front, or a deploy command stopped because deploy.front is not set or front: cloudflare cannot go on
   - Giving a slow start more time with deploy.start_timeout, or running tests before a deploy and a message after it
   - Running migrations or another command of the app with the new release before it starts, with deploy.release_command
   - Giving a second developer machine access to deploy
@@ -17,7 +18,7 @@ A Tifa app is one executable. The server needs that file, the settings in its en
 
 `tifa deploy` puts a Tifa app on your own server, and one command sets up the whole CI/CD path from push to live.
 
-`go tool tifa deploy` puts the app on a Linux server with systemd over ssh: it builds on your machine for the server, uploads the program, restarts the app without refusing a request, checks it on the server and goes back to the release before when the check fails. The app serves visitors itself, with its own HTTPS, or behind a Cloudflare Tunnel or an nginx that Tifa installs, where several apps can share one server. The server needs no Docker, no Node and no deploy program of its own.
+`go tool tifa deploy` puts the app on a Linux server with systemd over ssh: it builds on your machine for the server, uploads the program, restarts the app without refusing a request, checks it on the server and goes back to the release before when the check fails. Visitors reach the app through a Cloudflare Tunnel (the way `tifa new` sets up), directly with the app's own HTTPS, through something of yours such as a load balancer, or through an nginx that Tifa installs. The server needs no Docker, no Node and no deploy program of its own.
 
 `tifa.yaml` says what you want. `go tool tifa deploy setup` makes the server, Cloudflare and GitHub match it. `tifa.yaml` is committed, so neither a secret nor the place of the server goes in it.
 
@@ -25,7 +26,7 @@ A Tifa app is one executable. The server needs that file, the settings in its en
 site:
   url: https://shop.example.com   # the domain is the host of this URL
 deploy:
-  front: none      # what visitors come through before the server: none (the app serves them itself on ports 80 and 443) | cloudflare | nginx | external
+  front: cloudflare  # what sits between visitors and the app: cloudflare | none | external | nginx. Needed, no default
   connect: direct  # how deploys reach the server over ssh: direct | cloudflare | tailscale
   release_command: migrate  # a command of the app that each deploy runs once with the new release before it starts it. Left out: none
   start_timeout: 30s  # how long a new release may take to start and answer /healthz: 1s to 10m
@@ -46,7 +47,7 @@ deploy:
   ```
 
   The value is what `ssh` takes as a destination: a Host of `~/.ssh/config` (an alias such as `vps`, so `~/.ssh/config` supplies the address, the port, the keys and a `ProxyJump`), a host name, or an `ssh://host[:port]` URL. Tifa picks the user itself, root for the steps that change the system and `tifa` for the rest, so leave the user out unless root cannot log in (see [When root cannot log in](#when-root-cannot-log-in)). A path, a query or another scheme is refused. With none of the four set, every `tifa deploy` command stops and says so.
-- `front` is what visitors come through before they reach the server. With `cloudflare`, that is a Cloudflare Tunnel at the host of `site.url`, with its DNS record and rules, and `deploy` and `rollback` clear the CDN cache of that host name. `site.url` must be set and have no port. With `none`, the app serves visitors itself on port 80, and with a domain in `site.url` also on 443 with its own HTTPS, and no cache is cleared (see [The app serves visitors itself](deploy-setup.md#the-app-serves-visitors-itself)). With `nginx`, an nginx that setup installs sends visitors to the app by the host of `site.url`, and gets the certificate for it with certbot, so several apps can share the server without Cloudflare (see [Behind nginx](deploy-proxy.md#behind-nginx)). With `external`, something of yours in front, such as a load balancer you set up at your provider, ends HTTPS and sends plain HTTP to the port of the app (see [Behind your load balancer](deploy-proxy.md#behind-your-load-balancer)). It is the front for an app on several servers, named with commas in `TIFA_DEPLOY_HOST` (see [Run an app on several servers](deploy-several-servers.md#run-an-app-on-several-servers)).
+- `front` is what sits between visitors and the app: `cloudflare`, `none`, `external` or `nginx`. It has no default and `tifa deploy` stops without it. See [Choose a front](#choose-a-front).
 - `connect` is the one path ssh takes to the server, from your machine and from the GitHub Actions runner. With `direct`, ssh uses the address you gave. With `cloudflare`, both go through the Cloudflare Tunnel, so the server needs no open ssh port (see [`connect: cloudflare`](deploy-cloudflare.md#connect-cloudflare)). It needs `front: cloudflare`, because the ssh host name is made from the domain, and works with or without `auto`. With `tailscale`, the runner joins your tailnet, and it needs the block `auto` (see [`connect: tailscale`](deploy-github-actions.md#connect-tailscale)). Your own machine reaches the server however it already does, with the address in `TIFA_DEPLOY_HOST`, and the tailnet and the server are yours to set up.
 - `release_command` is a command of the app with its arguments, such as `migrate` or `migrate --verbose`, that each deploy runs once on the server with the program of the new release, before it starts that release, while the old one still serves. The words are split at spaces and each goes to the program as it is: no quotes, no shell. Left out, nothing runs. See [The release command](#the-release-command).
 - `start_timeout` is how long a new release may take to start and pass its health check, written as a Go duration such as `45s` or `2m`. It is whole seconds from `1s` to `10m`, and `30s` when left out. The check of the release that a failed deploy goes back to, and of the release `deploy rollback` starts, gets the same time. See [A slow start](#a-slow-start).
@@ -71,6 +72,52 @@ What you need: a Linux server with systemd, on x86_64 or aarch64, that you can r
 The first time, run `go tool tifa deploy setup`, see [Set up the server](deploy-setup.md). After that you only deploy and, when a release is bad, roll back.
 
 Without a terminal, as when an agent or a script runs the command, ssh asks nothing: a server whose host key is not in your `known_hosts` yet stops the command, and the error gives the command that accepts the key. A server that ssh reaches directly gets 15 seconds to answer, unless your ssh configuration sets its own `ConnectTimeout`. One reached through a `ProxyCommand` or `ProxyJump`, such as the login of Cloudflare Access in the browser, waits as long as it takes.
+
+## Choose a front
+
+`deploy.front` says what sits between visitors and the app. It has no default, so what `tifa.yaml` says is what runs. `tifa deploy setup` and every other `tifa deploy` command stop when it is missing and list the four values, each with when to use it. `tifa build` and `tifa dev` do not need it. `tifa new` writes `front: cloudflare`.
+
+An app that never wrote it ran with `none` before it was needed. To keep things as they were, write `front: none`.
+
+| Value | What sits between | HTTPS | Ports open to the world | What Tifa manages | Apps on one server | Servers |
+| --- | --- | --- | --- | --- | --- | --- |
+| `cloudflare` (recommended) | Cloudflare, through a Tunnel | Cloudflare | none | The Tunnel, DNS, cache rules, clearing the cache after a deploy | Several, told apart by domain | One |
+| `none` | Nothing: the app faces visitors | The app, with Let's Encrypt or your own certificate | 80 and 443 with a domain, 80 with only an IP address | The ports, the certificate, ufw | One | One |
+| `external` | Something of yours: a load balancer, a CDN, a proxy, a private network | What is in front, or nothing on a private network | The port of `server.addr`, which you restrict yourself | The deploy only. It prints the targets for the balancer and opens no firewall | Several, one port each | One or several |
+| `nginx` (optional, not recommended) | An nginx that Tifa installs | nginx with certbot | 80 and 443 | nginx, one site per app, the certificates | Several, sharing 443 | One |
+
+- **`cloudflare`.** The server opens no port: cloudflared on the server connects out to Cloudflare, which does HTTPS, the CDN and DDoS protection. Needs a domain in Cloudflare and cf logged in (see [Set up the server](deploy-setup.md#set-up-with-a-plan)).
+- **`none`.** Visitors reach ports 80 and 443 by default, so the ports follow `site.url` and never `server.addr`. With a domain, 443 serves HTTPS and 80 answers Let's Encrypt and redirects everything else to HTTPS. With only an IP address there is no certificate, and only plain HTTP on 80 opens. To serve HTTPS on another port, use `cloudflare` or `nginx`.
+- **`external`.** Whatever is in front connects to the address and port of `server.addr` (see [Behind your load balancer](deploy-proxy.md#behind-your-load-balancer)). Tifa opens no firewall for it, and [harden](deploy-harden.md) does not open that port either: let only what is in front reach it.
+- **`nginx`.** For one server that holds several apps when you do not use Cloudflare, for example in mainland China. See [Behind nginx](deploy-proxy.md#behind-nginx).
+
+### Which front for your setup
+
+| What is in front of your server | Write |
+| --- | --- |
+| Cloudflare, managed by Tifa | `cloudflare` |
+| Your own Cloudflare, SSL mode Full (strict) | `none`, with a certificate from Let's Encrypt or an uploaded Origin CA certificate |
+| Your own Cloudflare, SSL mode Flexible | `external`, with `server.addr: ":80"` |
+| CloudFront with an ordinary origin | `none` or `external` |
+| CloudFront VPC origins (the origin is in a private subnet) | `external`, with the private address in `server.addr` |
+| A load balancer of your cloud provider, or a proxy of your own | `external` |
+| A CDN in mainland China | `none` or `external` |
+| Several apps on one server, no Cloudflare | `nginx` |
+| An IP address and no domain | `none` (plain HTTP on port 80) |
+
+Only `cloudflare` clears the CDN cache after a deploy. With another CDN, clear it yourself after each deploy: a deploy deletes the old `/assets/` files, so a cached old page can break for as long as its `s-maxage`. See [After a deploy](deploy-by-hand.md#after-a-deploy).
+
+An app on several servers uses `external`. `connect: cloudflare` goes only with `front: cloudflare`.
+
+### When cloudflare cannot go on
+
+Setup never falls back to another front. Going from a Tunnel to `none` would turn a server with no open port into one with ports 80 and 443 open to everyone, and you should decide that. Setup checks, cheapest first, and stops at the first failure with what to do:
+
+1. **`site.url` has a domain.** A Tunnel routes a domain, so an IP address, `localhost` or a missing `site.url` stops setup. Set `site.url`. With only an IP address, write `front: none` (plain HTTP on port 80) or `front: external`.
+2. **cf is installed and logged in.** On a terminal, setup installs it and opens the login. Without a terminal it stops and lists the steps, and you only click in the browser.
+3. **The domain is in the account cf is logged in to.** Add the domain to that account (change the name servers of the domain to the ones Cloudflare gives you), or log cf in to the account that has it.
+
+Not having cf, or not wanting Tifa to manage Cloudflare, is not the same as not using Cloudflare. If you do not want to install cf and let Tifa manage Cloudflare, which includes managing DNS and the proxy yourself in the Cloudflare dashboard, write `front: none` or `front: external`, and pick the one from the table above. Setup never edits `tifa.yaml`: it names the line to add or change.
 
 ## When root cannot log in
 

@@ -33,11 +33,11 @@ Anyone who logs in with a password is refused after this and needs a key. The we
 **2. ufw, when it is off or not installed.** harden installs ufw with apt when it is missing, denies what comes in, allows what goes out, and allows these ports (tcp), in rules with the comment `tifa harden`:
 
 - the ssh ports sshd uses, and the port this machine connected on,
-- the ports the apps of Tifa on the server serve visitors on: 80 and 443 for an app with `front: none` and for the nginx of `front: nginx`.
+- the ports the apps of Tifa on the server serve visitors on: 80 and 443 for an app with `front: none` and for the nginx of `front: nginx`. An app behind a Cloudflare Tunnel (`front: cloudflare`) serves no visitors on a port of the server, so it adds none.
 
 Before it turns ufw on, harden lists everything that listens on an address other than loopback. A program that is not sshd, a socket of Tifa or the nginx of Tifa stops it: harden names the program and its port, does not turn ufw on, and changes nothing in ufw. It does not guess whether the program should stay reachable. Allow its port yourself (`sudo ufw allow <port>/tcp`), or stop the program, then run harden again. A port that a rule of ufw allows already is accounted for.
 
-An app with `front: external` is the exception among the sockets of Tifa: only your load balancer or proxy should reach its port, so harden does not allow that port to everyone and leaves ufw off. Allow the port from the address of your load balancer first (`sudo ufw allow from <address> to any port <port> proto tcp`), then run harden again. That rule accounts for the port, and harden turns ufw on with it in place.
+An app with `front: external` is the exception among the sockets of Tifa: only your load balancer or proxy should reach the port of its `server.addr`, so harden does not allow that port to everyone and leaves ufw off. Allow the port from the address of your load balancer first (`sudo ufw allow from <address> to any port <port> proto tcp`), then run harden again. That rule accounts for the port, and harden turns ufw on with it in place.
 
 ufw keeps one rule for a port and only changes its comment when you add another. So harden adds a rule only for a port that no rule allows yet, whatever its comment, and leaves your rules and those of Tifa's nginx as they are. The plan names the ports it adds and the ports that have rules. A rule that denies or limits one of the ports stays and is named in the plan. When it denies the ssh port, ufw stays off.
 
