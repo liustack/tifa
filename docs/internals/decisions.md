@@ -534,17 +534,19 @@ A redirect from the handler to the address the page already has does load it aga
 
 ## Database
 
-### Tifa has no database layer (migrations are app code tifa new writes)
+### Tifa has no database layer (migrations are app code that uses goose)
 
-**Settled (2026-11-27).** Tifa ships no database package: no migration runner, no schema tool, no ORM. `tifa new` writes the database code into the app, as it writes `db.go`: `migrations/001_init.sql`, `migrate.go` (the runner), `migrate_test.go` and `schema.sql`. Files are SQL only. `migrate.go` keeps the name and SHA-256 of each file it ran in the table `schema_migrations`, turns foreign keys off on a connection of its own before `BEGIN IMMEDIATE`, runs `PRAGMA foreign_key_check` before `COMMIT` and closes that connection afterwards. Without `db.backup` it first writes a copy with `VACUUM INTO`. `schema.sql` is written by `TestSchema` from the migrations and is no longer run.
+**Settled (2026-11-27).** Tifa ships no database package: no migration runner, no schema tool, no ORM. `tifa new` writes the database code into the app, as it writes `db.go`: `migrations/001_init.sql` in goose's format, `migrate` in `db.go`, which runs the files with github.com/pressly/goose/v3 (the Provider API, dialect `sqlite3`) at `OpenDB`, `migrate_test.go` (`TestSchema`, `TestDropsSayWhy`) and `schema.sql`, which `TestSchema` writes. Tifa keeps only what depends on how it deploys, and the docs say it: what `tifa deploy` needs from any migration tool ([Another migration library](../guides/database.md#another-migration-library)), the rules that keep a rollback working, and the SQLite table rebuild.
 
-**Why.** Every app already owns its database code, and a package would be a new API with a promise to keep, for SQLite only (Postgres apps use goose). The cost of copies is that a fix reaches apps only through an "Upgrading:" note: the runner the docs had before deleted rows that point at a rebuilt table with `ON DELETE CASCADE`, and nothing could patch the apps that copied it.
+What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of its own with one connection, closed before the app opens its pool, so a `-- +goose NO TRANSACTION` file that turns foreign keys off never hands that connection to the app. goose runs every statement of such a file on one `*sql.Conn` (the Provider API, v3.30.2), but returns that connection to the pool it was given. One `slog.Warn` when the database is at a version above the newest file, since goose skips such versions without a word. Without `db.backup`, a `VACUUM INTO` copy before files run on a database that ran some.
 
-**Turned down.** A declarative schema that a tool diffs into `ALTER` statements: it cannot tell a rename from a drop and an add, SQLite table rebuilds are where such tools lose rows, and an older release after a rollback would "fix" the newer tables. Go code in migrations: data work in Go goes in the app's own Go code, such as a background job. A drop check in `tifa check`, and a CI step that fails when a merged migration changes: the app's `TestDropsSayWhy` and the checksum at start cover them.
+**Why goose.** Applying migrations is a library's job, not Tifa's. goose is MIT licensed, widely used (about 11.8k stars and 8.8k dependent modules), released every few weeks, works with any `database/sql` driver, links three small packages besides the standard library, builds with `CGO_ENABLED=0`, and starts on a database a newer release migrated. A Postgres app keeps the same code with another dialect.
+
+**Turned down.** A runner of Tifa's own, as `tifa new` wrote it for a day (`migrate.go`, with SHA-256 records of each file): it was SQLite only, coding agents do not know it, and a bug in it lives on in the copy of every app, which only an "Upgrading:" note can reach. A declarative schema that a tool diffs into `ALTER` statements: it cannot tell a rename from a drop and an add, SQLite table rebuilds are where such tools lose rows, and an older release after a rollback would "fix" the newer tables. Go migrations: data work in Go goes in an app command or a job. A drop check in `tifa check`, and a CI step that fails when a merged migration changes: the app's `TestDropsSayWhy` covers the first.
 
 **Instead.** [Change the tables](../guides/database.md#change-the-tables).
 
-**Reopen when** a fix to the runner has to reach many apps that cannot each edit their copy. Then a `migrate` package belongs in the driver, github.com/liustack/sqlite, not in Tifa.
+**Reopen when** goose stops being kept up, or a deploy need comes up that goose cannot meet.
 
 ### Rolling back the database with a release
 
@@ -552,21 +554,21 @@ A redirect from the handler to the address the page already has does load it aga
 
 **Why not.** It would throw away what visitors wrote after the migration: a down step that drops a column drops what was written into it, and a restore loses every write since, on every table. A down file is also known only to the newer release, which is the one being thrown away.
 
-**Instead.** The database stays where it is and older releases run on it. Each release must run on the tables of the next ones: add, then stop using, then drop in a later release. To undo data, restore from `db.backup` or from the copy `migrate.go` keeps: [Roll back](../build-and-deploy/deploy.md#roll-back).
+**Instead.** The database stays where it is and older releases run on it. Each release must run on the tables of the next ones: add, then stop using, then drop in a later release. To undo data, restore from `db.backup` or from the copy `OpenDB` keeps: [Roll back](../build-and-deploy/deploy.md#roll-back).
 
 ### A program that finds migrations it does not have
 
-**Settled (2026-11-27).** When the database ran files the program does not have (a newer release ran them and was rolled back), `migrate.go` logs one `slog.Warn` line that names them and starts. Flyway does the same by default, and goose skips them too.
+**Settled (2026-11-27).** When the database is at a version above the newest file of the program (a newer release ran more files and was rolled back), goose skips those versions and `migrate` logs one `slog.Warn` line with the version of the database and the newest file, then starts. Flyway does the same by default.
 
-**Why.** Refusing to start, as the runner the docs had before did, turns the automatic rollback of a failed deploy into an outage: the older release would refuse the database the newer one left. The rules above make the older release work on those tables.
+**Why.** Refusing to start turns the automatic rollback of a failed deploy into an outage: the older release would refuse the database the newer one left. golang-migrate does refuse (`no migration found for version N`), which is why the docs name it. The rules above make the older release work on those tables.
 
-### A way past a migration that changed after it ran
+### Checking that a migration did not change after it ran
 
-**Turned down (2026-11-27).** Starting anyway when a file's SHA-256 differs from the one recorded when it ran: a flag, a setting, or a command that records the new checksum.
+**Turned down (2026-11-27).** A check at start that a file which ran is the same as when it ran, as the runner of Tifa's own did with SHA-256 records. goose keeps versions only.
 
-**Why not.** The edit never runs on a database that already ran the file, so the code that needs it fails there with `no such column`, while new databases get it: the two drift apart without a word. A bypass is the first thing a coding agent reaches for.
+**Why not.** It would mean code of Tifa's own around goose again, kept in every app's copy. The edit of a file that ran never reaches the databases that ran it, so the rule "never edit a file that ran anywhere but on your machine" stays, in the docs, the notes of the app and the skill.
 
-**Instead.** The app refuses to start, and the message gives the safe fix only: put the file back as it was, and write the change in the next numbered file. A deploy of such a release fails its health check and goes back to the release before.
+**Reopen when** apps lose data or time to edited migrations, or goose gets such a check.
 
 ## Rendering, memo and Cache
 

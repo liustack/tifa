@@ -1,6 +1,8 @@
--- The first tables of the app. A later change goes in the next file, 002_<what>.sql: see
--- migrate.go. IF NOT EXISTS lets a database made before migrations/ take this file as run.
+-- The first tables of the app. A later change goes in the next file, 002_<what>.sql, which goose
+-- runs at start (OpenDB in db.go). IF NOT EXISTS lets a database made before migrations/ take
+-- this file as run.
 
+-- +goose Up
 {{if not .Empty}}CREATE TABLE IF NOT EXISTS todos (
   id    INTEGER PRIMARY KEY,
   title TEXT    NOT NULL,

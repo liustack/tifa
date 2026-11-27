@@ -105,7 +105,7 @@ Every deploy and rollback is a line of `/srv/tifa/<app>/deploys.log`: the time, 
 
 `tifa deploy` stops the old program and starts the new one behind the systemd socket, so the site is never refused. But while the new release starts, `OnStart` and its migrations included, the requests of visitors wait on the socket. A longer `start_timeout` allows a slower start, and a slow start is a stall of the whole site for that long: with `start_timeout: 5m`, a migration that takes four minutes holds every visitor for four minutes.
 
-A release that does not answer `/healthz` within `start_timeout` counts as failed. Nothing changes then: the old release runs again, and the database is as it was when the work that did not finish was a migration (its transaction never committed). Either raise the setting to fit the work, or make the slow work smaller: split a migration, or run a long index build by hand at a quiet time (see [How long a migration may take](../guides/database.md#how-long-a-migration-may-take)).
+A release that does not answer `/healthz` within `start_timeout` counts as failed. The old release then runs again. When the work that did not finish was a migration, the file that was running is undone (each file runs in a transaction of its own), and the files before it stay. Either raise the setting to fit the work, or make the slow work smaller: split a migration, or run a long index build by hand at a quiet time (see [How long a migration may take](../guides/database.md#how-long-a-migration-may-take)).
 
 ```yaml
 deploy:
@@ -172,7 +172,7 @@ go tool tifa deploy rollback 20261120T110000Z
 
 That release can be older or newer than the one that runs. It must still be on the server and have passed its health check when it was deployed. If it is not, nothing changes and the error lists the releases it can go to. If it is the one that runs already, nothing changes and the command says so.
 
-The database stays where it is. A rollback starts the older release on the tables the newer one left, with everything visitors wrote since, and the older release logs a warning that names the migrations it does not have. That works when each release runs on the tables of the next, as [Keep a rollback working](../guides/database.md#keep-a-rollback-working) describes. To undo data too, go back to an earlier time with the backup: [Undo a bad deploy](../guides/database.md#undo-a-bad-deploy).
+The database stays where it is. A rollback starts the older release on the tables the newer one left, with everything visitors wrote since, and the older release logs a warning with the newest migration the database ran. That works when each release runs on the tables of the next, as [Keep a rollback working](../guides/database.md#keep-a-rollback-working) describes. To undo data too, go back to an earlier time with the backup: [Undo a bad deploy](../guides/database.md#undo-a-bad-deploy).
 
 ## The servers Tifa remembers
 
