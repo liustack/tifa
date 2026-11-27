@@ -93,5 +93,5 @@ Never edit `.tifa/`. It is generated.
 - A rollback runs older releases on the same tables, so each release must run on the next one's tables: add tables, columns that are nullable or have a default, indexes. Name the columns in every `SELECT` and `INSERT`.
 - Rename or drop over three releases: add the new one and write both, read it, drop the old one once no release you could roll back to uses it, in a file whose first comment says so.
 - Rebuild a table only as database.md shows, or `ON DELETE CASCADE` rows go.
-- Migrations finish within `deploy.start_timeout` (default 30s). See "Change the tables" in `docs/guides/database.md`.
+- Migrations finish within `deploy.start_timeout` (30s by default): see `docs/guides/database.md`.
 

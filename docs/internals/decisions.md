@@ -482,7 +482,7 @@ A redirect from the handler to the address the page already has does load it aga
 - `OnCommand(ctx, args []string)`: raw arguments, so every app writes its own parsing, help and errors.
 - Running `OnStart` before a command: it brings the setup of serving and the background loops, such as jobs and the backup copy, that a command does not want. A second backup copy next to the one of the service breaks it.
 - A wrapper of Tifa over Cobra: an API only Tifa has, which agents do not know.
-- A separate migrate step in `tifa deploy`: migrations run in `OnStart` (see [Tifa has no database layer](#tifa-has-no-database-layer-migrations-are-app-code-tifa-new-writes)).
+- A separate migrate step in `tifa deploy`: migrations run in `OnStart` (see [Tifa has no database layer](#tifa-has-no-database-layer-migrations-are-app-code-that-uses-goose)).
 
 **Instead.** [Commands of the app](../guides/commands.md).
 
