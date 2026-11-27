@@ -12,7 +12,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Changed
 
-- Server rendering runs on beastjs v0.33.3. Starting the program compiles the bundle faster, 31% less time for the shop's bundle on an M4 Mac. The pages and their HTML are the same, and a render of the shop's workbench pages takes about 1% longer.
+- Server rendering runs on beastjs v0.33.3. Starting the program compiles the bundle faster, 31% less time for the shop's bundle on an M4 Mac. The pages and their HTML are the same, and a render takes the same time.
 - `tifa deploy` runs ssh with `BatchMode=yes` when there is no terminal, so it never waits for an answer no one can give, and gives a server it reaches directly 15 seconds to answer, unless your ssh configuration sets a `ConnectTimeout` (a `ProxyCommand` or `ProxyJump`, such as Cloudflare Access, gets no limit). A host key that is not in `known_hosts` yet, one that changed, and a server ssh cannot reach each get an error that says what to do. See [Deploy](docs/build-and-deploy/deploy.md#deploy-with-tifa-deploy).
 
 ### Fixed
