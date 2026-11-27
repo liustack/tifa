@@ -1,18 +1,19 @@
 ---
-summary: '管理已部署的应用：`tifa deploy env`、没有终端时设置密钥、`logs`、`status`、`remove`，以及应用在服务器上把文件放在哪里'
+summary: '管理已部署的应用：`tifa deploy env`、没有终端时设置密钥、`logs`、`status`、`run`、`remove`，以及应用在服务器上把文件放在哪里'
 audience: app
 order: 15
-translatedFrom: cd8c58aa8716
+translatedFrom: fd5d712c006d
 read_when:
   - '用 tifa deploy env 设置已部署应用 .env 里的密钥或设置'
   - 'agent 运行 tifa deploy env set，或带 --cache-purge-token 的 tifa deploy setup，浏览器里打开了一个页面用来输入密钥'
   - '读取已部署应用的日志、检查哪个版本在运行以及它是否健康，或者用 tifa deploy logs、status 或 remove 把应用从服务器、Cloudflare 和 GitHub 上拿掉'
+  - '用 tifa deploy run 在服务器上运行应用的命令，比如只改一次数据的命令'
   - '一台服务器上放多个应用，或者找已部署应用的日志、.env 或数据'
 ---
 
 # 管理已部署的应用 {#run-a-deployed-app}
 
-设置密钥，读日志，查看运行的是哪个版本，把应用从服务器上拿掉，以及找到应用在服务器上的文件。
+设置密钥，读日志，查看运行的是哪个版本，运行应用的命令，把应用从服务器上拿掉，以及找到应用在服务器上的文件。
 
 ## 服务器上的设置和 secret {#settings-and-secrets-on-the-server}
 
@@ -122,6 +123,43 @@ Only the servers this machine has set up or deployed to, the ones in ~/.tifa/con
 - 在你的机器上：应用在 `~/.ssh/config` 里的块，最后才删，这样中途停下的一次运行仍然能连到服务器。没有 cf 登录、而你是用 ssh 主机名连到服务器时，这个块会留下，remove 会说明。cloudflared 仍然装着，`.env` 里的 `TIFA_DEPLOY_HOST` 也保持原样。
 
 和 setup 一样，remove 先打印一份方案。在终端里，它接着要你输入应用的名字，加了 `--yes` 也一样。没有终端时，除非你传 `--yes`，否则它什么也不移除。没有 cf 登录、gh 或令牌就移除不了的东西，会列在最后，带上它需要的登录。它移除其余的，并以错误退出：登录后再运行一次。某一步失败不会阻止其他步骤，但 tunnel 会留着，直到再运行一次把其余的移除。一次运行发现什么也没剩下时，会用一行说明。
+
+## 运行应用的命令 {#run-a-command-of-the-app}
+
+```sh
+go tool tifa deploy run promote ann@example.com   # a command the app adds in OnCommand
+go tool tifa deploy run config                    # the settings of the service, and where each comes from
+go tool tifa deploy run --host vps2 seed --count 5
+```
+
+`run` 先像 `status` 一样看一眼服务器，再通过 ssh 以 `tifa` 身份带着参数运行当前发布的程序。看服务器时，它找服务器的方式和 `tifa deploy` 一样，如果主机现在回答说自己是另一台机器，而不是 `~/.tifa/config.yaml` 记住的那台，它就停下。程序在服务所在的目录 `/srv/tifa/<app>/shared` 里运行，带着服务有的那些变量，所以它读的 `.env`、设置和数据都和服务一样。它不会启动或停止服务。
+
+- 它自己的参数 `--dir` 和 `--host` 写在命令前面。从命令开始的所有内容都原样交给程序，包括参数、引号、空格和 `$`。`--` 也会结束 `run` 自己的参数：`go tool tifa deploy run -- --help` 打印的是程序的帮助。
+- 输出、错误输出和退出状态都是程序的，`run` 在它之后不再加自己的信息。
+- 输入和输出都是终端时，ssh 会在服务器上拿到一个终端，所以命令可以提问，Ctrl-C 也能传到它。否则（比如编程 agent 来运行时），ssh 以 BatchMode 运行，没有终端，`run` 的输入就是程序的输入（`go tool tifa deploy run import < rows.csv`）。
+- 应用还没有任何发布时，它停下并提示 `run go tool tifa deploy first`。
+
+### 部署之后 {#after-a-deploy}
+
+新发布没通过健康检查时，`tifa deploy` 以 1 退出，所以必须在部署成功后才做的工作可以用 `&&` 接在后面，它跑在刚上线的那个发布上：
+
+```sh
+go tool tifa deploy && go tool tifa deploy run notify-team
+```
+
+在 [GitHub Actions](deploy-github-actions.zh-CN.md) 里，在 `.github/workflows/tifa-deploy.yml` 的 `Deploy` 这一步后面加一步。先删掉文件开头 Tifa 的那一行，这样 setup 就不会动你改过的文件。一步只在它前面的步骤都通过时才运行，而且和 agent 一样没有终端：
+
+```yaml
+      - name: Notify the team
+        if: inputs.action != 'rollback'
+        env:
+          TIFA_DEPLOY_HOST: ${{ secrets.TIFA_DEPLOY_HOST }}
+        run: go tool tifa deploy run --host "$TIFA_DEPLOY_HOST" notify-team
+```
+
+用 `connect: cloudflare` 时，把 `Deploy` 这一步里那两个 `TUNNEL_SERVICE_TOKEN_` 开头的变量也抄进它的 `env`。
+
+应用能加哪些命令，以及服务运行时它们能依靠什么，见[应用的命令](../guides/commands.zh-CN.md)。
 
 ## 在服务器上 {#on-the-server}
 

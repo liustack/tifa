@@ -1,5 +1,5 @@
 ---
-summary: 'The generated program: its commands (`serve`, `config`, `version`), where settings come from, and compression of answers'
+summary: 'The generated program: its commands (`serve`, `config`, `version` and those of the app), where settings come from, and compression of answers'
 audience: app
 order: 14
 read_when:
@@ -15,6 +15,9 @@ read_when:
 | `serve` (default) | Loads the config, sets up [HTTPS](../build-and-deploy/https.md#https) when it is on, runs `OnStart`, listens on `server.addr` (and with HTTPS on `server.http_addr`), and on SIGINT or SIGTERM shuts down gracefully and runs `OnShutdown`. Both addresses stop accepting and finish their requests together |
 | `config` | Prints every setting, of Tifa and of the app, with its value and where the value comes from, as a commented YAML file a deployment can pass with `-c` |
 | `version` | Prints the versions of the app module, the Tifa module and Go |
+| A command of the app | What [`OnCommand`](../pages-and-data/hooks.md#hooksgo) adds. Loads the settings as `serve` does, takes the same flags of the settings, and runs without `OnStart`, `OnShutdown`, the server or the VMs. Its context ends on SIGINT or SIGTERM, and a second one ends the program. An error it returns is printed once and the program exits with 1. See [Commands of the app](../guides/commands.md) |
+
+`help` and `completion` come from Cobra. `--help` lists the commands of the app next to these. A command of the app with the name or an alias of one of the five, or with a flag of the settings, stops the program at start with the reason.
 
 Settings come from, highest first: command-line flags, environment variables, the `.env` file of the working folder, the file given with `-c` (or `--config`), the values of `tifa.yaml` built into the program, and the defaults. The program does not read `tifa.yaml` itself. A flag that is no setting is an error. Variables and file keys that are no setting are left alone. See [Configuration](../build-and-deploy/config.md#where-settings-come-from).
 

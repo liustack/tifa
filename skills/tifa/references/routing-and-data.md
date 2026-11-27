@@ -1,6 +1,6 @@
 # Routing and data
 
-Contents: URLs from folders, `route.go`, `Load`, Layouts and `tifa.Use`, method handlers, `Ctx`, what `Load` may do with `Ctx`, the page side (`route.gen`), JSON rules, `hooks.go`, sessions.
+Contents: URLs from folders, `route.go`, `Load`, Layouts and `tifa.Use`, method handlers, `Ctx`, what `Load` may do with `Ctx`, the page side (`route.gen`), JSON rules, `hooks.go` and commands of the app, sessions.
 
 Full docs (in the folder `go tool tifa docs` prints): `docs/start/app.md`, `docs/pages-and-data/routing.md`, `docs/pages-and-data/layouts.md`, `docs/pages-and-data/loading-data.md`, `docs/pages-and-data/handlers.md`, `docs/pages-and-data/navigation.md`, `docs/pages-and-data/head.md`, `docs/reference/ctx.md`, `docs/reference/json.md`, `docs/pages-and-data/hooks.md`.
 
@@ -245,13 +245,14 @@ If the build rejects a type, the error names the file and line. Convert to a pla
 
 ## hooks.go
 
-`hooks.go` sits in the root package. All four functions are optional:
+`hooks.go` sits in the root package. All five functions are optional:
 
 ```go
 func OnStart(ctx context.Context) error         // before listening: open the database, etc.
 func OnShutdown(ctx context.Context) error      // after a stop signal, once requests finish
 func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error // the only middleware, call next(c) to continue
 func OnError(c *tifa.Ctx, err error) tifa.Error // report unexpected errors, pick what users see
+func OnCommand(root *cobra.Command)             // add commands to the program, next to serve, config and version
 ```
 
 - `OnRequest` runs for pages, navigation data requests, API routes and unmatched URLs. Not for static files. A cross-site write is refused before it. On a page with `Cache` it sees an anonymous request: no cookie, `Authorization` or session, and only a short list of headers. Redirect by login state in `OnRequest` on routes without `Cache`.
@@ -270,6 +271,7 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 
 - `next(c)` returns the outermost `Load` error. Return it unchanged (or wrapped once with `%w`) to let the framework handle it. Returning another error makes the middleware win.
 - Use `OnStart` for background goroutines too (jobs, mail queues) and stop them in `OnShutdown`. Do not use `init()`.
+- One-off work (seed data, make a user an admin, fix rows) is a command: `OnCommand` adds plain `*cobra.Command` values with `root.AddCommand`, each made inside the function (not in a package-level variable). A command gets the flags and settings of `serve`, so options such as `DBPath` have their values, and `cmd.Context()` ends on Ctrl-C. `OnStart` and `OnShutdown` do not run: open what the command needs, such as `db, err := OpenDB(DBPath)` with `defer db.Close()`. Return errors (printed once, exit 1), and write with `fmt.Fprintln(cmd.OutOrStdout(), ...)`. `serve`, `config`, `version`, `help`, `completion` and flags of the settings are taken. Run it as `./bin/<app> seed` after `go tool tifa build`, in a test with `tifatest.Command(t, tifaapp.App, "seed", "--count", "3")`, and on the server with `go tool tifa deploy run seed` (arguments and flags after the command go to it). See `docs/guides/commands.md`.
 
 ## Sessions
 

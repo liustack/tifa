@@ -61,7 +61,7 @@ myapp/
 | `layout.tsx` | The Layout component. It renders `<Outlet />` where the child page goes |
 | `layout_.tsx` | Like `layout.tsx`, but drops every Layout above it, the root one too |
 | `route.gen` | Generated typed module you import, never create it: `import { page, POST, type PageData } from './route.gen'`. It is written from `route.go`, `page.tsx` and `layout.tsx`: after a batch of Go changes (a return or input type, or a page or Layout added or removed), run `go tool tifa gen` once before writing the TypeScript that uses the types. `tifa dev` does it while it runs |
-| `hooks.go` | Root only. Optional `OnStart`, `OnShutdown`, `OnRequest`, `OnError` |
+| `hooks.go` | Root only. Optional `OnStart`, `OnShutdown`, `OnRequest`, `OnError`, and `OnCommand` for commands of the program |
 | `*.client.tsx` | A component loaded only in the browser, through `clientOnly` from `tifa/client` |
 
 Folder names are URL segments. `order+` is the parameter `{order}`: the folder name is the parameter name, so `booking+` under `staff/` is `/staff/{booking}`, and `/staff/booking/{id}` needs a literal folder `booking` holding `id+`. `go tool tifa routes` prints the URLs that result. `path++` is the rest of the path (last folder only). Name the Go package after the parameter: `order+` holds `package order`. Code is grouped by domain in folders under `app/`, not in shared `models/` or `handlers/` packages. Dependencies are package-level variables set up in `OnStart`, not injected.
@@ -83,7 +83,7 @@ Go side:
 8. Doing permission checks only in a `Layout`: a cached Layout does not run again on navigation. Check in `OnRequest`, or make each page's `Load` call `tifa.Use(c, theCheckingLayout)`.
 9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Go slices and maps arrive as `[]` and `{}`, never `null`, and `time.Duration` is not accepted. Integers a browser would round (above 9007199254740991, such as snowflake IDs or `UnixNano`) are refused when a page reads them (`Load`, `Layout`, session data, a handler called with `X-Tifa-Call` by the generated function of a page). `tifatest.Start` refuses it in `Load` and `Layout` too. A plain HTTP client gets the raw number from a handler, and so does a test with `tifatest.Start` unless the request sets `X-Tifa-Call: 1`. Tag the field `json:",string"`, or send milliseconds.
 10. Changing state in a `GET`. The cross-site write check skips GET, HEAD and OPTIONS.
-11. Writing a `main`, editing anything in `.tifa/`, or setting things up in `init()`. Use `OnStart` and `OnShutdown` for resources.
+11. Writing a `main`, editing anything in `.tifa/`, or setting things up in `init()`. Use `OnStart` and `OnShutdown` for resources. One-off work, such as seeding data or making a user an admin, is a command the app adds with `OnCommand` in `hooks.go`, run on the server with `go tool tifa deploy run` (see `references/routing-and-data.md`).
 12. Letting the root package import anything under `app/`. Domains import the root package for `DB` and friends, so that import would close a cycle.
 13. Reading options with `os.Getenv` or your own flags. Define them in `options.go` at the root with `tifa.String`, `tifa.Int`, `tifa.Bool` and the like: `./bin/app config` lists them and a bad value stops startup.
 
@@ -110,7 +110,7 @@ Read the one that matches the task.
 
 | File | Read when |
 | --- | --- |
-| [references/routing-and-data.md](references/routing-and-data.md) | Adding a page, a Layout or an API route. Writing `Load`, `Layout`, `tifa.Use`, method handlers with input and result, calling them from the browser, JSON rules, `hooks.go`, auth and sessions with `OnRequest`, or the build complains about `Ctx` usage |
+| [references/routing-and-data.md](references/routing-and-data.md) | Adding a page, a Layout or an API route. Writing `Load`, `Layout`, `tifa.Use`, method handlers with input and result, calling them from the browser, JSON rules, `hooks.go`, commands of the app with `OnCommand`, auth and sessions with `OnRequest`, or the build complains about `Ctx` usage |
 | [references/rendering.md](references/rendering.md) | A page fails to render on the server or does not hydrate. Using a library, date, number, chart or browser API in a page. `head` tags, `SSR` and `Memo` switches, Tailwind or shadcn/ui |
 | [references/errors-and-404.md](references/errors-and-404.md) | Showing a 404, a 403 or a failed `Load`. Redirects. Choosing between `tifa.ErrNotFound`, `tifa.Error`, `tifa.Fields` and `OnError` |
 | [references/i18n.md](references/i18n.md) | A site in several languages: `_locales` folders, language prefixes in URLs, `c.Language()`, translations with i18next, `hreflang` links |

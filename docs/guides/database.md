@@ -141,7 +141,7 @@ go test -run TestSchema -update
 
 `schema.sql` is the one file that shows every table as it is now. Never edit it: `TestSchema` writes it from the migrations and fails, in `go test` and `go tool tifa check`, when it does not match them. A table changed in `schema.sql` by hand would never reach a database that exists.
 
-A file is SQL only. Data work that needs Go, such as calling a service for every row, goes in the Go code of the app, such as a [background job](jobs.md).
+A file is SQL only. Data work that needs Go, such as calling a service for every row, goes in the Go code of the app: a [command of the app](commands.md) that you run once, or a [background job](jobs.md).
 
 ### What the runner does
 

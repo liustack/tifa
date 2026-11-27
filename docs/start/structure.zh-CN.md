@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的文件放在哪里：app/ 里的领域、hooks、共享资源、包的导入'
 audience: app
 order: 4
-translatedFrom: 56ed5b6354f6
+translatedFrom: e6394b59b889
 read_when:
   - '新建 Tifa 应用'
   - '决定一个类型、一条查询或一个共享资源放在哪里'
@@ -21,7 +21,7 @@ read_when:
 ```text
 myapp/
   go.mod
-  hooks.go                  OnStart, OnShutdown, OnRequest, OnError
+  hooks.go                  OnStart, OnShutdown, OnRequest, OnError, OnCommand
   setup.ts                  top-level code of the JavaScript side: i18next formatters and other setup
   options.go                the options of the app: var DBPath = tifa.String(...)
   db.go                     var DB, opened in OnStart and closed in OnShutdown

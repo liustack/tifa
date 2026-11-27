@@ -1,10 +1,11 @@
 ---
-summary: 'Test an app with go test: tifatest.NewCtx, tifatest.Start, Load, OnRequest, clock'
+summary: 'Test an app with go test: tifatest.NewCtx, tifatest.Start, tifatest.Command, Load, OnRequest, clock'
 audience: app
 order: 14
 read_when:
   - Writing Go tests for a Load, a Layout function, a method handler or OnRequest
   - Testing a whole request in go test, such as signing in and following the redirect, with tifatest.Start or tifatest.StartPages
+  - Testing a command the app adds in OnCommand, with tifatest.Command
   - '`tifatest.Start` fails with a message about `.tifa/tifaapp` or `.tifa/dist`'
   - A test needs a fixed time in the render, with `tifa.WithRenderClock`
 ---
@@ -84,6 +85,8 @@ func TestSignInLeadsBackToTheWorkbench(t *testing.T) {
 - `Start` fails the test when `.tifa/tifaapp` was made from other routes than the code has now. Run `go tool tifa check` again, or keep `tifa dev` running. In a fresh checkout `.tifa` is missing, and `go vet`, `go test` and `go mod tidy` fail on the import until `tifa check` writes it. `tifa check` generates before it runs `go vet` and `go test`, so it needs nothing first.
 
 `tifatest.StartPages(t, tifaapp.App)` also renders the pages to HTML, with the front end that `tifa build` or `tifa dev` wrote to `.tifa/dist`, and serves its scripts, stylesheets and public files. `tifa check` does not bundle, so run `tifa build` before such tests, or keep `tifa dev` running. `StartPages` fails the test when `.tifa/dist` is missing, and when a file the front end was built from has changed since: it names the files, such as a page, a component, a stylesheet, `package.json`, the lock file or the Vite config. Pages render on two VMs whatever `ssr.vms` says, and the test binary never holds more. The first `StartPages` starts them, which takes a moment. Later ones with the same build use them, and one with another build closes them and starts two new ones.
+
+`tifatest.Command(t, tifaapp.App, "seed", "--count", "3")` runs a command that the app adds in `OnCommand`, as the program runs it but without `OnStart`, and returns what it wrote and its error: see [Test it](../guides/commands.md#test-it).
 
 ## Render clock
 
