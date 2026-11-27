@@ -37,6 +37,8 @@ Anyone who logs in with a password is refused after this and needs a key. The we
 
 Before it turns ufw on, harden lists everything that listens on an address other than loopback. A program that is not sshd, a socket of Tifa or the nginx of Tifa stops it: harden names the program and its port, does not turn ufw on, and changes nothing in ufw. It does not guess whether the program should stay reachable. Allow its port yourself (`sudo ufw allow <port>/tcp`), or stop the program, then run harden again. A port that a rule of ufw allows already is accounted for.
 
+ufw keeps one rule for a port and only changes its comment when you add another. So harden adds a rule only for a port that no rule allows yet, whatever its comment, and leaves your rules and those of Tifa's nginx as they are. The plan names the ports it adds and the ports that have rules. A rule that denies or limits one of the ports stays and is named in the plan. When it denies the ssh port, ufw stays off.
+
 When ufw is on already, harden only reports: it never edits the rules of a firewall someone set up. It says so when no rule allows ssh. It never closes or limits the ssh port.
 
 **3. Automatic security updates.** harden installs `unattended-upgrades` when it is missing, sets `Unattended-Upgrade` to 1 in `/etc/apt/apt.conf.d/20auto-upgrades` when it is 0 or the file is missing, and enables `apt-daily-upgrade.timer`. Ubuntu Server ships with this on, so usually it is "already right". A `0` that you set on purpose shows in the plan as such, and changes only when you agree. When updates ask for a reboot (`/var/run/reboot-required`), harden says so. It never reboots the server.
@@ -67,7 +69,7 @@ harden writes what it changed, and the state from before each change, to `/etc/t
 go tool tifa deploy harden --host vps --undo
 ```
 
-It reads the record and nothing else. It prints a plan, asks the same way, then deletes the ssh file and reloads sshd (password logins come back, and a new login is checked again), turns ufw off, deletes the rules with the comment `tifa harden` and uninstalls ufw if harden installed it, and puts the automatic updates back as they were, uninstalling the package if harden installed it. The record goes at the end. Without a record, it says there is nothing of harden to undo.
+It reads the record and nothing else. It prints a plan, asks the same way, then deletes the ssh file and reloads sshd (password logins come back, and a new login is checked again), turns ufw off, deletes the rules harden added (the record names their ports, and no other rule is touched) and uninstalls ufw if harden installed it, and puts the automatic updates back as they were, uninstalling the package if harden installed it. The record goes at the end. Without a record, it says there is nothing of harden to undo.
 
 ## Setup mentions it
 

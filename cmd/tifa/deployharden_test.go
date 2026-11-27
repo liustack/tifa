@@ -143,7 +143,7 @@ func TestHardenPlanAndConsent(t *testing.T) {
 		"change  ssh: take key logins only: write /etc/ssh/sshd_config.d/00-tifa-harden.conf with PasswordAuthentication no and KbdInteractiveAuthentication no and PermitRootLogin prohibit-password",
 		"Anyone who logs in with a password is refused",
 		"The web console of your provider still works",
-		"change  firewall: install ufw with apt, then turn it on: deny what comes in, allow what goes out, and allow port 22 (tcp) in rules with the comment 'tifa harden'",
+		"change  firewall: install ufw with apt, then turn it on: deny what comes in and allow what goes out, and allow port 22 (tcp) in rules with the comment 'tifa harden'",
 		"ok      updates: unattended-upgrades is installed and on",
 	} {
 		if !strings.Contains(out, want) {
@@ -501,7 +501,7 @@ func TestHardenUndoFromTheRecord(t *testing.T) {
 	for _, want := range []string{
 		"Plan to undo what harden did on vps",
 		"remove  ssh: delete /etc/ssh/sshd_config.d/00-tifa-harden.conf, which harden wrote, and reload sshd",
-		"remove  firewall: turn ufw off, delete its rules with the comment 'tifa harden' and put back its default policies, and uninstall ufw, which harden installed",
+		"remove  firewall: turn ufw off, delete the rules it added (with the comment 'tifa harden') and put back its default policies, and uninstall ufw, which harden installed",
 		"remove  updates: delete /etc/apt/apt.conf.d/20auto-upgrades, uninstall unattended-upgrades, which harden installed",
 	} {
 		if !strings.Contains(out, want) {
@@ -764,5 +764,93 @@ func TestHardenGuardedScriptsUndoOnSignals(t *testing.T) {
 				t.Error("the record stays after the signal")
 			}
 		})
+	}
+}
+
+const hardenUserRules = `ufw-installed yes
+ufw-status Status: inactive
+ufw-added ufw allow 22/tcp
+ufw-added ufw allow 80/tcp comment 'tifa nginx front'
+ufw-added ufw allow 443/tcp comment 'tifa nginx front'
+nginx-tifa yes
+nginx-site shop
+usock 0.0.0.0:9528 tifa-blog.socket tifa-blog.service
+`
+
+// ufw updates the comment of a rule that is there instead of adding a second one, so harden adds a rule
+// only for a port that no rule allows yet, says which ports have rules, and records what it added.
+func TestHardenAddsOnlyPortsWithoutARule(t *testing.T) {
+	srv := newHardenServer(t, factsWith(hardenUserRules, "ufw-installed"))
+	out, _, err := runHarden(t, false, "", "--host", "vps", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(srv.scripts(), "ports='9528'") {
+		t.Errorf("scripts:\n%s", srv.scripts())
+	}
+	for _, want := range []string{"allow port 9528 (tcp) in rules with the comment 'tifa harden'", "Ports 22, 80 and 443 have rules already, which stay as they are"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// A rule that denies a port is left alone and said. When it is the port of ssh, ufw stays off.
+func TestHardenLeavesDenyingRules(t *testing.T) {
+	srv := newHardenServer(t, factsWith("ufw-installed yes\nufw-status Status: inactive\nufw-added ufw deny 22/tcp\n", "ufw-installed"))
+	out, _, err := runHarden(t, false, "", "--host", "vps", "--yes")
+	if err == nil || !strings.Contains(out, "deny 22/tcp") || strings.Contains(srv.calls(), "ufw-apply") {
+		t.Errorf("got %v\n%s\n%s", err, out, srv.calls())
+	}
+	srv = newHardenServer(t, factsWith("ufw-installed yes\nufw-status Status: inactive\nufw-added ufw allow 22/tcp\nufw-added ufw limit 9528/tcp\nusock 0.0.0.0:9528 tifa-blog.socket tifa-blog.service\n", "ufw-installed"))
+	out, _, err = runHarden(t, false, "", "--host", "vps", "--yes")
+	if err != nil || !strings.Contains(out, "limit 9528/tcp") || !strings.Contains(srv.scripts(), "ports=''") {
+		t.Errorf("got %v\n%s\n%s", err, out, srv.scripts())
+	}
+}
+
+// The script, run for real with a ufw that keeps its rules in a file and updates the comment of a rule
+// for the same port as ufw does: after harden and --undo the rules of the user and of the nginx of
+// Tifa are as they were, and the one harden added is gone.
+func TestHardenUndoLeavesOtherRules(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh")
+	}
+	dir := t.TempDir()
+	bin, rules := filepath.Join(dir, "bin"), filepath.Join(dir, "rules")
+	before := "22/tcp|\n80/tcp|tifa nginx front\n443/tcp|tifa nginx front\n"
+	writeFile(t, rules, before)
+	writeFile(t, filepath.Join(bin, "ufw"), `#!/bin/sh
+r=`+shellQuote(rules)+`
+[ "$1" = --force ] && shift
+case "$1" in
+allow) p=$2; c=""; [ "$3" = comment ] && c=$4
+	if grep -q "^$p|" "$r"; then sed "s/^$p|.*/$p|$c/" "$r" > "$r.new"; mv "$r.new" "$r"; else echo "$p|$c" >> "$r"; fi ;;
+delete) p=$3; c=""; [ "$4" = comment ] && c=$5; grep -v "^$p|$c\$" "$r" > "$r.new"; mv "$r.new" "$r" ;;
+show) while IFS='|' read -r p c; do if [ -n "$c" ]; then echo "ufw allow $p comment '$c'"; else echo "ufw allow $p"; fi; done < "$r" ;;
+esac
+exit 0
+`)
+	if err := os.Chmod(filepath.Join(bin, "ufw"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := filepath.Join(dir, "tifa", "harden")
+	vars := []string{"record", rec, "ssh_file", filepath.Join(dir, "x.conf"), "ufw_comment", hardenUFWComment}
+	pathFirst := "PATH=" + shellQuote(bin) + ":$PATH\n"
+	apply := script(hardenLib, append(vars, "ports", "9528", "before", "inactive", "default_in", "DROP", "default_out", "ACCEPT")...) + pathFirst + hardenUFWBody
+	c := exec.Command("sh", "-c", apply)
+	c.Stdin = strings.NewReader("keep\n")
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got, _ := os.ReadFile(rules); string(got) != before+"9528/tcp|tifa harden\n" {
+		t.Fatalf("rules after harden:\n%s", got)
+	}
+	undo := script(hardenLib, vars...) + pathFirst + hardenUndoUFWBody
+	if out, err := exec.Command("sh", "-c", undo).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got, _ := os.ReadFile(rules); string(got) != before {
+		t.Errorf("rules after undo:\n%s", got)
 	}
 }

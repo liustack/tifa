@@ -2,7 +2,7 @@
 summary: '用 `tifa deploy harden` 加固服务器：只许密钥登录 ssh、ufw、自动安装安全更新，它绝不碰什么，怎样避免把你锁在门外，以及怎样撤销'
 audience: app
 order: 22
-translatedFrom: 5b7450385054
+translatedFrom: 076ed6ea79ee
 read_when:
   - '加固 Tifa 应用所在的服务器，或者服务器还接受 ssh 密码登录而你想把它关掉'
   - '运行 `tifa deploy harden`，或者在看它的计划或报告'
@@ -38,6 +38,8 @@ go tool tifa deploy harden --host vps
 
 打开 ufw 之前，harden 会列出所有监听在非回环地址上的东西。如果有程序不是 sshd、不是 Tifa 的 socket、也不是 Tifa 的 nginx，harden 就停下：它点名这个程序和端口，不打开 ufw，ufw 里什么都不改。它不去猜这个程序是不是该继续对外开放。请你自己放行它的端口（`sudo ufw allow <port>/tcp`），或者停掉这个程序，再运行 harden。ufw 的某条规则已经放行的端口，算作有交代。
 
+ufw 对每个端口只留一条规则，再为它添加规则时只会改掉原规则的注释。所以 harden 只为还没有任何规则放行的端口加规则，不管那条规则的注释是什么，你的规则和 Tifa 的 nginx 的规则都保持原样。计划里会写明它要加的端口，以及已经有规则的端口。拒绝或限速其中某个端口的规则会保留，计划里也会点出来。要是它拒绝的是 ssh 端口，ufw 就保持关闭。
+
 ufw 已经开着时，harden 只做报告：它绝不改别人设好的防火墙规则。要是没有规则放行 ssh，它会说一声。它绝不关闭或限制 ssh 端口。
 
 **3. 自动安装安全更新。** harden 在缺 `unattended-upgrades` 时装上它，在 `/etc/apt/apt.conf.d/20auto-upgrades` 里 `Unattended-Upgrade` 是 0 或文件不存在时把它设为 1，并启用 `apt-daily-upgrade.timer`。Ubuntu Server 默认就是开着的，所以通常是「已经正确」。你有意设成的 `0` 会在计划里照实显示，你同意之后才会改。更新要求重启（`/var/run/reboot-required`）时，harden 会告诉你。它绝不重启服务器。
@@ -68,7 +70,7 @@ harden 把它改了什么，以及每项改动之前的状态，写进服务器�
 go tool tifa deploy harden --host vps --undo
 ```
 
-它只读这份记录，别的都不看。它打印计划，用同样的方式询问，然后删掉 ssh 的文件并重载 sshd（密码登录恢复，并且会再检查一次新的登录），关掉 ufw，删掉注释为 `tifa harden` 的规则，ufw 是 harden 装的就卸载它，再把自动更新恢复成原来的样子，软件包是 harden 装的就卸载它。最后记录文件被删掉。没有记录时，它会说没有 harden 的东西可撤销。
+它只读这份记录，别的都不看。它打印计划，用同样的方式询问，然后删掉 ssh 的文件并重载 sshd（密码登录恢复，并且会再检查一次新的登录），关掉 ufw，删掉 harden 加的规则（记录里写着它们的端口，别的规则一概不碰），ufw 是 harden 装的就卸载它，再把自动更新恢复成原来的样子，软件包是 harden 装的就卸载它。最后记录文件被删掉。没有记录时，它会说没有 harden 的东西可撤销。
 
 ## setup 会提到它 {#setup-mentions-it}
 

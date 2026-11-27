@@ -177,8 +177,10 @@ fi
 const hardenUFWUndo = `undo_ufw() {
 	if command -v ufw >/dev/null 2>&1; then
 		ufw --force disable >/dev/null || true
-		ufw show added | grep "comment '$ufw_comment'" | sed -n 's/^ufw allow \([0-9]*\/tcp\) .*/\1/p' | while IFS= read -r r; do
-			ufw --force delete allow "$r" comment "$ufw_comment" >/dev/null || true
+		# Only the rules harden added: ufw gives a port that had a rule the new comment instead of a
+		# second rule, so harden adds none for such a port, and the others stay.
+		for p in $(recget ufw_added | tr ',' ' '); do
+			ufw --force delete allow "$p/tcp" comment "$ufw_comment" >/dev/null || true
 		done
 		for d in in out; do
 			case "$(recget ufw_default_$d)" in
@@ -189,7 +191,7 @@ const hardenUFWUndo = `undo_ufw() {
 		done
 	fi
 	if [ "$(recget ufw_installed)" = yes ]; then apt-get purge -y -q ufw </dev/null >/dev/null || true; fi
-	for k in ufw_before ufw_default_in ufw_default_out ufw_installed; do recdel "$k"; done
+	for k in ufw_before ufw_added ufw_default_in ufw_default_out ufw_installed; do recdel "$k"; done
 	recdone
 }
 pick_dir() { if [ "$1" = in ]; then echo incoming; else echo outgoing; fi; }
@@ -209,6 +211,7 @@ if ! command -v ufw >/dev/null 2>&1; then
 fi
 recset ufw_default_in "$default_in"
 recset ufw_default_out "$default_out"
+recset ufw_added "$(echo $ports | tr ' ' ',')"
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 for p in $ports; do
@@ -495,6 +498,11 @@ func (s hardenState) sshOnlyKeys() bool {
 // visitorPorts are the ports the apps of Tifa on the server serve visitors on: the public ports of
 // the sockets of the user tifa (apps with front none), and 80 and 443 when the nginx of Tifa has a
 // site.
+//
+// TODO(front: external): an app with front external, which another branch adds, has Tifa open no
+// port: only the load balancer of the user may reach it. When that lands, its listening port must
+// count as an unknown listener here, not as a visitor port: do not allow it to everyone, do not turn
+// ufw on, and tell the user to allow it from their load balancer first.
 func (s hardenState) visitorPorts() []int {
 	var ports []int
 	for _, u := range s.userSockets {
@@ -710,13 +718,49 @@ func (r *hardenRun) firewallSteps(p *setupPlan) {
 		r.dockerNote(p)
 		return
 	}
+	// ufw updates the comment of a rule for the same port instead of adding another, so a port that
+	// has a rule already, with any comment, gets none: it is not harden's to take over or to delete.
+	var add, have []int
+	var odd []string
+	for _, port := range allow {
+		var rule ufwRule
+		ok := false
+		if s.ufw != nil {
+			rule, ok = s.ufw.rule(port)
+		}
+		switch {
+		case !ok:
+			add = append(add, port)
+		case rule.action == "allow":
+			have = append(have, port)
+		case rule.action == "limit":
+			have = append(have, port)
+			odd = append(odd, "ufw "+rule.text+" limits it")
+		default:
+			odd = append(odd, "ufw "+rule.text+" denies it")
+			if slices.Contains(s.sshPorts, port) || port == r.connected {
+				p.cannot("firewall: turn ufw on", fmt.Sprintf("ufw has the rule ufw %s, which denies the port %d of ssh. Turning ufw on would lock you out, so it stays off and nothing changed. Delete the rule (sudo ufw delete %s), then run harden again", rule.text, port, rule.text))
+				return
+			}
+		}
+	}
 	text := "firewall: "
 	if !s.ufwInstalled {
 		text += "install ufw with apt, then "
 	}
-	text += fmt.Sprintf("turn it on: deny what comes in, allow what goes out, and allow %s (tcp) in rules with the comment '%s'. The ports are those of ssh and of the apps of Tifa that serve visitors. Existing connections stay", portList(allow), hardenUFWComment)
-	ports := make([]string, len(allow))
-	for i, a := range allow {
+	text += "turn it on: deny what comes in and allow what goes out"
+	if len(add) > 0 {
+		text += fmt.Sprintf(", and allow %s (tcp) in rules with the comment '%s'", portNames(add), hardenUFWComment)
+	}
+	if len(have) > 0 {
+		text += fmt.Sprintf(". %s %s rules already, which stay as they are", strings.ToUpper(portNames(have)[:1])+portNames(have)[1:], pick(len(have) > 1, "have", "has"))
+	}
+	if len(odd) > 0 {
+		text += ". Harden does not touch " + strings.Join(odd, " and ") + ": nothing allows that port"
+	}
+	text += ". The ports are those of ssh and of the apps of Tifa that serve visitors. Existing connections stay"
+	ports := make([]string, len(add))
+	for i, a := range add {
 		ports[i] = strconv.Itoa(a)
 	}
 	before := pick(s.ufwInstalled, "inactive", "absent")
@@ -920,8 +964,8 @@ func (r *hardenRun) undoPlan(ctx context.Context) (setupPlan, error) {
 			return res, nil
 		})
 	}
-	if has("ufw_before", "ufw_installed", "ufw_default_in", "ufw_default_out") {
-		text := "firewall: turn ufw off, delete its rules with the comment '" + hardenUFWComment + "' and put back its default policies"
+	if has("ufw_before", "ufw_added", "ufw_installed", "ufw_default_in", "ufw_default_out") {
+		text := "firewall: turn ufw off, delete the rules it added (with the comment '" + hardenUFWComment + "') and put back its default policies"
 		if rec["ufw_installed"] == "yes" {
 			text += ", and uninstall ufw, which harden installed"
 		}
@@ -1116,4 +1160,16 @@ exactly that. On a terminal harden asks before it changes anything. Without a te
 	cmd.Flags().BoolVarP(&f.yes, "yes", "y", false, "apply the plan without asking")
 	cmd.Flags().BoolVar(&f.undo, "undo", false, "put back what harden changed, from the record on the server")
 	return cmd
+}
+
+// portNames lists ports for a sentence: port 22, or ports 22, 80 and 443.
+func portNames(ports []int) string {
+	words := make([]string, len(ports))
+	for i, p := range ports {
+		words[i] = strconv.Itoa(p)
+	}
+	if len(words) == 1 {
+		return "port " + words[0]
+	}
+	return "ports " + strings.Join(words[:len(words)-1], ", ") + " and " + words[len(words)-1]
 }
