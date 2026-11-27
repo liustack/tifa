@@ -20,7 +20,7 @@
   <img src="https://img.shields.io/badge/users-unknown-lightgrey?style=flat-square" alt="Users unknown">
 </p>
 
-用 Go 写后端、React 写页面。Tifa 在 Go 进程里渲染 React，把整个网站编译成一个可执行文件，拷到一台小 VPS 上直接运行，或者用 `tifa deploy` 部署上去。线上不需要 Node，不需要进程管理器、反向代理和 Redis。
+用 Go 写后端、React 写页面。Tifa 在 Go 进程里渲染 React，把整个网站编译成一个可执行文件，拷到一台服务器上直接运行，或者用 `tifa deploy` 部署上去。线上不需要 Node，不需要进程管理器、反向代理和 Redis。
 
 适合业务逻辑和数据都在 Go 里的 Go 开发者。也适合独立开发者和初创团队：想要一个真正的 React 应用，又不想在旁边养一整套服务。
 
@@ -91,7 +91,7 @@ go tool tifa check   # 分析、vet、测试和 TypeScript 检查一次跑完
 - **错误在构建时报出。** 路径重复、Layout 读了不属于它的参数、`Load` 返回值不能转成 TypeScript，构建会停下并指出文件和行号。
 - **首屏之后很快。** 浏览器由 TanStack Router 接管。每次跳转只发一个数据请求，已经加载过的 Layout 不会重新取数。
 
-## 一台小服务器就够
+## 一台服务器就够
 
 **[渲染记忆](docs/reference/memo.zh-CN.md)**对所有页面默认开启，购物车、个人账单这类登录后才能看的页面也一样。每个请求都先取最新数据，数据没变才复用上次渲染的结果，所以页面永远是最新的。只有数据和登录状态完全相同才会复用，一个人的页面不会发给另一个人。应用不用写一行缓存代码。
 
@@ -190,7 +190,7 @@ go tool tifa agents
 | [约定](docs/reference/conventions.zh-CN.md) | 想在一页里查完 Tifa 读取的每个文件、文件夹和名字：`page.tsx`、`route.go`、`Load`、`Cache`、hooks 和生成的文件 |
 | [渲染记忆](docs/reference/memo.zh-CN.md) | 想知道为什么页面（包括登录后的页面）不用任何设置就能安全地复用 |
 | [兼容性](docs/reference/compatibility.zh-CN.md) | 想知道升级 Tifa 会不会弄坏你的应用，哪些接口是稳定的 |
-| [性能](docs/reference/performance.zh-CN.md) | 想知道一台小 VPS 扛不扛得住你的流量 |
+| [性能](docs/reference/performance.zh-CN.md) | 想知道一台服务器扛不扛得住你的流量 |
 | [研究报告](docs/studies/README.md) | 想看某个数字背后完整的方法和数据，或者某个想法有没有人试过（英文） |
 | [测试](docs/internals/testing.md) | 参与 Tifa 本身的开发（英文） |
 

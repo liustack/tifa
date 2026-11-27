@@ -20,7 +20,7 @@
   <img src="https://img.shields.io/badge/users-unknown-lightgrey?style=flat-square" alt="Users unknown">
 </p>
 
-Write the backend in Go and the pages in React. Tifa renders React inside the Go process and compiles the whole site into one executable, which you copy to a small VPS and run, or put there with `tifa deploy`. No Node in production, no process manager, no reverse proxy, no Redis.
+Write the backend in Go and the pages in React. Tifa renders React inside the Go process and compiles the whole site into one executable, which you copy to one server and run, or put there with `tifa deploy`. No Node in production, no process manager, no reverse proxy, no Redis.
 
 It is for Go developers whose business logic and data already live in Go, and for indie hackers and startup teams who want a real React app without running a stack beside it.
 
@@ -91,7 +91,7 @@ go tool tifa check   # analysis, vet, tests and the TypeScript check in one go
 - **Mistakes caught at build time.** Duplicate paths, a Layout reading a parameter it does not own, a `Load` result that cannot become TypeScript: the build stops and names the file and line.
 - **Fast after the first page.** TanStack Router takes over in the browser. Each navigation is one request for data, and Layouts that are already loaded are not fetched again.
 
-## One small server is enough
+## One server is enough
 
 The **[render memo](docs/reference/memo.md)** is on for every page, signed-in ones like a cart or a bill included. Every request fetches fresh data first and reuses the last render only when nothing changed, so a page is never stale. A render is reused only for the same data and the same session, so one person's page never reaches another. The app writes no caching code.
 
@@ -190,7 +190,7 @@ More in [Use Tifa with a coding agent](docs/start/agents.md).
 | [Conventions](docs/reference/conventions.md) | You want every file, folder and name Tifa reads on one page: `page.tsx`, `route.go`, `Load`, `Cache`, hooks and the generated files |
 | [Render memo](docs/reference/memo.md) | You want to know why pages, signed-in ones included, are reused safely with nothing to set up |
 | [Compatibility](docs/reference/compatibility.md) | You want to know whether a Tifa upgrade can break your app, and what stays stable |
-| [Performance](docs/reference/performance.md) | You want to know whether a small VPS can carry your traffic |
+| [Performance](docs/reference/performance.md) | You want to know whether one server can carry your traffic |
 | [Research studies](docs/studies/README.md) | You want the full method and data behind a number, or to see whether an idea was already tried |
 | [Testing](docs/internals/testing.md) | Contributing to Tifa itself |
 
