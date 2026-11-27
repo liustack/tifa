@@ -755,6 +755,13 @@ When all is right it prints one line and asks nothing. It can run again at any t
             that ssh gets through (the first time it opens the Access login in your browser),
             and then TIFA_DEPLOY_HOST in .env is the ssh host
 
+--plan prints the plan and stops. It changes nothing, on the server, in Cloudflare, in GitHub,
+in ~/.tifa or on this machine (no tool is installed or logged in), and it asks nothing, so a
+script or an agent can run it. It exits with 0 when all matches tifa.yaml, 2 when the plan has
+something to do or something you must do, and 1 when the plan could not be made. With several
+servers the worst status wins. Advice alone does not make it 2. --json prints the plan as one JSON
+object, with the same exit status. Neither goes with --yes.
+
 On a terminal, a missing cf or gh comes first: a plan that installs it with pnpm, brew or
 winget and logs it in, then the plan of the rest. It removes only what Tifa made and marked. Without a terminal, pass --yes to apply the plan.
 
@@ -762,6 +769,9 @@ With several servers it sets up each in turn, the first first, with one port for
 free on all of them, and then GitHub with all of them.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := checkPlanFlags(sf); err != nil {
+				return err
+			}
 			ts, err := loadDeployTargets(dir, host, cmd.ErrOrStderr())
 			if err != nil {
 				return err
@@ -800,6 +810,8 @@ moves them one at a time.`,
 		},
 	}
 	setup.Flags().BoolVarP(&sf.yes, "yes", "y", false, "apply the plan without asking")
+	setup.Flags().BoolVar(&sf.plan, "plan", false, "print the plan and stop, changing nothing and asking nothing. Exit status 0 when all matches tifa.yaml, 2 when there is something to do, 1 when the plan could not be made")
+	setup.Flags().BoolVar(&sf.asJSON, "json", false, "with --plan, print the plan as one JSON object")
 	setup.Flags().BoolVar(&sf.all, "all", false, "list the things that are already right too")
 	setup.Flags().BoolVar(&sf.purgeToken, "cache-purge-token", false, "ask for the token that clears the CDN cache at each deploy, and replace the one the server has")
 	setup.Flags().StringVar(&sf.tailscaleClientID, "tailscale-client-id", "", "the client ID of the Tailscale identity CI joins your tailnet with (not secret)")

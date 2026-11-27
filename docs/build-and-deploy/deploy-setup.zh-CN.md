@@ -1,8 +1,8 @@
 ---
-summary: '用 `tifa deploy setup` 配好服务器、Cloudflare 和 GitHub：计划、每种 `front` 改了什么、在没有 gh 的机器上运行 setup'
+summary: '用 `tifa deploy setup` 配好服务器、Cloudflare 和 GitHub：计划、用 --plan 只看计划及其退出码和 JSON、每种 `front` 改了什么、在没有 gh 的机器上运行 setup'
 audience: app
 order: 11
-translatedFrom: 736ed1b61a66
+translatedFrom: ea8b77cde615
 read_when:
   - '在没有 gh 的机器上运行 tifa deploy setup 或 remove，用 TIFA_DEPLOY_GITHUB_TOKEN 里的细粒度令牌'
   - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，你想知道每种 front 下应用监听哪里、`server.addr` 怎么用，你想知道要开放哪些端口，或者想知道 setup 和 remove 在 ufw 里改了什么'
@@ -66,7 +66,7 @@ Apply this plan? [y/N]
 
 你输入的 y 就是同意：setup 不会再就这件事多问。它用 `pnpm add --global cf` 安装 cf，在 macOS 上用 `brew install gh`、在 Windows 上用 `winget install --id GitHub.cli -e` 安装 gh，然后在你的终端里运行 `cf auth login` 和 `gh auth login --web`，每个都会打开浏览器。gh 登录时用 git 协议 https，不动你其他的仓库，只问一个问题：要不要也用 GitHub 登录 git。两个答案对 Tifa 都行。选是的话，git 可以用 gh 的登录来 push，工作流文件也包括在内。setup 用的是包管理器把程序放下的那个位置，即使你终端的 PATH 里还没有那个文件夹。之后它规划其余的部分，再问一次。它只用机器上已有的包管理器来安装，自己从不下载程序。带 `--yes` 时，即使在终端里，或者没有终端时，它什么也不安装、不登录，而是把命令列在你要做的事里：用 `--yes` 运行 setup 的智能体，从不会安装全局包或打开浏览器。没有 pnpm，没有 brew 或 winget，以及在 Linux 上（那里 gh 需要 root 和 [GitHub 的软件包仓库](https://github.com/cli/cli/blob/trunk/docs/install_linux.md)），它同样这么做。安装或登录失败只是一个警告，里面写着怎么手动做（pnpm 在全局安装任何东西之前，需要先运行一次 `pnpm setup`），setup 会继续做不需要那个工具的部分。
 
-当有留给你的事，或者某个可能失败的步骤失败了（比如 Cloudflare 拒绝了三次的缓存清除令牌）时，setup 在做完其余的一切之后，以错误退出。标着 `(optional)` 的事项（比如缓存清除令牌）不会让它失败。脚本可以依赖退出码：照列表做完之后，再运行一次 setup。`tifa.yaml` 每次变化后都再运行它：它只做有差别的事。
+当有留给你的事，或者某个可能失败的步骤失败了（比如 Cloudflare 拒绝了三次的缓存清除令牌）时，setup 在做完其余的一切之后，以错误退出。标着 `(optional)` 的事项（比如缓存清除令牌）不会让它失败。脚本可以依赖退出码：照列表做完之后，再运行一次 setup。只想看一眼的话，见[只看计划，不执行](#only-look-at-the-plan)。`tifa.yaml` 每次变化后都再运行它：它只做有差别的事。
 
 setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你创建的 Cloudflare 令牌：方案会说明要在控制台里删掉它）：`authorized_keys` 里注释为 `tifa-github <owner>/<repo>` 的行，nginx 站点 `/etc/nginx/conf.d/tifa-<app>.conf` 和 certbot 的证书 `tifa-<app>`，注释为 `tifa <app>` 或 `tifa nginx front` 的 ufw 规则，名字以 `tifa` 开头的 Cloudflare 对象（以及 Access 应用 `tifa deploy ssh <host>`），你的 `~/.ssh/config` 里以 `# tifa <app>:` 开头的那个块，它添加的域名的路由和 DNS 记录，仓库变量 `TIFA_DEPLOY_FINGERPRINT`、`TIFA_DEPLOY_TAILSCALE_ID` 和 `TIFA_DEPLOY_TAILSCALE_AUDIENCE`，以及随它们设置的 secret（`TIFA_DEPLOY_HOST`、`TIFA_DEPLOY_KNOWN_HOSTS` 和其他的），以及以 Tifa 那一行开头的工作流文件。设置 `front: none`，或者把 `auto` 块去掉后，方案会在动手之前列出这些删除。
 
@@ -94,6 +94,89 @@ setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你�
 7. 请求一个令牌，这是可选的，它只能清除 zone 的缓存，并把它和 zone 的 ID 一起保存在服务器上，每次部署都能在那里找到它（见[清除 CDN 缓存](deploy-cloudflare.zh-CN.md#clearing-the-cdn-cache)）。cf 的登录做不了 API 令牌，所以你要在 Cloudflare 控制台里做，在终端里 setup 会带你走一遍：它打印一个链接，指向 Cloudflare 的表单，已经填好了 Cache Purge 权限和名字 `tifa cache purge <zone>`。把 Zone Resources 设为只包含这个 zone，创建令牌，并在隐藏的提示处粘贴它。setup 通过清除一个不存在的 URL 来检查它，最多重试 3 次，然后通过 ssh 以 `tifa` 身份，用 ssh 的输入把它写到服务器上。输入空行会跳过它，setup 继续并成功。setup 在这个域名第一次设置时询问，在第一次设置 CI 时询问。服务器上已经有这个 zone 的令牌后，setup 每次运行都用同样的方式检查它，只要 Cloudflare 接受就什么也不问：同一台服务器、同一个 zone 上的第二个应用什么也不用做。Cloudflare 拒绝的令牌，比如已过期或已被删除的，会再问一次。没有令牌时，之后带 `auto` 的运行，以及没有终端的第一次运行，都把它列为可选。以后要加这个令牌或替换它，请运行 `go tool tifa deploy setup --cache-purge-token`：即使服务器上已经有一个，它也会问，在终端里用隐藏的提示，没有终端时用浏览器里的一个页面，加了 `--yes` 也一样（见[没有终端时的 secret](deploy-operate.zh-CN.md#secrets-without-a-terminal)）。
 
 应用搬到别的 front 时，没有应用再用这个 tunnel 后，setup 也会同样把它放掉（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)）。对服务器上最后一个应用运行 `tifa deploy remove`，也会删掉 tunnel 和缓存令牌（见[日志、状态和移除](deploy-operate.zh-CN.md#logs-status-and-remove)）。要手动移除它们，运行 `systemctl disable --now tifa-tunnel tifa-tunnel-upgrade.path`，并删除服务器上的 `/etc/tifa`、`/etc/systemd/system/tifa-tunnel*` 和 `/srv/tifa/.config/tifa`，然后在 Cloudflare 里删除 tunnel 和令牌 `tifa cache purge <zone>`。cloudflared 仍然是装着的：`apt-get purge cloudflared` 再删除 `/etc/apt/sources.list.d/cloudflared.list`、`/usr/share/keyrings/cloudflare-main.gpg` 和 `/etc/apt/apt.conf.d/52tifa-cloudflared`，也能把它移除。
+
+### 只看计划，不执行 {#only-look-at-the-plan}
+
+```sh
+go tool tifa deploy setup --plan
+```
+
+`--plan` 生成同样的计划，打印出来，然后停下。它什么都不改：不改服务器，不改 Cloudflare，不改 GitHub，不改 `~/.tifa`，也不改这台机器。它不安装 cf 或 gh，也不登录它们：缺哪个，计划就把它列成一件 setup 做不了的事。它从不提问，没有终端也能运行。它只读取：用 ssh 连服务器做探测，以及 cf 和 gh 的读取调用。`--plan` 和 `--yes` 互相矛盾，所以两个一起给，setup 会拒绝。
+
+退出码说明计划发现了什么，一台服务器和多台服务器都一样（取最差的那个）。含义和 `terraform plan -detailed-exitcode` 相同：
+
+| 退出码 | 含义 |
+| --- | --- |
+| 0 | 一切都和 `tifa.yaml` 一致：没有要添加、改动或删除的，也没有 setup 做不了的事 |
+| 2 | 计划里有要做的事，或者有需要你来做的事（setup 做不了的步骤） |
+| 1 | setup 没能生成计划：没有 `deploy.front`、连不上服务器、某个设置有误 |
+
+备注（note）是建议，比如 ssh 密码那一行，不会让退出码变成 2。不加 `--plan` 时，因为没有终端而停下的 setup 也以 1 退出，所以只有 `--plan` 能分清「有待执行的改动」和「失败了」。
+
+`--plan --json` 用一个 JSON 对象代替文字，退出码相同。只给 `--json` 不给 `--plan` 会被拒绝。失败时（退出码 1）stdout 保持为空，原因写到 stderr。
+
+```json
+{
+  "app": "shop",
+  "servers": [
+    {
+      "host": "vps",
+      "steps": [
+        {"op": "change", "text": "app: write the systemd units of shop again"},
+        {"op": "cannot", "text": "domain: shop.example.com through the Cloudflare Tunnel (route, DNS, cache rules)", "why": "cf is not installed: pnpm add --global cf, then cf auth login"}
+      ],
+      "notes": [
+        {"what": "ssh: the server accepts passwords", "why": "go tool tifa deploy harden turns that off"}
+      ],
+      "matches": false
+    }
+  ],
+  "matches": false
+}
+```
+
+这些键不会变：
+
+- `app`：应用的名字。
+- `servers`：每台服务器一项，顺序和主机列表一致。有多台服务器时，GitHub Actions 的步骤放在第一项里。
+  - `host`：计划里这台服务器的名字。
+  - `steps`：有差别的部分，按计划的顺序。`op` 是 `add`、`change`、`remove` 或 `cannot`，`text` 是步骤，`why` 只在 `cannot` 时有：缺的是什么。加 `--all` 时，已经正确的步骤也会列出，`op` 为 `ok`。
+  - `notes`：建议，每条有 `what` 和 `why`。
+  - `matches`：这台服务器的步骤全是 `ok` 时为 `true`。备注不算。
+- `matches`：每台服务器都一致时为 `true`。它和退出码 0 是同一件事。
+
+想在服务器和 `tifa.yaml` 不一致时（比如有人手动改过）让定时任务失败，可以在 GitHub Actions 里运行这个计划。任务像部署一样用 ssh 登录，用的是 setup 保存的密钥（见[从 GitHub Actions 部署](deploy-github-actions.zh-CN.md)）。退出码 2 或 1 都会让它失败：
+
+```yaml
+name: Server drift
+on:
+  schedule:
+    - cron: "0 6 * * *"
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Set up ssh
+        env:
+          TIFA_DEPLOY_SSH_KEY: ${{ secrets.TIFA_DEPLOY_SSH_KEY }}
+          TIFA_DEPLOY_KNOWN_HOSTS: ${{ secrets.TIFA_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$TIFA_DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$TIFA_DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host *\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' > ~/.ssh/config
+      - name: Plan
+        env:
+          TIFA_DEPLOY_HOST: ${{ secrets.TIFA_DEPLOY_HOST }}
+        run: go tool tifa deploy setup --plan
+```
+
+计划和 setup 一样，用 gh、cf 或令牌读取 GitHub 和 Cloudflare。runner 上没有登录它们，所以带 `auto` 块或 `front: cloudflare` 的计划，会把这些部分列成 setup 做不了的步骤，任务就总是以 2 退出。在 runner 上运行计划，只适合服务器和它的 ssh 访问所覆盖的部分，其余的在你已登录的机器上运行。
 
 ### 应用监听哪里 {#where-the-app-listens}
 

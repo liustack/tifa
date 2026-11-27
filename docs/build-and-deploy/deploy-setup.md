@@ -1,5 +1,5 @@
 ---
-summary: 'Set up the server, Cloudflare and GitHub with `tifa deploy setup`: the plan, what each `front` changes, running setup without gh'
+summary: 'Set up the server, Cloudflare and GitHub with `tifa deploy setup`: the plan, looking at it with --plan and its exit codes and JSON, what each `front` changes, running setup without gh'
 audience: app
 order: 11
 read_when:
@@ -65,7 +65,7 @@ Apply this plan? [y/N]
 
 Your typed y is the consent: setup asks nothing more about it. It installs cf with `pnpm add --global cf`, and gh with `brew install gh` on macOS or `winget install --id GitHub.cli -e` on Windows, then runs `cf auth login` and `gh auth login --web` on your terminal, and each one opens a browser. gh logs in with the git protocol https, which leaves your other repositories as they are, and asks one question: whether to log git in with GitHub too. Either answer works for Tifa. Yes lets git push with the login of gh, the workflow file included. Setup uses the program where the package manager put it, even when the PATH of your terminal does not have that folder yet. Then it plans the rest and asks again. It installs only with a package manager the machine has and never downloads a program itself. With `--yes`, even on a terminal, or without a terminal, it installs nothing and logs in nothing, and lists the commands among what you need to do: an agent that runs setup with `--yes` never installs a global package or opens a browser. It does the same without pnpm, without brew or winget, and on Linux, where gh needs root and [GitHub's package repository](https://github.com/cli/cli/blob/trunk/docs/install_linux.md). An install or login that fails is a warning that says how to do it by hand (pnpm needs `pnpm setup` once before it installs anything globally), and setup goes on with what does not need that tool.
 
-Setup exits with an error when an item is left for you or a step that may fail failed (a cache purge token that Cloudflare refused three times), after it did all the rest. An item marked `(optional)`, such as the cache purge token, does not make it fail. A script can rely on the exit code: run setup again once you did what the list says. Run it again whenever `tifa.yaml` changes: it only does what differs.
+Setup exits with an error when an item is left for you or a step that may fail failed (a cache purge token that Cloudflare refused three times), after it did all the rest. An item marked `(optional)`, such as the cache purge token, does not make it fail. A script can rely on the exit code: run setup again once you did what the list says. To only look, see [Only look at the plan](#only-look-at-the-plan). Run it again whenever `tifa.yaml` changes: it only does what differs.
 
 Setup removes only what Tifa made and marked (it cannot delete the Cloudflare token you made: the plan says to delete it in the dashboard): the lines in `authorized_keys` with the comment `tifa-github <owner>/<repo>`, the nginx site `/etc/nginx/conf.d/tifa-<app>.conf` and the certificate `tifa-<app>` of certbot, the ufw rules with the comment `tifa <app>` or `tifa nginx front`, Cloudflare objects whose names start with `tifa` (and the Access application `tifa deploy ssh <host>`), the block that starts with `# tifa <app>:` in your `~/.ssh/config`, the route and DNS record of a domain it added, the repository variables `TIFA_DEPLOY_FINGERPRINT`, `TIFA_DEPLOY_TAILSCALE_ID` and `TIFA_DEPLOY_TAILSCALE_AUDIENCE` and the secrets set with it (`TIFA_DEPLOY_HOST`, `TIFA_DEPLOY_KNOWN_HOSTS` and the others), and the workflow file that starts with Tifa's line. Set `front: none`, or take the block `auto` out, and the plan lists those removals before anything goes.
 
@@ -94,6 +94,89 @@ The layers of the plan:
 7. Asks for a token, which is optional, that can only clear the cache of the zone, and keeps it with the ID of the zone on the server, where every deploy finds it (see [Clearing the CDN cache](deploy-cloudflare.md#clearing-the-cdn-cache)). A login of cf cannot make API tokens, so you make it in the Cloudflare dashboard, and on a terminal setup walks you through it: it prints a link to the Cloudflare form with the permission Cache Purge filled in and the name `tifa cache purge <zone>`. Set Zone Resources to that zone only, create the token and paste it at the hidden prompt. Setup checks it by clearing a URL that does not exist, tries again up to 3 times, and writes it to the server over ssh as `tifa`, on the input of ssh. An empty line skips it, and setup goes on and succeeds. Setup asks on the first setup of the domain, and on the first setup of CI. Once the server has a token for the zone, setup checks it the same way on each run and asks nothing while Cloudflare takes it: a second app on the same server and zone needs nothing. A token Cloudflare refuses, such as one that expired or was deleted, is asked for again. Without a token, later runs with `auto`, and a first run without a terminal, list it as optional. To add the token later, or to replace it, run `go tool tifa deploy setup --cache-purge-token`: it asks even when the server has one, on a terminal at the hidden prompt and without one on a page in your browser, with `--yes` too (see [Secrets without a terminal](deploy-operate.md#secrets-without-a-terminal)).
 
 An app that moves to another front gives up the tunnel the same way once no app uses it (see [Behind nginx](deploy-proxy.md#behind-nginx)). `tifa deploy remove` of the last app on a server removes the tunnel and the cache token too (see [Logs, status and remove](deploy-operate.md#logs-status-and-remove)). To remove them by hand, run `systemctl disable --now tifa-tunnel tifa-tunnel-upgrade.path` and delete `/etc/tifa`, `/etc/systemd/system/tifa-tunnel*` and `/srv/tifa/.config/tifa` on the server, then delete the tunnel and the token `tifa cache purge <zone>` in Cloudflare. cloudflared stays installed: `apt-get purge cloudflared` and deleting `/etc/apt/sources.list.d/cloudflared.list`, `/usr/share/keyrings/cloudflare-main.gpg` and `/etc/apt/apt.conf.d/52tifa-cloudflared` remove it too.
+
+### Only look at the plan
+
+```sh
+go tool tifa deploy setup --plan
+```
+
+`--plan` builds the same plan and prints it, then stops. It changes nothing: not the server, not Cloudflare, not GitHub, not `~/.tifa`, and not this machine. It installs no cf or gh and logs in to none: when one is missing, the plan lists it as a step setup cannot do. It never asks a question and works without a terminal. It only reads, with ssh to the server for the probes, and the read calls of cf and gh. `--plan` and `--yes` contradict each other, so setup refuses both together.
+
+The exit status says what the plan found, and is the same for one server and for several (the worst one wins). These are the meanings of `terraform plan -detailed-exitcode`:
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Everything matches `tifa.yaml`: nothing to add, change or remove, and nothing setup cannot do |
+| 2 | The plan has something to do, or something that needs you (a step setup cannot do) |
+| 1 | Setup could not build the plan: no `deploy.front`, a server it cannot reach, a bad setting |
+
+Notes, which are advice such as the ssh password line, do not make it 2. Without `--plan`, a setup that stopped for lack of a terminal also exits with 1, so only `--plan` tells "changes pending" from "failed".
+
+`--plan --json` prints one JSON object in place of the text, with the same exit status. `--json` without `--plan` is refused. On a failure (exit 1) stdout stays empty and the reason goes to stderr.
+
+```json
+{
+  "app": "shop",
+  "servers": [
+    {
+      "host": "vps",
+      "steps": [
+        {"op": "change", "text": "app: write the systemd units of shop again"},
+        {"op": "cannot", "text": "domain: shop.example.com through the Cloudflare Tunnel (route, DNS, cache rules)", "why": "cf is not installed: pnpm add --global cf, then cf auth login"}
+      ],
+      "notes": [
+        {"what": "ssh: the server accepts passwords", "why": "go tool tifa deploy harden turns that off"}
+      ],
+      "matches": false
+    }
+  ],
+  "matches": false
+}
+```
+
+The keys stay as they are:
+
+- `app`: the name of the app.
+- `servers`: one entry for each server, in the order of the host list. With several servers, the steps for GitHub Actions are in the entry of the first.
+  - `host`: the server as the plan names it.
+  - `steps`: what differs, in plan order. `op` is `add`, `change`, `remove` or `cannot`, `text` is the step, and `why` is there only for `cannot`: what is missing. With `--all` the steps that are already right come too, with `op` `ok`.
+  - `notes`: advice, each with `what` and `why`.
+  - `matches`: `true` when no step of this server is anything but `ok`. Notes do not count.
+- `matches`: `true` when every server matches. It is the same fact as exit status 0.
+
+To fail a scheduled job when a server drifted from `tifa.yaml`, such as after someone changed it by hand, run the plan from GitHub Actions. The job logs in over ssh as a deploy does, with the secrets setup keeps (see [Deploy from GitHub Actions](deploy-github-actions.md)). Exit 2 or 1 fails it:
+
+```yaml
+name: Server drift
+on:
+  schedule:
+    - cron: "0 6 * * *"
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Set up ssh
+        env:
+          TIFA_DEPLOY_SSH_KEY: ${{ secrets.TIFA_DEPLOY_SSH_KEY }}
+          TIFA_DEPLOY_KNOWN_HOSTS: ${{ secrets.TIFA_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$TIFA_DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$TIFA_DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host *\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' > ~/.ssh/config
+      - name: Plan
+        env:
+          TIFA_DEPLOY_HOST: ${{ secrets.TIFA_DEPLOY_HOST }}
+        run: go tool tifa deploy setup --plan
+```
+
+The plan reads GitHub and Cloudflare with gh, cf or a token, as setup does. A runner has none of them logged in, so a plan with the block `auto` or `front: cloudflare` lists those parts as steps setup cannot do and the job always exits with 2. Run the plan there only for what the server and its ssh access cover, or on a machine where you are logged in.
 
 ### Where the app listens
 

@@ -232,6 +232,15 @@ func confirm(in io.Reader, out io.Writer, yes bool) error {
 	return nil
 }
 
+// confirmSetup is confirm for setup, whose error without a terminal also points to --plan.
+func confirmSetup(in io.Reader, out io.Writer, yes bool) error {
+	err := confirm(in, out, yes)
+	if err != nil && !yes && !stdinIsTerminal(in) {
+		return errors.New(err.Error() + ", or with --plan for a run that only looks")
+	}
+	return err
+}
+
 // readLine reads one line of an answer a byte at a time, so it takes nothing after the line from
 // in: setup may ask again.
 func readLine(in io.Reader) string {
@@ -1606,24 +1615,15 @@ func (r *setupRun) githubRemovals(ctx context.Context, p *setupPlan, workflow st
 // and stops at the first that fails or needs the developer: setup again goes on from there, as
 // each step checks what is there. GitHub Actions comes last, with every server.
 func deploySetupAll(ctx context.Context, ts []deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) error {
+	if f.plan {
+		return deploySetupPlan(ctx, ts, f, stdout, stderr)
+	}
 	if len(ts) == 1 {
 		return deploySetup(ctx, ts[0], f, in, stdout, stderr)
 	}
-	states := make([]serverState, len(ts))
-	for i, t := range ts {
-		states[i] = readGroupState(ctx, t)
-	}
-	port := ts[0].fixedPort
-	if port == 0 {
-		var err error
-		if port, err = groupPort(ts[0].app, states); err != nil {
-			return err
-		}
-	}
-	g := &setupGroup{ts: ts, states: make([]serverState, len(ts))}
-	f.group = g
-	for i := range ts {
-		ts[i].port = port
+	g, port, err := newSetupGroup(ctx, ts, &f)
+	if err != nil {
+		return err
 	}
 	for i, t := range ts {
 		run, err := deploySetupOne(ctx, t, f, in, stdout, stderr)
@@ -1661,6 +1661,28 @@ func deploySetupAll(ctx context.Context, ts []deployTarget, f setupFlags, in io.
 	}
 	rememberGroupAndSay(group, knownApp{Name: ts[0].app, Path: ts[0].root}, stdout, stderr)
 	return nil
+}
+
+// newSetupGroup gives the app of several servers one port that is free on all of them, and sets
+// it in each target and in f.group.
+func newSetupGroup(ctx context.Context, ts []deployTarget, f *setupFlags) (*setupGroup, int, error) {
+	states := make([]serverState, len(ts))
+	for i, t := range ts {
+		states[i] = readGroupState(ctx, t)
+	}
+	port := ts[0].fixedPort
+	if port == 0 {
+		var err error
+		if port, err = groupPort(ts[0].app, states); err != nil {
+			return nil, 0, err
+		}
+	}
+	g := &setupGroup{ts: ts, states: make([]serverState, len(ts))}
+	f.group = g
+	for i := range ts {
+		ts[i].port = port
+	}
+	return g, port, nil
 }
 
 // readGroupState reads what deploySetupAll needs of a server before setup changes it: the ports
@@ -1709,17 +1731,25 @@ func deploySetup(ctx context.Context, t deployTarget, f setupFlags, in io.Reader
 	return err
 }
 
-// deploySetupOne is deploySetup, and returns the run of its last plan.
-func deploySetupOne(ctx context.Context, t deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) (*setupRun, error) {
+// checkSetupFlags refuses the flags that do not fit the settings of the app.
+func checkSetupFlags(t deployTarget, f setupFlags) error {
 	switch {
 	case f.purgeToken && t.domain == "":
-		return nil, errors.New("--cache-purge-token is for the token that clears the CDN cache at each deploy, which needs deploy.front: cloudflare in tifa.yaml")
+		return errors.New("--cache-purge-token is for the token that clears the CDN cache at each deploy, which needs deploy.front: cloudflare in tifa.yaml")
 	case f.tailscaleClientID != "" && (t.connectMode != connTailscale || !t.github):
-		return nil, errors.New("--tailscale-client-id is for the identity CI joins your tailnet with, which needs deploy.connect: tailscale and the block deploy.auto in tifa.yaml")
+		return errors.New("--tailscale-client-id is for the identity CI joins your tailnet with, which needs deploy.connect: tailscale and the block deploy.auto in tifa.yaml")
 	case f.tailscaleClientID != "":
 		if err := checkTailscaleClientID(strings.TrimSpace(f.tailscaleClientID)); err != nil {
-			return nil, fmt.Errorf("--tailscale-client-id: %w", err)
+			return fmt.Errorf("--tailscale-client-id: %w", err)
 		}
+	}
+	return nil
+}
+
+// deploySetupOne is deploySetup, and returns the run of its last plan.
+func deploySetupOne(ctx context.Context, t deployTarget, f setupFlags, in io.Reader, stdout, stderr io.Writer) (*setupRun, error) {
+	if err := checkSetupFlags(t, f); err != nil {
+		return nil, err
 	}
 	// The certificate of the app is checked on this machine before anything is read or changed.
 	cert, err := loadOwnCert(t)
@@ -1747,7 +1777,7 @@ func deploySetupOne(ctx context.Context, t deployTarget, f setupFlags, in io.Rea
 		// this machine, when the server is named by its ssh host and it cannot reach it yet. Their
 		// steps may fail without stopping setup, and what failed shows again in the next plan.
 		plan.print(stdout, title, f.all)
-		if err := confirm(in, stdout, f.yes); err != nil {
+		if err := confirmSetup(in, stdout, f.yes); err != nil {
 			return run, err
 		}
 		warnings, err := plan.apply(ctx, stdout)
@@ -1776,7 +1806,7 @@ func deploySetupOne(ctx context.Context, t deployTarget, f setupFlags, in io.Rea
 	}
 	warnings := 0
 	if plan.todo() > 0 {
-		if err := confirm(in, stdout, f.yes); err != nil {
+		if err := confirmSetup(in, stdout, f.yes); err != nil {
 			return run, err
 		}
 		if warnings, err = plan.apply(ctx, stdout); err != nil {
@@ -1830,6 +1860,9 @@ func (r *setupRun) zoneText() string {
 // setupFlags are the flags of tifa deploy setup.
 type setupFlags struct {
 	yes, all bool
+	// plan (--plan) prints the plan and stops, changing nothing. asJSON (--json) prints it as one
+	// JSON object.
+	plan, asJSON bool
 	// purgeToken (--cache-purge-token) asks for that secret even when the server has it, and
 	// replaces it.
 	purgeToken bool
