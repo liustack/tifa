@@ -16,6 +16,7 @@ import (
 	_ "github.com/liustack/sqlite"
 	"github.com/liustack/sqlite/replica"
 	"github.com/pressly/goose/v3"
+	"github.com/spf13/cobra"
 )
 
 // DB is the database of the app. OnStart opens it and OnShutdown closes it. Tests replace it
@@ -101,6 +102,25 @@ func migrate(ctx context.Context, path string, files fs.FS) error {
 		slog.Info("migrations: ran", "file", r.Source.Path)
 	}
 	return nil
+}
+
+// migrateCmd is the command migrate, which runs the migrations as OpenDB does. With
+// deploy.before_start: migrate in tifa.yaml, each deploy runs it with the new release before it
+// starts it. A database that is not there yet it leaves to OnStart, which makes it, or restores it
+// with db.backup.
+func migrateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "migrate",
+		Short: "Run the migrations the database has not run yet",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if _, err := os.Stat(DBPath); errors.Is(err, fs.ErrNotExist) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "no database at %s yet: the app makes it when it starts\n", DBPath)
+				return nil
+			}
+			return migrate(cmd.Context(), DBPath, migrationFiles)
+		},
+	}
 }
 
 // StartBackup starts copying every commit of the database at path to the S3 URL url, about a

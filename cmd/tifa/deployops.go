@@ -124,6 +124,8 @@ func deployStatusText(t deployTarget, s serverState, now time.Time) string {
 			line(label, id+"  not in deploys.log")
 		case passed:
 			line(label, fmt.Sprintf("%s  commit %-*s  passed its health check", id, width, r.Commit))
+		case r.Result == beforeStartFailed:
+			line(label, fmt.Sprintf("%s  commit %-*s  failed deploy.before_start", id, width, r.Commit))
 		default:
 			line(label, fmt.Sprintf("%s  commit %-*s  failed its health check", id, width, r.Commit))
 		}

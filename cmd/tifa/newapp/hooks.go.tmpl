@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/liustack/tifa"
+	"github.com/spf13/cobra"
 )
 
 // OnStart runs once before the app listens. A returned error stops the app.
@@ -35,6 +36,12 @@ func OnShutdown(ctx context.Context) error {
 		Backup = nil
 	}
 	return err
+}
+
+// OnCommand adds the commands of the app to its program, next to serve, config and version. Run
+// one on the server with go tool tifa deploy run <command>.
+func OnCommand(root *cobra.Command) {
+	root.AddCommand(migrateCmd())
 }
 
 // Two more hooks are optional. Write them only when you need them: an OnError replaces the

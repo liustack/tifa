@@ -2,10 +2,11 @@
 summary: '用 hooks.go 里的 OnCommand 给应用的程序加命令，比如填入示例数据、把用户设为管理员，并在本机、在测试里用 tifatest.Command、在服务器上用 tifa deploy run 运行它们'
 audience: app
 order: 19
-translatedFrom: c857b84a8ba2
+translatedFrom: 2b89f4c2240c
 read_when:
   - '给应用的程序加一个命令，比如往数据库里填示例数据，或者把一个用户设为管理员'
   - '在服务器上手动或由 agent 改一次数据'
+  - '在部署启动新发布之前用它运行一个命令，比如用 deploy.before_start 运行 migrate'
   - '用 tifatest.Command 测试一个命令'
   - '应用在服务时有命令写同一个 SQLite 数据库，或者应用用 db.backup 备份数据库'
 ---
@@ -18,7 +19,7 @@ read_when:
 
 ## 加一个命令 {#add-a-command}
 
-`hooks.go` 里的 `OnCommand` 拿到程序的根命令，把应用的命令加上去：
+`hooks.go` 里的 `OnCommand` 拿到程序的根命令，把应用的命令加上去。`tifa new` 建的应用已经有一个命令 `migrate`，它和 `OpenDB` 一样运行迁移（见[启动时还是切换前](database.zh-CN.md#at-start-or-before-the-switch)）。把你的命令加在它旁边：
 
 ```go
 // hooks.go
@@ -26,7 +27,7 @@ import "github.com/spf13/cobra"
 
 // OnCommand adds the commands of the app to its program, next to serve, config and version.
 func OnCommand(root *cobra.Command) {
-	root.AddCommand(seedCmd(), promoteCmd())
+	root.AddCommand(migrateCmd(), seedCmd(), promoteCmd())
 }
 ```
 
@@ -218,6 +219,7 @@ go tool tifa deploy run --host vps2 seed  # flags of deploy run go before the co
 - 输出、错误输出和退出状态都是命令自己的，脚本或 agent 可以直接读。
 - 在终端里运行时，命令在服务器上也会拿到一个终端，所以它可以提问，Ctrl-C 也能传到它。没有终端时（比如 agent 来运行），`deploy run` 的输入就是命令的输入：`go tool tifa deploy run import < todos.csv`。
 - 它运行的是当前发布。新发布里新加的命令，要等那个发布部署上去后才能在服务器上运行。
+- 想在每次部署时用新发布运行一个命令（在它启动之前，旧发布还在服务时），把它写进 `deploy.before_start`，比如 `before_start: migrate`（见[启动前的命令](../build-and-deploy/deploy.zh-CN.md#a-command-before-the-start)）。它失败时部署会停下。
 - 想在每次部署成功后运行一个命令（在本机或在 CI 里），见[部署之后](../build-and-deploy/deploy-operate.zh-CN.md#after-a-deploy)。
 
 ## 应用在服务时 {#while-the-app-serves}
@@ -227,4 +229,4 @@ go tool tifa deploy run --host vps2 seed  # flags of deploy run go before the co
 - **写入要排队。** SQLite 一次只让一个写入进来，跨程序也一样。默认情况下一个写入最多等另一个 5 秒，而且 `OpenDB` 让每个事务一开始就拿写锁，所以命令和服务会互相等待，不会报 `database is locked`。每个事务要短：`--count` 很大的 `Seed` 会一直拿着写锁直到提交，这期间要写入的请求都得等。几千行的数据分批写，每批几百行，各用一个事务。见[写入报 `database is locked` 时](database.zh-CN.md#when-a-write-gets-database-is-locked)。
 - **备份会重新上传整个数据库。** 用了 [`db.backup`](database.zh-CN.md#back-it-up) 时，服务里的副本只跟踪它自己看到的写入。另一个程序的写入会让它把整个数据库重新上传一次。数据库很大时，要写入的命令最好一次跑完，不要拆成很多次小的。
 - **不要第二份备份。** 命令不运行 `OnStart`，所以不会启动自己的副本。不要在命令里调用 `StartBackup`：两个程序往存储桶里同一个路径写，会把副本弄坏。
-- **迁移已经跑过了。** 服务在 `OnStart` 里已经跑过当前版本的迁移，所以命令里的 `OpenDB` 没有要跑的迁移。
+- **迁移已经跑过了。** 服务在 `OnStart` 里已经跑过当前版本的迁移，或者 `deploy.before_start` 在它启动前已经跑过，所以命令里的 `OpenDB` 没有要跑的迁移。

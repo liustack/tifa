@@ -2,11 +2,12 @@
 summary: '怎样用 SQLite 保存数据：用 goose 做迁移和让回滚一直能用的规则、`database is locked`、把 `db.backup` 备份到 R2 或 S3、Postgres'
 audience: app
 order: 2
-translatedFrom: 25017121fc29
+translatedFrom: fd870106148d
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'
   - '在 `migrations/` 里写文件，或者应用因为其中一个文件启动不了'
+  - '决定迁移在应用启动时运行，还是在部署启动新发布之前运行（deploy.before_start），或者在应用有多份副本时运行迁移'
   - '为 Tifa 应用在 SQLite 和 Postgres 之间做选择，或者用 goose 以外的迁移库'
   - '为读写数据库的代码写 Go 测试'
   - '写入时报 `database is locked` 或 `SQLITE_BUSY`'
@@ -264,21 +265,50 @@ PRAGMA foreign_keys = ON;
 - 新表保留了每一列，所以更旧的发布还能在它上面运行，除非新约束让它们的写入失败。
 - 第一行说明这次重建保留了什么。因为文件里有 `DROP TABLE`，`TestDropsSayWhy` 会要求这一行。
 
+### 启动时还是切换前 {#at-start-or-before-the-switch}
+
+部署可以在两个时间点之一运行迁移。两种方式运行的都是 `db.go` 里同一个 `migrate`。
+
+- **启动时，这是默认方式。** 新发布的 `OnStart` 通过 `OpenDB` 运行迁移。这时 `tifa deploy` 已经停掉了旧程序，所以迁移运行期间站点会停顿：请求在 socket 上等着，新发布开始监听后得到回答，一个都不会丢。一个短迁移只给重启本身的停顿多加一点点时间。
+- **切换前，在 `tifa.yaml` 里写 `deploy.before_start: migrate`。** 部署用新发布运行一次 `migrate` 命令（`tifa new` 把它写进了 `hooks.go`），在启动新发布之前，这时旧发布继续服务（见[启动前的命令](../build-and-deploy/deploy.zh-CN.md#a-command-before-the-start)）。命令失败时，什么都不切换。之后新发布的 `OnStart` 找不到要运行的迁移，所以停顿只剩重启。在 SQLite 上，这样做能让长迁移期间的读照常进行，但写不行：迁移在它的文件提交之前一直占着写锁，所以旧发布的写入会等 `busy_timeout`（5 秒），然后以 `database is locked` 失败。把长迁移拆成短文件，或者在空闲的时候运行。
+
+两种方式的规则相同：
+
+- **每个发布都能在下一个发布的表上运行。** 切换前的方式里，命令运行期间旧发布在新表上服务。启动时的方式里，回滚会让更旧的发布在新表上启动。不管哪种，都要遵守[让回滚一直能用](#keep-a-rollback-working)。
+- **两种方式都不会让数据库退回去。** 部署失败或回滚时，已经运行的文件都留着。
+
+Tifa 承诺的是：每次部署只有短暂的停顿，不丢请求。完全不停顿就需要旧程序和新程序同时服务，`tifa deploy` 不这样做。
+
 ### 迁移能花多长时间 {#how-long-a-migration-may-take}
 
-`tifa deploy` 等新发布回答健康检查的时间是 `deploy.start_timeout`，没设置时是 30 秒，而新发布启动期间访客都在等（见[慢启动](../build-and-deploy/deploy.zh-CN.md#a-slow-start)）。迁移、`db.backup` 为空时的数据库副本，以及 `OnStart` 的其余部分，都必须在这段时间里完成。做不完时，部署就把这个发布算作失败，启动之前那个：正在运行的文件被撤销，它之前的文件留下，下次部署同一个发布时从那里接着运行。
+迁移在启动时运行时，`tifa deploy` 等新发布回答健康检查的时间是 `deploy.start_timeout`，没设置时是 30 秒，而新发布启动期间访客都在等（见[慢启动](../build-and-deploy/deploy.zh-CN.md#a-slow-start)）。迁移、`db.backup` 为空时的数据库副本，以及 `OnStart` 的其余部分，都必须在这段时间里完成。做不完时，部署就把这个发布算作失败，启动之前那个：正在运行的文件被撤销，它之前的文件留下，下次部署同一个发布时从那里接着运行。
 
-加一列不花时间，不管表有多大。在大表上建索引或重建表，可能会更久。为它调大 `deploy.start_timeout`，或者把它变小：这样的文件要写成能运行两次的样子，比如 `CREATE INDEX IF NOT EXISTS todos_by_done ON todos (done);`，找个空闲的时候在服务器上手动运行这条语句，然后再部署，文件运行时发现索引已经在了，马上就完成。数据库很大时保持 `db.backup` 开着，因为副本会把整个文件写一遍。
+加一列不花时间，不管表有多大。在大表上建索引或重建表，可能会更久。为它调大 `deploy.start_timeout`，像上面那样在切换前运行它，或者把它变小：这样的文件要写成能运行两次的样子，比如 `CREATE INDEX IF NOT EXISTS todos_by_done ON todos (done);`，找个空闲的时候在服务器上手动运行这条语句，然后再部署，文件运行时发现索引已经在了，马上就完成。数据库很大时保持 `db.backup` 开着，因为副本会把整个文件写一遍。
 
 ### Postgres {#postgres}
 
 同一个 `migrate` 也能给 Postgres 应用用：用 pgx 打开数据库（见[什么时候用 Postgres](#when-to-use-postgres)），给 `goose.NewProvider` 传 `goose.DialectPostgres`。去掉 `VACUUM INTO` 副本，它是 SQLite 专用的，再删掉 `TestSchema` 和 `schema.sql`，它们读的是 SQLite 的表。文件里写 Postgres 的 SQL，规则相同。Postgres 用 `ALTER TABLE` 改列的类型或约束，在 goose 的事务里就能做，所以不需要重建表。
 
+多份应用副本共用一个数据库时，比如在负载均衡后面、在容器里或者在 Kubernetes 上，每份副本都会运行 `OnStart`。给 goose 用上 Postgres 的锁，这样只有一份副本做迁移，其他副本等它做完（[goose 的锁](https://pkg.go.dev/github.com/pressly/goose/v3/lock)）：
+
+```go
+// import "github.com/pressly/goose/v3/lock"
+// A copy waits up to 5 minutes for the lock by default. Here it waits up to 30 (every 5 seconds,
+// 360 times), for migrations that may take that long.
+locker, err := lock.NewPostgresSessionLocker(lock.WithLockTimeout(5, 360))
+if err != nil {
+	return err
+}
+p, err := goose.NewProvider(goose.DialectPostgres, db, dir, goose.WithSessionLocker(locker))
+```
+
+切换前的方式更适合多份副本：在副本开始滚动更新之前运行一次 `migrate`，做法可以是 Kubernetes Job、Helm 的 `pre-upgrade` hook、Fly 的 `release_command` 或 Heroku 的 release phase。滚动部署时新旧副本会同时运行，所以「每个发布都能在下一个发布的表上运行」这条规则在每次部署时都要成立，不只是回滚之后。
+
 ### 别的迁移库 {#another-migration-library}
 
 任何库都能用，只要它做到 `tifa deploy` 依赖的三件事：
 
-- **它在 `OnStart` 里运行**，在应用开始监听之前，并在上面说的启动等待时间里完成。
+- **它在 `OnStart` 里运行**，在应用开始监听之前，并在上面说的启动等待时间里完成，或者在 `deploy.before_start` 运行的命令里运行。
 - **它能在运行过它没有的文件的数据库上启动。** 回滚之后，更旧的发布会看到更新发布的版本。goose 跳过它们。golang-migrate 不行：数据库处在一个它没有文件的版本时，它的 `Up` 报 `no migration found for version 5` 停下，一个文件中途失败之后，它报 `Dirty database version 5. Fix and force version.` 停下。这样回滚退回的那个发布就启动不了，网站一直停着，直到有人手动修好数据库。
 - **运行失败后，留下的表正在运行的发布还能用**：每个文件一个事务，或者所有文件一个事务，SQLite 和 Postgres 上都是这样。
 

@@ -536,7 +536,7 @@ A redirect from the handler to the address the page already has does load it aga
 
 ### Tifa has no database layer (migrations are app code that uses goose)
 
-**Settled (2026-11-27).** Tifa ships no database package: no migration runner, no schema tool, no ORM. `tifa new` writes the database code into the app, as it writes `db.go`: `migrations/001_init.sql` in goose's format, `migrate` in `db.go`, which runs the files with github.com/pressly/goose/v3 (the Provider API, dialect `sqlite3`) at `OpenDB`, `migrate_test.go` (`TestSchema`, `TestDropsSayWhy`) and `schema.sql`, which `TestSchema` writes. Tifa keeps only what depends on how it deploys, and the docs say it: what `tifa deploy` needs from any migration tool ([Another migration library](../guides/database.md#another-migration-library)), the rules that keep a rollback working, and the SQLite table rebuild.
+**Settled (2026-11-27).** Tifa ships no database package: no migration runner, no schema tool, no ORM. `tifa new` writes the database code into the app, as it writes `db.go`: `migrations/001_init.sql` in goose's format, `migrate` in `db.go`, which runs the files with github.com/pressly/goose/v3 (the Provider API, dialect `sqlite3`) at `OpenDB` and in the command `migrate` (see [When migrations run](#when-migrations-run-at-start-or-before-the-switch)), `migrate_test.go` (`TestSchema`, `TestDropsSayWhy`) and `schema.sql`, which `TestSchema` writes. Tifa keeps only what depends on how it deploys, and the docs say it: what `tifa deploy` needs from any migration tool ([Another migration library](../guides/database.md#another-migration-library)), the rules that keep a rollback working, and the SQLite table rebuild.
 
 What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of its own with one connection, closed before the app opens its pool, so a `-- +goose NO TRANSACTION` file that turns foreign keys off never hands that connection to the app. goose runs every statement of such a file on one `*sql.Conn` (the Provider API, v3.30.2), but returns that connection to the pool it was given. One `slog.Warn` when the database is at a version above the newest file, since goose skips such versions without a word. Without `db.backup`, a `VACUUM INTO` copy before files run on a database that ran some.
 
@@ -1035,13 +1035,24 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 **Instead.** [Before and after a deploy](../build-and-deploy/deploy.md#before-and-after-a-deploy).
 
-### A release step on the server before the switch
+### When migrations run: at start, or before the switch
 
-**Not now (2026-11-27).** A step that runs an app command, such as `./shop migrate`, with the new release on the server before `current` is switched, where a failure stops the deploy: the release phase of Heroku and the `release_command` of Fly.
+**Settled (2026-11-27).** Migrations run in `OnStart` by default (A): `OpenDB` runs them in the new release, after `tifa deploy` stopped the old one, while requests wait on the socket. `deploy.before_start` in `tifa.yaml` is the other way (B): a command of the app, with its arguments, that `tifa deploy` runs once per deploy with the program of the new release, after the upload and before any switch, while the old release serves. `tifa new` writes the command `migrate` in `OnCommand`, which runs the same `migrate` of `db.go` as `OpenDB`, so B is one line, `before_start: migrate`, commented out in the `tifa.yaml` of a new app next to `start_timeout`.
 
-**Why not now.** `OnStart` within `deploy.start_timeout` does the job for the apps there are. On SQLite the step would also fall short of what it promises: a long write holds the write lock, and the writes of the old release, which still serves visitors, fail after `busy_timeout`. So it would not keep the site up through a long migration either.
+- The command runs as `tifa deploy run` runs one: as `tifa`, in the folder of the service, with its `.env` and the HTTPS variables, with the program of the new release in place of `current`. Its output is part of the deploy's.
+- A status other than 0 stops the deploy: no switch, the old release untouched, and the release is written down as `failed-before-start` in `deploys.log`, so a rollback cannot go to it, as with `failed`. The command takes the lock of the deploys of the app.
+- It has no time limit of its own. `start_timeout` covers only the start after the switch.
+- A rollback, by hand or after a failed check, never runs it.
+- It is a step of its own, apart from the steps of the server (upload, switch, health check, rollback), and is defined as "once per deploy, before any switch", not "on each server": a deploy to several servers would run it once.
+- The words of the setting are split at spaces and each goes to the program as written. Quotes, a first word that is a flag, and `serve` are refused at load.
 
-**Reopen when** an app needs work done with the new release before it takes traffic that `OnStart` within the wait cannot do, or when Tifa supports deploying apps on Postgres.
+**Why both.** A pauses the site for the migration, and no request is lost: right for most migrations, and it needs nothing set. B keeps the old release serving during a long migration, such as an index on a large table, and keeps a failed migration from ever touching the running release. On SQLite B keeps reads going but not writes: a migration holds the write lock, so the old release's writes wait `busy_timeout` and then fail. Both need each release to run on the tables of the next, and neither rolls the database back. B also fits apps that later run several copies on Postgres, where the migration runs once before the copies roll out.
+
+**What Tifa promises.** A short pause per deploy and no lost requests. No pause at all would need the old and the new program serving at the same time, which `tifa deploy` does not do.
+
+**The name.** `before_start` says when it runs in the words the deploy docs already use: the start of the new release, which `start_timeout` times. Fly's `release_command` and Heroku's release phase were not taken: in Tifa a release is a folder of the server. `pre_deploy` (Render, Railway) would say deploy twice under `deploy`, as `deploy_timeout` would have.
+
+**Turned down.** Running B by default: A needs no setting and has no write gap on SQLite. Shell lines: see [Commands before and after a deploy in tifa.yaml](#commands-before-and-after-a-deploy-in-tifayaml).
 
 ### Tifa downloading programs, wrangler, and a front door of its own
 

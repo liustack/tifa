@@ -7,6 +7,7 @@ read_when:
   - Running tifa deploy, tifa deploy setup or tifa deploy rollback, or a deploy failed its health check and went back
   - Naming the server of tifa deploy with TIFA_DEPLOY_HOST, or finding out which server it uses when you named none (~/.tifa/config.yaml, TIFA_HOME), or choosing deploy.front, deploy.connect or deploy.auto in tifa.yaml
   - Giving a slow start more time with deploy.start_timeout, or running tests before a deploy and a message after it
+  - Running migrations or another command of the app with the new release before it starts, with deploy.before_start
   - Giving a second developer machine access to deploy
 ---
 
@@ -26,6 +27,7 @@ site:
 deploy:
   front: none      # what visitors come through before the server: none (the app serves them itself on ports 80 and 443) | cloudflare | nginx
   connect: direct  # how deploys reach the server over ssh: direct | cloudflare | tailscale
+  before_start: migrate  # a command of the app that each deploy runs once with the new release before it starts it. Left out: none
   start_timeout: 30s  # how long a new release may take to start and answer /healthz: 1s to 10m
   auto:            # deploy by itself from GitHub Actions. No block: you deploy by hand only
     branch: main   # the branch that deploys. Left out: the default branch of the repository on GitHub
@@ -46,6 +48,7 @@ deploy:
   The value is what `ssh` takes as a destination: a Host of `~/.ssh/config` (an alias such as `vps`, so `~/.ssh/config` supplies the address, the port, the keys and a `ProxyJump`), a host name, or an `ssh://host[:port]` URL. Tifa picks the user itself, root for the steps that change the system and `tifa` for the rest, so leave the user out unless root cannot log in (see [When root cannot log in](#when-root-cannot-log-in)). A path, a query or another scheme is refused. With none of the four set, every `tifa deploy` command stops and says so.
 - `front` is what visitors come through before they reach the server. With `cloudflare`, that is a Cloudflare Tunnel at the host of `site.url`, with its DNS record and rules, and `deploy` and `rollback` clear the CDN cache of that host name. `site.url` must be set and have no port. With `none`, the app serves visitors itself on port 80, and with a domain in `site.url` also on 443 with its own HTTPS, and no cache is cleared (see [The app serves visitors itself](deploy-setup.md#the-app-serves-visitors-itself)). With `nginx`, an nginx that setup installs sends visitors to the app by the host of `site.url`, and gets the certificate for it with certbot, so several apps can share the server without Cloudflare (see [Behind nginx](deploy-proxy.md#behind-nginx)).
 - `connect` is the one path ssh takes to the server, from your machine and from the GitHub Actions runner. With `direct`, ssh uses the address you gave. With `cloudflare`, both go through the Cloudflare Tunnel, so the server needs no open ssh port (see [`connect: cloudflare`](deploy-cloudflare.md#connect-cloudflare)). It needs `front: cloudflare`, because the ssh host name is made from the domain, and works with or without `auto`. With `tailscale`, the runner joins your tailnet, and it needs the block `auto` (see [`connect: tailscale`](deploy-github-actions.md#connect-tailscale)). Your own machine reaches the server however it already does, with the address in `TIFA_DEPLOY_HOST`, and the tailnet and the server are yours to set up.
+- `before_start` is a command of the app with its arguments, such as `migrate` or `migrate --verbose`, that each deploy runs once on the server with the program of the new release, before it starts that release, while the old one still serves. The words are split at spaces and each goes to the program as it is: no quotes, no shell. Left out, nothing runs. See [A command before the start](#a-command-before-the-start).
 - `start_timeout` is how long a new release may take to start and pass its health check, written as a Go duration such as `45s` or `2m`. It is whole seconds from `1s` to `10m`, and `30s` when left out. The check of the release that a failed deploy goes back to, and of the release `deploy rollback` starts, gets the same time. See [A slow start](#a-slow-start).
 - `auto` turns the deploys from GitHub Actions on, by being there. Without the block you deploy by hand only. `auto: {}` takes the defaults, and `auto:` with nothing after it is an error. It has two keys, and no others:
   - `branch` is the branch that deploys: a push to it, once the workflow in `needs` passed. Left out, it is the default branch of the repository on GitHub.
@@ -93,24 +96,49 @@ go tool tifa deploy
 
 1. Asks the server for its system and builds the app for it on your machine, as [Building for another system](build.md#building-for-another-system) does. Nothing is built on the server. On a server that setup prepared but that has no folder for this app yet, it makes the folder, port and units first, as `tifa` and without root. An app that serves visitors itself needs setup there first when `tifa` may not open port 80 yet, and the deploy says so. On a server that is not prepared, it stops and says to run `go tool tifa deploy setup`.
 2. Uploads the program, gzipped, into `/srv/tifa/<app>/releases/<id>/`, where `<id>` is the time of the deploy in UTC, and checks its SHA-256 there.
-3. Points `/srv/tifa/<app>/current` at it and restarts the service. The socket stays open, so requests that come meanwhile wait and get answered (see [Restart without dropping requests](deploy-by-hand.md#restart-without-dropping-requests)).
-4. Checks the new program on the server: `GET /healthz` once a second, for up to `start_timeout` (30 seconds unless you set it), until it answers with a status below 500. It asks on the loopback, and an app with its own HTTPS over HTTPS for its domain, as a visitor would. An app without a `/healthz` route passes with its 404 as soon as it answers. Write [a health check](deploy-by-hand.md#health-check) that looks at the database to make the check mean more. `OnStart`, migrations included, must finish within that time (see [A slow start](#a-slow-start) and [How long a migration may take](../guides/database.md#how-long-a-migration-may-take)).
-5. When the check passes, writes the deploy down and keeps the last 5 releases. When it fails, it prints the last lines of the log of the app, starts the release that ran before again, and exits with 1. If there is no release that ever passed, it stops the app.
-6. With `front: cloudflare`, clears the CDN cache of that host name (see [Clearing the CDN cache](deploy-cloudflare.md#clearing-the-cdn-cache)).
-7. Says where visitors reach the app: `visitors: https://shop.example.com`, or `http://<address of the server>` without a domain. With `front: none` or `front: nginx` it then asks the app on its ports from your machine, and when one does not answer it says that the firewall or a security group of your provider may block it, which Tifa does not change.
+3. With `before_start`, runs that command with the new program while the old release keeps serving (see [A command before the start](#a-command-before-the-start)). When it fails, the deploy stops here.
+4. Points `/srv/tifa/<app>/current` at it and restarts the service. The socket stays open, so requests that come meanwhile wait and get answered (see [Restart without dropping requests](deploy-by-hand.md#restart-without-dropping-requests)).
+5. Checks the new program on the server: `GET /healthz` once a second, for up to `start_timeout` (30 seconds unless you set it), until it answers with a status below 500. It asks on the loopback, and an app with its own HTTPS over HTTPS for its domain, as a visitor would. An app without a `/healthz` route passes with its 404 as soon as it answers. Write [a health check](deploy-by-hand.md#health-check) that looks at the database to make the check mean more. `OnStart`, migrations included, must finish within that time (see [A slow start](#a-slow-start) and [How long a migration may take](../guides/database.md#how-long-a-migration-may-take)).
+6. When the check passes, writes the deploy down and keeps the last 5 releases. When it fails, it prints the last lines of the log of the app, starts the release that ran before again, and exits with 1. If there is no release that ever passed, it stops the app.
+7. With `front: cloudflare`, clears the CDN cache of that host name (see [Clearing the CDN cache](deploy-cloudflare.md#clearing-the-cdn-cache)).
+8. Says where visitors reach the app: `visitors: https://shop.example.com`, or `http://<address of the server>` without a domain. With `front: none` or `front: nginx` it then asks the app on its ports from your machine, and when one does not answer it says that the firewall or a security group of your provider may block it, which Tifa does not change.
 
-Every deploy and rollback is a line of `/srv/tifa/<app>/deploys.log`: the time, the release, the git commit (with `-dirty` when the app had changes not committed), `deploy` or `rollback`, and `ok` or `failed`. The upload never includes `.env`. One deploy of an app runs at a time.
+Every deploy and rollback is a line of `/srv/tifa/<app>/deploys.log`: the time, the release, the git commit (with `-dirty` when the app had changes not committed), `deploy` or `rollback`, and `ok`, `failed` (the health check) or `failed-before-start`. The upload never includes `.env`. One deploy of an app runs at a time.
 
 ## A slow start
 
 `tifa deploy` stops the old program and starts the new one behind the systemd socket, so the site is never refused. But while the new release starts, `OnStart` and its migrations included, the requests of visitors wait on the socket. A longer `start_timeout` allows a slower start, and a slow start is a stall of the whole site for that long: with `start_timeout: 5m`, a migration that takes four minutes holds every visitor for four minutes.
 
-A release that does not answer `/healthz` within `start_timeout` counts as failed. The old release then runs again. When the work that did not finish was a migration, the file that was running is undone (each file runs in a transaction of its own), and the files before it stay. Either raise the setting to fit the work, or make the slow work smaller: split a migration, or run a long index build by hand at a quiet time (see [How long a migration may take](../guides/database.md#how-long-a-migration-may-take)).
+A release that does not answer `/healthz` within `start_timeout` counts as failed. The old release then runs again. When the work that did not finish was a migration, the file that was running is undone (each file runs in a transaction of its own), and the files before it stay. Either raise the setting to fit the work, or make the slow work smaller: split a migration, or run a long index build by hand at a quiet time (see [How long a migration may take](../guides/database.md#how-long-a-migration-may-take)). Or run the migrations before the start, while the old release serves: [A command before the start](#a-command-before-the-start).
 
 ```yaml
 deploy:
   start_timeout: 2m
 ```
+
+## A command before the start
+
+By default the migrations run in `OnStart`, so the site pauses while they run (see [A slow start](#a-slow-start)). For a migration that takes longer than a pause you want, such as an index on a large table, run it before the start instead:
+
+```yaml
+deploy:
+  before_start: migrate
+```
+
+`migrate` is the command that `tifa new` writes into `hooks.go`. It runs the same migrations as `OpenDB`, and does nothing when the database file is not there yet, since the service makes it, or restores it with `db.backup`, at its first start. Any [command of the app](../guides/commands.md) works, with its arguments.
+
+Once per deploy, after the upload and before `current` points at the new release:
+
+- The command runs with the program of the new release, as `tifa deploy run` runs one: as the user `tifa`, in `/srv/tifa/<app>/shared`, with the `.env` and settings of the service. Its output and error output are part of the output of the deploy.
+- The old release keeps serving visitors meanwhile.
+- It has no time limit of its own. `start_timeout` covers only the start that follows. Ctrl-C, or a lost connection, stops it, and the deploy with it.
+- When it exits with a status other than 0, the deploy stops: `current` and the running program stay as they were, the release is written down as `failed-before-start`, a rollback cannot go to it, and `tifa deploy` exits with 1. A migration file that failed is undone, and the files before it stay, as at a start.
+- When it passes and the start then fails its check, the deploy goes back to the release before, as always. The database keeps what the command did.
+- A rollback, by hand or after a failed check, never runs it: the release it starts ran its command when it was deployed.
+
+After the command, `OnStart` of the new release finds no migration left to run, so the start is as quick as any other. On your machine, in tests and with `tifa dev`, `OnStart` still migrates as before.
+
+What it does not change: both ways need each release to run on the tables of the next (see [Keep a rollback working](../guides/database.md#keep-a-rollback-working)), since the old release serves on the new tables while the command runs, and on SQLite a long migration holds the write lock, so writes of the old release wait and then fail. The trade-offs are in [At start or before the switch](../guides/database.md#at-start-or-before-the-switch).
 
 ## Before and after a deploy
 
