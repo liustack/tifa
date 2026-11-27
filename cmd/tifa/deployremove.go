@@ -231,26 +231,7 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 	}
 	if cf && len(st.Others) == 0 {
 		if st.TunnelID != "" || st.TunnelActive || st.CloudflaredByTifa {
-			text := "server: stop cloudflared, the service tifa-tunnel, and delete its units and the tunnel files in /etc/tifa, as root"
-			if st.CloudflaredByTifa {
-				text = "server: stop cloudflared, the service tifa-tunnel, delete its units and the tunnel files in /etc/tifa, and uninstall cloudflared, which setup installed, as root"
-			}
-			p.add(opRemove, text, afterAll(func(ctx context.Context) (string, error) {
-				var out strings.Builder
-				body := untunnelBody
-				if viaTunnel {
-					// This ssh goes through the tunnel the script stops: it would cut its own
-					// connection. The script runs on its own a few seconds later, after ssh left.
-					body = detached(untunnelBody)
-				}
-				if err := t.ssh(ctx, "root", body, nil, &out, r.stderr); err != nil {
-					return "", err
-				}
-				if viaTunnel {
-					time.Sleep(untunnelWait)
-				}
-				return strings.TrimSpace(out.String()), nil
-			}))
+			p.add(opRemove, r.untunnelText(""), afterAll(r.untunnelStep(viaTunnel)))
 		}
 	}
 	// The ssh host name of the app goes after the last ssh, and only when the steps before it
@@ -287,6 +268,34 @@ func buildRemovePlan(ctx context.Context, t deployTarget, stdout, stderr io.Writ
 		p.steps[i].soft = true
 	}
 	return p, nil
+}
+
+// untunnelStep stops the tunnel on the server and deletes its units and files, as root. With
+// viaTunnel the ssh of this run goes through the tunnel the script stops: it would cut its own
+// connection, so the script runs on its own a few seconds later, after ssh left.
+func (r *setupRun) untunnelStep(viaTunnel bool) func(context.Context) (string, error) {
+	return func(ctx context.Context) (string, error) {
+		var out strings.Builder
+		body := untunnelBody
+		if viaTunnel {
+			body = detached(untunnelBody)
+		}
+		if err := r.t.ssh(ctx, "root", body, nil, &out, r.stderr); err != nil {
+			return "", err
+		}
+		if viaTunnel {
+			time.Sleep(untunnelWait)
+		}
+		return strings.TrimSpace(out.String()), nil
+	}
+}
+
+// untunnelText is the line of the plan that stops the tunnel on the server, with why after it.
+func (r *setupRun) untunnelText(why string) string {
+	if r.st.CloudflaredByTifa {
+		return "server: stop cloudflared, the service tifa-tunnel, delete its units and the tunnel files in /etc/tifa, and uninstall cloudflared, which setup installed, as root" + why
+	}
+	return "server: stop cloudflared, the service tifa-tunnel, and delete its units and the tunnel files in /etc/tifa, as root" + why
 }
 
 // untunnelWait is how long remove waits after it scheduled the stop of the tunnel through the
