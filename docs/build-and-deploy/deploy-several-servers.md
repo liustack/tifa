@@ -1,7 +1,7 @@
 ---
 summary: 'Run one app on several servers behind your load balancer: the list of servers, setup, rolling deploys, the other commands, and what the app must keep in a shared place'
 audience: app
-order: 22
+order: 23
 read_when:
   - One server is no longer enough for an app, or one server going down must not take the site down
   - Naming several servers in TIFA_DEPLOY_HOST or --host, or a command refused several servers with deploy.front none, nginx or cloudflare

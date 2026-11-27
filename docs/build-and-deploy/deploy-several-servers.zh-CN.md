@@ -1,8 +1,8 @@
 ---
 summary: '把一个应用放在你的负载均衡器后面的几台服务器上：服务器列表、setup、逐台部署、其他命令，以及应用要放在共享位置的东西'
 audience: app
-order: 22
-translatedFrom: a361bc43df51
+order: 23
+translatedFrom: f83c72e0a9f2
 read_when:
   - '一台服务器不够用了，或者一台服务器宕机不能让整个站点停掉'
   - '在 TIFA_DEPLOY_HOST 或 --host 里写几台服务器，或者命令因为 deploy.front 是 none、nginx 或 cloudflare 而拒绝了几台服务器'
