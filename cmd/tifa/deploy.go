@@ -107,10 +107,10 @@ func hostNames(ts []deployTarget) string {
 	return strings.Join(names, ", ")
 }
 
-// healthTries is how many times, a second apart, the server asks for healthPath before a release
-// counts as failed: deploy.start_timeout in whole seconds. The same number serves the check of the
-// release a failed deploy goes back to.
-func (t deployTarget) healthTries() int { return int(t.startTimeout / time.Second) }
+// healthWait is how many seconds the server asks for healthPath, about once a second, before a
+// release counts as failed: deploy.start_timeout in whole seconds. The same time serves the check
+// of the release a failed deploy goes back to.
+func (t deployTarget) healthWait() int { return int(t.startTimeout / time.Second) }
 
 // deployDomain checks the deploy settings against each other and returns the domain of the app:
 // the host of site.url when deploy.front is cloudflare, else empty.
@@ -530,7 +530,7 @@ func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stde
 	if servesVisitors(port) && s.LowPort > httpPort {
 		return s, fmt.Errorf("%s serves visitors on %s itself, which only root may open on %s yet: run go tool tifa deploy setup", t.app, portsText(port), t.host)
 	}
-	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), t.open, false, false, t.healthTries()), nil, io.Discard, stderr); err != nil {
+	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), t.open, false, false, t.healthWait()), nil, io.Discard, stderr); err != nil {
 		return s, err
 	}
 	fmt.Fprintf(stdout, "created %s on %s: %s/%s, %s, empty shared/.env\n", t.app, t.host, s.Home, t.app, portsText(port))
@@ -766,7 +766,7 @@ func deploy(ctx context.Context, ts []deployTarget, stdout, stderr io.Writer) (e
 		}
 		s := states[i]
 		a := activation{App: t.app, ID: id, Commit: commit, Port: s.Port, Action: "deploy",
-			Back: fallback(s), Prune: pruneReleases(s.Releases, s.Current, id, keepReleases), Tries: t.healthTries()}
+			Back: fallback(s), Prune: pruneReleases(s.Releases, s.Current, id, keepReleases), Wait: t.healthWait()}
 		if runs, err := t.switchTo(ctx, a, health, stderr); err != nil {
 			if i == 0 {
 				return err
@@ -849,7 +849,7 @@ func moveBack(ctx context.Context, ts []deployTarget, states []serverState, fail
 			continue
 		}
 		fmt.Fprintf(stdout, "moving %s back to %s\n", t.host, back)
-		a := activation{App: t.app, ID: back, Commit: s.latest(back).Commit, Port: s.Port, Action: "rollback", Back: id, Tries: t.healthTries()}
+		a := activation{App: t.app, ID: back, Commit: s.latest(back).Commit, Port: s.Port, Action: "rollback", Back: id, Wait: t.healthWait()}
 		r, err := t.switchTo(ctx, a, health, stderr)
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", t.host, err)
@@ -1024,7 +1024,7 @@ func deployRollback(ctx context.Context, t deployTarget, release string, stdout,
 	}
 	fmt.Fprintf(stdout, "rolling %s on %s %s from %s to %s (commit %s)\n", t.app, t.host, way, s.Current, target.ID, target.Commit)
 	a := activation{App: t.app, ID: target.ID, Commit: target.Commit, Port: s.Port, Action: "rollback",
-		Back: s.Current, Tries: t.healthTries()}
+		Back: s.Current, Wait: t.healthWait()}
 	if err := t.activate(ctx, a, health, stderr); err != nil {
 		return err
 	}
@@ -1091,7 +1091,7 @@ func deployRollbackAll(ctx context.Context, ts []deployTarget, release string, s
 			way = "forward"
 		}
 		fmt.Fprintf(stdout, "rolling %s on %s%s %s from %s to %s (commit %s)\n", t.app, t.host, t.serverNote(), way, s.Current, release, targets[i].Commit)
-		a := activation{App: t.app, ID: release, Commit: targets[i].Commit, Port: s.Port, Action: "rollback", Back: s.Current, Tries: t.healthTries()}
+		a := activation{App: t.app, ID: release, Commit: targets[i].Commit, Port: s.Port, Action: "rollback", Back: s.Current, Wait: t.healthWait()}
 		if runs, err := t.switchTo(ctx, a, health, stderr); err != nil {
 			if i == 0 {
 				return err

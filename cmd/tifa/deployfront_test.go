@@ -320,7 +320,7 @@ func TestDeployServesVisitorsOverHTTPS(t *testing.T) {
 
 	// The next release gets no answer: the check says what HTTPS needs, and the one before runs.
 	out, _, err = run(t, "deploy", "--dir", root)
-	if err == nil || !strings.Contains(out, "health check: GET https://shop.example.com/healthz got no answer in 30 tries. Without a certificate for shop.example.com the program answers no HTTPS: Let's Encrypt must reach this server at shop.example.com on port 80 or 443") {
+	if err == nil || !strings.Contains(out, "health check: GET https://shop.example.com/healthz got no answer within 30 seconds. Without a certificate for shop.example.com the program answers no HTTPS: Let's Encrypt must reach this server at shop.example.com on port 80 or 443") {
 		t.Errorf("%v\n%s", err, out)
 	}
 	if strings.Contains(out, "visitors:") {

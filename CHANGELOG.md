@@ -24,6 +24,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ### Fixed
 
+- `tifa deploy`, `deploy rollback`, `deploy env` and `deploy setup` wait at most `deploy.start_timeout` for a release to pass its health check. Each request of the check could wait 5 seconds before the next try, so an app that kept failing to start behind its socket, which takes the connection and never answers, made the wait up to six times longer: three minutes for the default 30 seconds. Each request now waits at most the time that is left.
 - A handler called from the page that redirects to the page that is showing, such as a write that leaves a message in a cookie and returns `tifa.Redirect` to the same address, now loads the data of the page and its Layouts again, as `router.invalidate()` does. It used to stay as it was, so the new data showed only after a reload. See [Calling method handlers from the browser](docs/pages-and-data/handlers.md#calling-method-handlers-from-the-browser).
 - With `deploy.front: nginx`, a WebSocket reaches the app: the site passes `Upgrade` and sets `Connection` to `upgrade` when the browser asks for one. Sites written before get it when you run `go tool tifa deploy setup` again. See [Behind nginx](docs/build-and-deploy/deploy-proxy.md#behind-nginx).
 

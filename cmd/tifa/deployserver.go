@@ -757,12 +757,12 @@ exit 3
 
 // appScript is appBody for app on port, with domain for HTTPS, and with open on every address of
 // the server. move says its sockets listen elsewhere than before, restart that its units changed. It
-// checks the restarted app for tries seconds.
-func appScript(app string, port int, domain string, open, move, restart bool, tries int) string {
+// checks the restarted app for up to wait seconds.
+func appScript(app string, port int, domain string, open, move, restart bool, wait int) string {
 	u := unitsOf(app, port, domain, open)
 	flag := map[bool]string{true: "1"}
 	return script(appBody, "app", app, "port", strconv.Itoa(port), "domain", domain,
-		"move", flag[move], "restart", flag[restart], "health", healthPath, "tries", strconv.Itoa(tries),
+		"move", flag[move], "restart", flag[restart], "health", healthPath, "wait", strconv.Itoa(wait),
 		"socket_unit", u.socket, "http_unit", u.http, "service_unit", u.service)
 }
 
@@ -890,39 +890,46 @@ const (
 )
 
 // askFunc is the shell function that asks the app on the server for $health and prints the
-// status, 000 for no answer. It needs $d and $port. An app with HTTPS is asked over HTTPS for its
-// domain on the loopback, as a visitor would ask it, without checking the certificate: the check
-// is about the app. Without, it is asked over plain HTTP on its port.
+// status, 000 for no answer. It waits $1 seconds for the answer, 5 without. It needs $d and $port.
+// An app with HTTPS is asked over HTTPS for its domain on the loopback, as a visitor would ask it,
+// without checking the certificate: the check is about the app. Without, it is asked over plain
+// HTTP on its port.
 const askFunc = `ask() {
 	if [ -s "$d/https" ]; then
 		h=$(cat "$d/https")
-		curl -s -k -o /dev/null -w '%{http_code}' --max-time 5 --resolve "$h:443:127.0.0.1" "https://$h$health" || true
+		curl -s -k -o /dev/null -w '%{http_code}' --max-time "${1:-5}" --resolve "$h:443:127.0.0.1" "https://$h$health" || true
 	else
-		curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port$health" || true
+		curl -s -o /dev/null -w '%{http_code}' --max-time "${1:-5}" "http://127.0.0.1:$port$health" || true
 	fi
 }
 `
 
 // healthCheckFunc is the shell function that asks the app for healthPath, shared by the scripts that
-// restart it. It needs $d, $health, $port, $tries and $unit.
+// restart it, about once a second until $wait seconds have passed. A request waits at most the
+// time that is left, so a socket that takes the connection and never answers, as the socket of
+// systemd does while the app fails to start again and again, cannot make the wait longer. It needs
+// $d, $health, $port, $wait and $unit.
 const healthCheckFunc = askFunc + `check() {
-	i=0
-	while [ "$i" -lt "$tries" ]; do
-		code=$(ask)
+	end=$(( $(date +%s) + wait ))
+	while :; do
+		left=$(( end - $(date +%s) ))
+		if [ "$left" -gt 5 ]; then left=5; fi
+		if [ "$left" -lt 1 ]; then left=1; fi
+		code=$(ask "$left")
 		if [ "$code" -ge 100 ] && [ "$code" -lt 500 ] && systemctl --user is-active --quiet "$unit.service"; then
 			echo "health check: GET $health answered $code"
 			return 0
 		fi
-		i=$((i + 1))
+		if [ $(( $(date +%s) + 1 )) -ge "$end" ]; then break; fi
 		sleep 1
 	done
 	if [ "$code" != 000 ]; then
 		echo "health check: GET $health answered $code"
 	elif [ -s "$d/https" ]; then
 		h=$(cat "$d/https")
-		echo "health check: GET https://$h$health got no answer in $tries tries. Without a certificate for $h the program answers no HTTPS: Let's Encrypt must reach this server at $h on port 80 or 443, so DNS must point here and the firewall must let it in. The log says why"
+		echo "health check: GET https://$h$health got no answer within $wait seconds. Without a certificate for $h the program answers no HTTPS: Let's Encrypt must reach this server at $h on port 80 or 443, so DNS must point here and the firewall must let it in. The log says why"
 	else
-		echo "health check: GET $health got no answer in $tries tries"
+		echo "health check: GET $health got no answer within $wait seconds"
 	fi
 	return 1
 }
@@ -981,13 +988,13 @@ type activation struct {
 	Action          string   // deploy or rollback
 	Back            string   // the release to go back to when ID fails, or empty
 	Prune           []string // releases to delete when ID passes
-	Tries           int
+	Wait            int      // seconds the health check of ID, and of Back, may take
 }
 
 func activateScript(a activation) string {
 	return script(activateBody, "app", a.App, "id", a.ID, "commit", a.Commit, "port", strconv.Itoa(a.Port),
 		"action", a.Action, "back", a.Back, "prune", strings.Join(a.Prune, " "), "health", healthPath,
-		"tries", strconv.Itoa(a.Tries))
+		"wait", strconv.Itoa(a.Wait))
 }
 
 // tunnelUnit runs cloudflared for the tunnel of the server as a system service. The token reaches
