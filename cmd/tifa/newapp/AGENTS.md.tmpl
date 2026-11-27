@@ -14,7 +14,7 @@ Before you change code, read the docs that apply. [Docs](#docs) at the end of th
 | `{{.Install}}` | Install the npm packages, then run `go tool tifa gen`. Keep `@tanstack/react-router` at the version in `package.json`: `tifa build` refuses another |
 | `go mod tidy` | After you add or remove a Go import. Until then `go build` and `go tool tifa` stop with "missing go.sum entry" |
 | `go tool tifa gen` | Write the generated types into `.tifa/`. Run it once after a batch of Go changes, before the TS that uses them. `tifa dev` does it itself |
-| `go tool tifa dev --background` | Start the dev server detached (plain `tifa dev` holds the terminal) and return once it answers at http://127.0.0.1:9527. Then `go tool tifa dev status`, `go tool tifa dev logs` and `go tool tifa dev stop`. Stop it when you finish |
+| `go tool tifa dev --background` | Start the dev server detached (plain `tifa dev` holds the terminal) and return once it answers at http://127.0.0.1:9527. Then `go tool tifa dev status`, `logs` and `stop`. Stop it when you finish |
 | `go tool tifa errors` | While `tifa dev` runs, print the errors since the last build, those of the browser too. Run it after a change and after you open the pages you changed. Exits with 1 when there are errors |
 | `go tool tifa check` | The one command to run before you finish: the routing conventions, `.tifa/`, `go vet ./...`, `go test ./...` and the TypeScript check. It stops at the first step that fails |
 | `go tool tifa build` | Generate `.tifa/`, bundle the front end and build `bin/` |
