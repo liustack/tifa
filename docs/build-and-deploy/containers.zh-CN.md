@@ -2,7 +2,7 @@
 summary: '在 Fly.io、Railway、Render、Kubernetes 等平台上把 Tifa 应用当容器运行：镜像、端口、健康检查、发布前迁移、SQLite 还是 Postgres，以及哪些平台跑不了'
 audience: app
 order: 24
-translatedFrom: d1f50c8c6db1
+translatedFrom: 097d970bd310
 read_when:
   - '把 Tifa 应用打进容器镜像，或者用 Fly.io、Railway、Render 等容器平台自己的工具部署它'
   - '平台说没有东西在监听它的端口，或者部署后上线的端口不对'
@@ -99,7 +99,7 @@ node_modules
 
 - **SQLite** 需要一个持久卷，挂在文件所在的文件夹上（上面的镜像里是 `/data`），并且只能有一个实例。两个实例会各写各的文件，几个平台的限制也是这样：Fly.io 的卷只能挂到一台 Machine，Railway 的一个服务只有一个卷、有卷就不能用副本，Render 带磁盘的服务不能横向扩展。带卷的服务重新部署时，会先停旧实例，所以每次部署都有一小段停顿。请打开 [`db.backup`](../guides/database.zh-CN.md#back-it-up)，卷丢了数据也不会丢。
 - **多个实例** 需要 Postgres 这样的数据库服务器，会话也放进去（见[会话存在哪里](../pages-and-data/sessions.zh-CN.md#where-to-store-sessions)和 [Postgres](../guides/database.zh-CN.md#postgres)）。渲染记忆和 `OnStart` 里启动的后台循环在每个实例里各有一份，所以要把循环写成两个实例同时跑也没问题。
-- **Railway 的卷** 以 root 挂载。镜像以用户 65532 运行，应用写不进卷时，请在服务上设 `RAILWAY_RUN_UID=0`（[Volumes](https://docs.railway.com/volumes)）。
+- **归 root 所有的卷。** 应用打开数据库时报 "permission denied"，说明卷归 root 所有，而镜像以用户 65532 运行。请在那个平台上让容器以 root 运行，或者用平台上能把卷挂给该用户的设置（如果有的话）。在 Railway 上，请在服务上设 `RAILWAY_RUN_UID=0`（[Volumes](https://docs.railway.com/volumes)）。
 
 ## 各个平台 {#each-platform}
 

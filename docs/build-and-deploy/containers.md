@@ -98,7 +98,7 @@ These steps run in a separate container from the one that serves, and Fly.io, Ra
 
 - **SQLite** needs a persistent volume, mounted on the folder of the file (`/data` in the image above), and exactly one instance. Two instances would each write their own file, and the platforms agree: a Fly.io volume attaches to one Machine, a Railway service has one volume and cannot have replicas with it, and a Render service with a disk cannot be scaled out. A redeploy of a service with a volume stops the old instance first, so each deploy has a short pause. Turn on [`db.backup`](../guides/database.md#back-it-up) so that a lost volume does not lose the data.
 - **Several instances** need a database server such as Postgres, and sessions kept in it (see [Where to store sessions](../pages-and-data/sessions.md#where-to-store-sessions) and [Postgres](../guides/database.md#postgres)). The render memo and a background loop started in `OnStart` live in each instance, so write the loop so that two instances can run it at once.
-- **Railway volumes** are mounted as root. The image runs as user 65532, so set `RAILWAY_RUN_UID=0` on the service when the app cannot write to the volume ([Volumes](https://docs.railway.com/volumes)).
+- **A volume owned by root.** When the app fails to open the database with "permission denied", the volume is owned by root while the image runs as user 65532. Run the container as root on that platform, or use a setting of the platform that mounts the volume for that user, if it has one. On Railway, set `RAILWAY_RUN_UID=0` on the service ([Volumes](https://docs.railway.com/volumes)).
 
 ## Each platform
 
