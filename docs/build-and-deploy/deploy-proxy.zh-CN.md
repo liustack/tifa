@@ -2,7 +2,7 @@
 summary: '在 Tifa 应用前面放负载均衡器、CDN、你自己的 Cloudflare、反向代理或 Tifa 的可选 nginx：`deploy.front: external` 加 `server.addr`、`nginx`、CDN 的设置，以及代理后面的跨站 403'
 audience: app
 order: 14
-translatedFrom: a4b186766578
+translatedFrom: a7b5643ce73c
 read_when:
   - '不用 Cloudflare，用可选的 `deploy.front: nginx` 把几个 Tifa 应用放在同一台服务器上，或者 setup 因为服务器上有一个不是 Tifa 装的 nginx 而停下'
   - '用 `deploy.front: external` 和 `server.addr` 在 Tifa 应用前面放服务商的负载均衡器或你自己的代理，并把目标和健康检查填进去'
@@ -83,7 +83,7 @@ server {
 
 **ufw。** ufw 开着，并且不让访客访问 80 和 443 端口时，计划会放行这两个，规则的注释是 `tifa nginx front`，并且在 nginx 申请证书之前就放行。用更早版本的 Tifa 设置的服务器上，它们的注释是 `tifa nginx`，setup 会接手它们，不会关掉端口。最后一个用这个 nginx 的应用被 remove 时，它们会被删掉。上面**ufw** 和**服务商的防火墙归你管**下说的一切，在这里同样适用。
 
-**搬迁。** setup 把 `none`、`cloudflare` 和 `nginx` 之间的搬迁，当作其他改动一样列进计划。搬到 nginx 的应用，先搬到回环地址的端口上，这会为 nginx 腾出 80 端口，所以访客要等一小会儿。搬走的应用把它的站点和证书从 nginx 里拿掉，没有别的应用有站点时，nginx 和 certbot 也一起走。其他应用还在 nginx 后面时，应用不能搬到 `front: none`：nginx 占着端口，setup 会停下并说明。
+**搬迁。** setup 把 `none`、`cloudflare` 和 `nginx` 之间的搬迁，当作其他改动一样列进计划。搬到 nginx 的应用，先搬到回环地址的端口上，这会为 nginx 腾出 80 端口，所以访客要等一小会儿。搬走的应用把它的站点和证书从 nginx 里拿掉，没有别的应用有站点时，nginx 和 certbot 也一起走。从 `cloudflare` 搬走的应用，会把它的路由、DNS 记录和规则从 Cloudflare 里拿掉。这样做之后，如果服务器的 tunnel 上没有路由了（没有别的应用，也没有任何应用的 ssh 主机名），setup 还会像 `tifa deploy remove` 那样，停掉 cloudflared，删掉服务 `tifa-tunnel`、`/etc/tifa` 里的文件、setup 装的 cloudflared，以及你 Cloudflare 账号里的 tunnel。路由是从 Cloudflare 读的，所以从别的机器设置的应用也算数。没有登录 cf，或者读不到路由时，tunnel 会留着，方案里会说明：等能读了再运行一次 setup。其他应用还在 nginx 后面时，应用不能搬到 `front: none`：nginx 占着端口，setup 会停下并说明。
 
 `tifa deploy remove` 把应用的站点和证书从 nginx 里拿掉，最后一个应用时还会卸载 nginx，以及 setup 安装过的 certbot，连同它们的配置，并删掉 `/etc/tifa/nginx`。如果 setup 只是给原来就有的 certbot 加了 nginx 插件，remove 只拿走插件，certbot、它的定时器和你的证书都不动。nginx 不肯放掉的站点会留下，它的证书和 nginx 也一起留下：报错里说明 nginx 说了什么，下一次 remove 接着做。其他应用继续回答。想手动让 nginx 不再归 Tifa 管，请对 `/etc/tifa/nginx` 里列出的包运行 `apt-get purge`，删掉 `/etc/nginx`、`/etc/letsencrypt` 和那个文件，并删掉注释为 `tifa nginx front` 的 ufw 规则。
 

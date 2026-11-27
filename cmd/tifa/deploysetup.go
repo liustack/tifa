@@ -472,6 +472,9 @@ func buildSetupPlan(ctx context.Context, t deployTarget, f setupFlags, tools boo
 			}
 		}
 	}
+	if err := r.unusedTunnelSteps(ctx, &p); err != nil {
+		return p, r, err
+	}
 	return p, r, nil
 }
 
@@ -1850,4 +1853,66 @@ type setupGroup struct {
 	states []serverState
 	// github says this is the round of GitHub Actions.
 	github bool
+}
+
+// unusedTunnelSteps plans, for an app that is not behind Cloudflare, the removal of the tunnel an
+// earlier front: cloudflare left on the server and in the account, once no route of it is left. It
+// reads the routes of the tunnel in Cloudflare, so apps set up from other machines count: a
+// route of another app, or an ssh host name of any app, keeps the tunnel. Without a login of cf,
+// or when the routes cannot be read, the tunnel stays and one note says how to remove it.
+// It runs after every other step of the plan, as remove does with the tunnel: the steps before may
+// need it.
+func (r *setupRun) unusedTunnelSteps(ctx context.Context, p *setupPlan) error {
+	st := r.st
+	if !r.haveServer || r.t.domain != "" || !(st.TunnelID != "" || st.TunnelActive || st.CloudflaredByTifa) {
+		return nil
+	}
+	stays := func(why string) {
+		p.notes = append(p.notes, planNote{what: "server: the Cloudflare Tunnel, which setup made for deploy.front cloudflare, stays",
+			why: why + ". Run go tool tifa deploy setup again once that works (cf auth login logs cf in): it removes the tunnel when no app uses it"})
+	}
+	if !r.useCF(ctx) {
+		stays("setup cannot tell without cf logged in whether another app uses it")
+		return nil
+	}
+	name := "tifa-" + st.Machine
+	id, how, err := ensureTunnel(ctx, st.TunnelID, name, false)
+	if err != nil {
+		stays("cf could not read the tunnel: " + err.Error())
+		return nil
+	}
+	if how != "already there" {
+		stays("the tunnel " + name + " is not in your Cloudflare account, so its routes cannot be read")
+		return nil
+	}
+	_, ingress, err := tunnelIngress(ctx, id)
+	if err != nil {
+		stays("cf could not read the routes of the tunnel: " + err.Error())
+		return nil
+	}
+	// The routes to the port of this app are the ones removeOldDomains planned to remove.
+	for _, rule := range ingress {
+		host, _ := rule["hostname"].(string)
+		if host == "" || (st.Port != 0 && rule["service"] == "http://127.0.0.1:"+strconv.Itoa(st.Port)) {
+			continue
+		}
+		return nil
+	}
+	const why = ", since no app uses the tunnel any more"
+	failed := false
+	p.add(opRemove, r.untunnelText(why), func(ctx context.Context) (string, error) {
+		res, err := r.untunnelStep(false)(ctx)
+		failed = err != nil
+		return res, err
+	})
+	p.add(opRemove, "cloudflare: the tunnel of the server, "+name+why, func(ctx context.Context) (string, error) {
+		if failed {
+			return "", errors.New("kept, since the step above failed: run go tool tifa deploy setup again")
+		}
+		return "", deleteTunnel(ctx, id)
+	})
+	for i := len(p.steps) - 2; i < len(p.steps); i++ {
+		p.steps[i].soft = true
+	}
+	return nil
 }
