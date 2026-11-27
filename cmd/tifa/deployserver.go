@@ -195,6 +195,9 @@ type serverState struct {
 	// NginxSites are the apps that have a site in it. Both are readable by every user.
 	NginxTifa  bool
 	NginxSites []string
+	// SSHPassword says sshd accepts passwords, as far as the files of its configuration say.
+	// tifa deploy harden turns that off: see deployharden.go.
+	SSHPassword bool
 }
 
 // listener is a port something listens on, and the programs ss names for it, such as "nginx (pid 812)".
@@ -365,6 +368,8 @@ func parseServerState(out string) (serverState, error) {
 			s.Others = append(s.Others, strings.TrimSpace(value))
 		case "cloudflared-tifa":
 			s.CloudflaredByTifa = true
+		case "ssh-password":
+			s.SSHPassword = true
 		case "nginx-tifa":
 			s.NginxTifa = true
 		case "nginx-site":
@@ -862,6 +867,16 @@ if [ -f "$HOME/.ssh/authorized_keys" ]; then
 fi
 if [ -f /etc/apt/apt.conf.d/52tifa-cloudflared ]; then echo "cloudflared-tifa yes"; fi
 if [ -f /etc/tifa/nginx ]; then echo "nginx-tifa yes"; fi
+# The first PasswordAuthentication sshd reads, as the files say (the drop-ins first, when the main
+# file includes them), and yes when none sets it. A Match block ends a file: it is not for everyone.
+if [ -r /etc/ssh/sshd_config ]; then
+	files=/etc/ssh/sshd_config
+	if grep -qi '^[[:space:]]*Include' /etc/ssh/sshd_config; then files="/etc/ssh/sshd_config.d/*.conf $files"; fi
+	pw=$(for f in $files; do
+		if [ -r "$f" ]; then awk 'tolower($1)=="match"{exit} tolower($1)=="passwordauthentication"{print tolower($2); exit}' "$f"; fi
+	done | head -n 1)
+	if [ "${pw:-yes}" = yes ]; then echo "ssh-password yes"; fi
+fi
 for f in /etc/nginx/conf.d/tifa-*.conf; do
 	if [ -f "$f" ]; then a=$(basename "$f" .conf); echo "nginx-site ${a#tifa-}"; fi
 done

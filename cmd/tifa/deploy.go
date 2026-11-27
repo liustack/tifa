@@ -87,6 +87,10 @@ type deployTarget struct {
 	// fixedPort is deploy.port: the port of the app with front external on every server, 0 when
 	// not set.
 	fixedPort int
+	// newConn makes ssh open a connection of its own, never one that ControlMaster keeps open, and
+	// never ask for a password: a login that proves the keys work must not ride on one that is
+	// there already, or on a password typed.
+	newConn bool
 }
 
 // several says the app runs on more than one server.
@@ -308,6 +312,11 @@ func (t deployTarget) ssh(ctx context.Context, user, script string, stdin io.Rea
 // with terminal on a terminal of the server.
 func (t deployTarget) sshArgs(ctx context.Context, user, script string, terminal bool) []string {
 	args := append([]string{"-l", user}, sshOptions(ctx, t.host)...)
+	if t.newConn {
+		// BatchMode too: on a terminal ssh would ask for a password, and a typed one proves nothing
+		// about the keys.
+		args = append(args, "-o", "ControlPath=none", "-o", "ControlMaster=no", "-o", "BatchMode=yes")
+	}
 	if terminal {
 		args = append(args, "-t")
 	}
@@ -712,7 +721,7 @@ moves them one at a time.`,
 	setup.Flags().BoolVar(&sf.all, "all", false, "list the things that are already right too")
 	setup.Flags().BoolVar(&sf.purgeToken, "cache-purge-token", false, "ask for the token that clears the CDN cache at each deploy, and replace the one the server has")
 	setup.Flags().StringVar(&sf.tailscaleClientID, "tailscale-client-id", "", "the client ID of the Tailscale identity CI joins your tailnet with (not secret)")
-	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host), newDeployStatusCmd(&dir, &host), newDeployRunCmd(&dir, &host), newDeployRemoveCmd(&dir, &host))
+	cmd.AddCommand(setup, rollback, newDeployEnvCmd(&dir, &host), newDeployLogsCmd(&dir, &host), newDeployStatusCmd(&dir, &host), newDeployRunCmd(&dir, &host), newDeployRemoveCmd(&dir, &host), newDeployHardenCmd(&dir))
 	return cmd
 }
 

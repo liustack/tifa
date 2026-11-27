@@ -2,7 +2,7 @@
 summary: '用 `tifa deploy setup` 配好服务器、Cloudflare 和 GitHub：计划、每种 `front` 改了什么、在没有 gh 的机器上运行 setup'
 audience: app
 order: 11
-translatedFrom: d176d90683c6
+translatedFrom: dc09b0a56184
 read_when:
   - '在没有 gh 的机器上运行 tifa deploy setup 或 remove，用 TIFA_DEPLOY_GITHUB_TOKEN 里的细粒度令牌'
   - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，你想知道要开放哪些端口，或者想知道 setup 和 remove 在 ufw 里改了什么'
@@ -129,6 +129,8 @@ setup 经 ssh 把这两个文件上传到 `/srv/tifa/<app>/shared/tls/`，名为
 ```
 
 你同意之后，或者带了 `--yes`，setup 以 root 为每个端口运行 `ufw allow 80/tcp comment 'tifa <app>'`。以下情况 ufw 里什么都不改：ufw 关着或没装，你自己的规则已经放行了这个端口，或者它的默认策略放行所有连接。你自己拒绝这个端口的规则会保留：setup 会说是哪条，以及怎样删掉它。注释 `tifa <app>` 标明这些规则是 Tifa 加的：`tifa deploy remove` 会删掉它们，应用不再在某个端口上接待访客时（比如改成 `front: cloudflare` 之后），setup 也会删掉。其他规则一概不碰，ssh 的规则也不碰。只有 root 能读 ufw 的规则：root 登录不了时，setup 会告诉你改去服务器上查什么。
+
+setup 不会打开 ufw，也不碰 ssh。服务器接受 ssh 密码登录时，setup 会打印一行话说明。[加固服务器](deploy-harden.md)用 `go tool tifa deploy harden` 关掉密码登录，在没有别的东西把守服务器时打开 ufw，并让安全更新自己安装。
 
 **服务商的防火墙归你管。** Tifa 不改服务商的防火墙和安全组，也不改服务器上不是 ufw 的防火墙（firewalld，或者不是 ufw 写的 nftables、iptables 规则）。计划会说访客需要哪些端口，setup 结束时也会再说一遍：如果它们挡住了这些端口，请在那里开放。每次部署之后，Tifa 从你的机器访问应用的这些端口，有端口没回答时会告诉你。
 
