@@ -9,11 +9,11 @@ import (
 	"testing"
 )
 
-// beforeStartApp is an app on the fake server with deploy.before_start set to command, whose
+// releaseCommandApp is an app on the fake server with deploy.release_command set to command, whose
 // program writes to $HOME/ran a line for each run: its release, the release current points at, the
 // folder it runs in, the .env it reads and its arguments. It exits with 3 while $HOME/fail exists.
 // Every release passes its health check.
-func beforeStartApp(t *testing.T, command string) (root, home string, calls func() string, ran func() string) {
+func releaseCommandApp(t *testing.T, command string) (root, home string, calls func() string, ran func() string) {
 	t.Helper()
 	ids := []string{"20261120T100000Z", "20261120T110000Z", "20261120T120000Z", "20261120T130000Z"}
 	health := map[string]string{}
@@ -22,7 +22,7 @@ func beforeStartApp(t *testing.T, command string) (root, home string, calls func
 	}
 	root, home, calls = serveApp(t, "9531", "", health)
 	if command != "" {
-		writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  before_start: "+command+"\n")
+		writeFile(t, filepath.Join(root, "tifa.yaml"), "deploy:\n  release_command: "+command+"\n")
 	}
 	writeFile(t, filepath.Join(home, "shop", "shared", ".env"), "A=1\n")
 	buildForServer = func(_ context.Context, _, _, _, out string, _, _ io.Writer) error {
@@ -43,11 +43,11 @@ if [ -f "$HOME/fail" ]; then echo "migrations: no such table: nope" >&2; exit 3;
 	return root, home, calls, ran
 }
 
-// deploy.before_start runs the command with the program of the new release, after the upload and
+// deploy.release_command runs the command with the program of the new release, after the upload and
 // before current points at it, as tifa in shared/ with its .env, as deploy run does. Its output
 // is part of the output of the deploy.
-func TestDeployBeforeStartRunsTheNewRelease(t *testing.T) {
-	root, home, calls, ran := beforeStartApp(t, "migrate --to 3")
+func TestDeployReleaseCommandRunsTheNewRelease(t *testing.T) {
+	root, home, calls, ran := releaseCommandApp(t, "migrate --to 3")
 	out, _, err := run(t, "deploy", "--dir", root)
 	if err != nil {
 		t.Fatalf("first deploy: %v\n%s", err, out)
@@ -61,7 +61,7 @@ func TestDeployBeforeStartRunsTheNewRelease(t *testing.T) {
 	if ran() != want {
 		t.Errorf("ran:\n%s\nwant:\n%s", ran(), want)
 	}
-	if !strings.Contains(out, "deploy.before_start: migrate --to 3, with release 20261120T110000Z\nmigrating with 20261120T110000Z\n") {
+	if !strings.Contains(out, "deploy.release_command: migrate --to 3, with release 20261120T110000Z\nmigrating with 20261120T110000Z\n") {
 		t.Errorf("the output does not show the command and its output:\n%s", out)
 	}
 	// The command runs before the restart: the run of the second deploy comes before its restart.
@@ -77,15 +77,15 @@ func TestDeployBeforeStartRunsTheNewRelease(t *testing.T) {
 
 // A command that fails stops the deploy: current stays, nothing restarts, the release is recorded as
 // failed and is no place a rollback can go.
-func TestDeployBeforeStartFailureStopsTheDeploy(t *testing.T) {
-	root, home, calls, ran := beforeStartApp(t, "migrate")
+func TestDeployReleaseCommandFailureStopsTheDeploy(t *testing.T) {
+	root, home, calls, ran := releaseCommandApp(t, "migrate")
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
 		t.Fatalf("first deploy: %v\n%s", err, out)
 	}
 	writeFile(t, filepath.Join(home, "fail"), "")
 	restarts := strings.Count(calls(), "systemctl --user restart")
 	out, stderr, err := run(t, "deploy", "--dir", root)
-	if err == nil || !strings.Contains(err.Error(), "release 20261120T110000Z failed deploy.before_start, so it was not started: 20261120T100000Z still runs") {
+	if err == nil || !strings.Contains(err.Error(), "release 20261120T110000Z failed deploy.release_command, so it was not started: 20261120T100000Z still runs") {
 		t.Fatalf("failing command: %v\n%s%s", err, out, stderr)
 	}
 	if !strings.Contains(stderr, "migrations: no such table: nope\ntifa: migrate exited with status 3\n") || !strings.Contains(out, "migrating with 20261120T110000Z") {
@@ -98,15 +98,15 @@ func TestDeployBeforeStartFailureStopsTheDeploy(t *testing.T) {
 		t.Errorf("the failed deploy restarted the service:\n%s", calls())
 	}
 	log, _ := os.ReadFile(filepath.Join(home, "shop", "deploys.log"))
-	if lines := strings.Split(strings.TrimSpace(string(log)), "\n"); len(lines) != 2 || !strings.HasSuffix(lines[1], "\t20261120T110000Z\tnone\tdeploy\tfailed-before-start") {
+	if lines := strings.Split(strings.TrimSpace(string(log)), "\n"); len(lines) != 2 || !strings.HasSuffix(lines[1], "\t20261120T110000Z\tnone\tdeploy\tfailed-release-command") {
 		t.Errorf("deploys.log:\n%s", log)
 	}
 	out, _, err = run(t, "deploy", "rollback", "20261120T110000Z", "--dir", root)
-	if err == nil || !strings.Contains(err.Error(), "release 20261120T110000Z failed deploy.before_start when it was deployed") {
+	if err == nil || !strings.Contains(err.Error(), "release 20261120T110000Z failed deploy.release_command when it was deployed") {
 		t.Errorf("rollback to the failed release: %v\n%s", err, out)
 	}
 	out, _, err = run(t, "deploy", "status", "--dir", root)
-	if err != nil || !strings.Contains(out, "20261120T110000Z  commit none  failed deploy.before_start") {
+	if err != nil || !strings.Contains(out, "20261120T110000Z  commit none  failed deploy.release_command") {
 		t.Errorf("status: %v\n%s", err, out)
 	}
 	// Not one more run of the command by the rollback or the status.
@@ -116,11 +116,11 @@ func TestDeployBeforeStartFailureStopsTheDeploy(t *testing.T) {
 }
 
 // The first deploy has no release to keep: a failed command leaves no current and starts nothing.
-func TestDeployBeforeStartFailsTheFirstDeploy(t *testing.T) {
-	root, home, calls, _ := beforeStartApp(t, "migrate")
+func TestDeployReleaseCommandFailsTheFirstDeploy(t *testing.T) {
+	root, home, calls, _ := releaseCommandApp(t, "migrate")
 	writeFile(t, filepath.Join(home, "fail"), "")
 	_, _, err := run(t, "deploy", "--dir", root)
-	if err == nil || !strings.Contains(err.Error(), "release 20261120T100000Z failed deploy.before_start, so it was not started: no release runs yet") {
+	if err == nil || !strings.Contains(err.Error(), "release 20261120T100000Z failed deploy.release_command, so it was not started: no release runs yet") {
 		t.Fatalf("got %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(home, "shop", "current")); err == nil {
@@ -132,8 +132,8 @@ func TestDeployBeforeStartFailsTheFirstDeploy(t *testing.T) {
 }
 
 // Each word of the setting reaches the program as it is written, whatever a shell would make of it.
-func TestDeployBeforeStartQuotesTheWords(t *testing.T) {
-	root, home, _, ran := beforeStartApp(t, "migrate $HOME `touch${IFS}pwned` a;b && * > out |x")
+func TestDeployReleaseCommandQuotesTheWords(t *testing.T) {
+	root, home, _, ran := releaseCommandApp(t, "migrate $HOME `touch${IFS}pwned` a;b && * > out |x")
 	if out, _, err := run(t, "deploy", "--dir", root); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -151,8 +151,8 @@ func TestDeployBeforeStartQuotesTheWords(t *testing.T) {
 
 // A rollback, to the release before or to one named, starts a release that ran its command when it
 // was deployed, so it runs no command.
-func TestDeployRollbackSkipsBeforeStart(t *testing.T) {
-	root, _, _, ran := beforeStartApp(t, "migrate")
+func TestDeployRollbackSkipsReleaseCommand(t *testing.T) {
+	root, _, _, ran := releaseCommandApp(t, "migrate")
 	for range 3 {
 		if out, _, err := run(t, "deploy", "--dir", root); err != nil {
 			t.Fatalf("deploy: %v\n%s", err, out)
@@ -171,13 +171,13 @@ func TestDeployRollbackSkipsBeforeStart(t *testing.T) {
 }
 
 // Without the setting a deploy is a look, the upload and the switch, and no program runs before it.
-func TestDeployWithoutBeforeStart(t *testing.T) {
-	root, _, calls, ran := beforeStartApp(t, "")
+func TestDeployWithoutReleaseCommand(t *testing.T) {
+	root, _, calls, ran := releaseCommandApp(t, "")
 	out, _, err := run(t, "deploy", "--dir", root)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if ran() != "" || strings.Count(calls(), "ssh tifa vps") != 3 || strings.Contains(out, "before_start") {
+	if ran() != "" || strings.Count(calls(), "ssh tifa vps") != 3 || strings.Contains(out, "release_command") {
 		t.Errorf("ran %q\n%s\n%s", ran(), calls(), out)
 	}
 }

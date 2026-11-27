@@ -121,7 +121,7 @@ type deployRecord struct {
 	ID     string // the release
 	Commit string // git commit of the app, with -dirty for uncommitted changes, or none
 	Action string // deploy or rollback
-	Result string // ok, failed when the health check failed, or beforeStartFailed
+	Result string // ok, failed when the health check failed, or releaseCommandFailed
 }
 
 // serverState is what the probe script prints about the server and the app, as the deploy user.
@@ -461,8 +461,8 @@ func rollbackTo(s serverState, id string) (target deployRecord, current bool, er
 	}
 	why := "is not kept on the server"
 	switch {
-	case slices.Contains(s.Releases, id) && s.latest(id).Result == beforeStartFailed:
-		why = "failed deploy.before_start when it was deployed"
+	case slices.Contains(s.Releases, id) && s.latest(id).Result == releaseCommandFailed:
+		why = "failed deploy.release_command when it was deployed"
 	case slices.Contains(s.Releases, id):
 		why = "did not pass its health check when it was deployed"
 	}

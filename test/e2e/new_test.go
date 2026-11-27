@@ -95,7 +95,7 @@ func TestNewApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	exe := buildAt(t, dir)
-	// The command migrate runs the migrations OpenDB runs, as deploy.before_start runs it before a
+	// The command migrate runs the migrations OpenDB runs, as deploy.release_command runs it before a
 	// deploy starts the new release. A database that is not there it leaves to the service, which
 	// makes it, or restores it with db.backup, when it starts.
 	migrate := func(path string) string {

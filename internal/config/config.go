@@ -55,10 +55,10 @@ type Deploy struct {
 	// Connect is the one path ssh takes to the server, from this machine and from CI: direct,
 	// cloudflare or tailscale.
 	Connect string
-	// BeforeStart is a command of the app and its arguments, such as migrate, that tifa deploy
+	// ReleaseCommand is a command of the app and its arguments, such as migrate, that tifa deploy
 	// runs on the server with the program of the new release before it starts it, as tifa deploy
 	// run does. Empty runs nothing.
-	BeforeStart []string
+	ReleaseCommand []string
 	// StartTimeout is how long a new release may take to pass its health check, which the server
 	// asks for once a second. The check of the release a failed deploy goes back to has the same
 	// time. From MinStartTimeout to MaxStartTimeout, whole seconds.
@@ -295,7 +295,7 @@ func fields(c *Config) []field {
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
 		{"deploy.front", "What visitors come through before the server: none, cloudflare or nginx, on the host of site.url", frontValue{&c.Deploy.Front}},
 		{"deploy.connect", "How deploys reach the server over ssh, from this machine and from CI: direct, cloudflare (through the Cloudflare Tunnel) or tailscale", connectValue{&c.Deploy.Connect}},
-		{"deploy.before_start", "A command of the app, such as migrate, that each deploy runs on the server with the new release before it starts it, while the old one still serves. Empty runs nothing", commandValue{&c.Deploy.BeforeStart}},
+		{"deploy.release_command", "A command of the app, such as migrate, that each deploy runs on the server with the new release before it starts it, while the old one still serves. Empty runs nothing", commandValue{&c.Deploy.ReleaseCommand}},
 		{"deploy.start_timeout", "How long a new release may take to start and pass its health check, from 1s to 10m, 30s when left out", startTimeoutValue{&c.Deploy.StartTimeout}},
 		{"deploy.auto.branch", "With the block deploy.auto, the branch that deploys from GitHub Actions, the default branch of the repository when left out", branchValue{&c.Deploy.Auto.Branch}},
 		{"deploy.auto.needs", "With the block deploy.auto, the workflow file in .github/workflows that must pass before a deploy (ci.yml when left out), or none to wait for nothing", needsValue{&c.Deploy.Auto.Needs}},

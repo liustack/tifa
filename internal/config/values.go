@@ -665,7 +665,7 @@ func (v startTimeoutValue) Set(s string) error {
 func (v startTimeoutValue) String() string { return v.p.String() }
 func (v startTimeoutValue) kind() string   { return "duration" }
 
-// commandValue is deploy.before_start: a command of the app with its arguments, split at spaces
+// commandValue is deploy.release_command: a command of the app with its arguments, split at spaces
 // and tabs, empty for none. Each word reaches the program as it is written, so quotes, which a
 // shell would take away, are refused. So are a first word that is a flag and serve, with which the
 // program serves instead of running a command that ends.

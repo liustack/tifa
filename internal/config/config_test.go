@@ -294,7 +294,7 @@ func TestFileMustHoldOneDocument(t *testing.T) {
 }
 
 func TestKeysListEverySetting(t *testing.T) {
-	want := "build.target build.public build.public_dotfiles build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.connect deploy.before_start deploy.start_timeout deploy.auto.branch deploy.auto.needs"
+	want := "build.target build.public build.public_dotfiles build.skip_tanstack_check build.debug_info build.i18next_cache i18n.default i18n.prefix site.url server.addr server.body_limit server.read_timeout server.write_timeout server.shutdown_timeout server.compress server.tls_domains server.tls_email server.tls_cache server.tls_ca server.tls_cert server.tls_key server.http_addr server.hsts server.csp server.csp_policy server.trusted_origins server.cross_site_paths ssr.vms ssr.vm_memory ssr.vm_stack_depth ssr.timeout ssr.queue_limit ssr.wait_timeout ssr.memo_size cache.s_maxage session.cookie session.max_age session.memory_limit deploy.front deploy.connect deploy.release_command deploy.start_timeout deploy.auto.branch deploy.auto.needs"
 	if got := strings.Join(Keys(), " "); got != want {
 		t.Fatalf("Keys: %s, want %s", got, want)
 	}
@@ -929,27 +929,27 @@ func TestDeployStartTimeout(t *testing.T) {
 	}
 }
 
-// deploy.before_start is a command of the app with its arguments, split at spaces, as tifa deploy
+// deploy.release_command is a command of the app with its arguments, split at spaces, as tifa deploy
 // run takes it. It is no shell line: quotes are refused, since they would reach the program as
 // part of a word, and so are a first word that is a flag or serve, which start the server instead
 // of a command that ends.
-func TestDeployBeforeStart(t *testing.T) {
+func TestDeployReleaseCommand(t *testing.T) {
 	for in, want := range map[string][]string{
 		"migrate":                       {"migrate"},
 		"  migrate   --to 3 ":           {"migrate", "--to", "3"},
 		"db migrate $HOME `id` a;b > x": {"db", "migrate", "$HOME", "`id`", "a;b", ">", "x"},
 		`""`:                            nil,
 	} {
-		c, settings, err := Project([]byte("deploy:\n  before_start: " + in + "\n"))
-		if err != nil || !reflect.DeepEqual(c.Deploy.BeforeStart, want) {
-			t.Errorf("before_start %s: %q, %v, want %q", in, c.Deploy.BeforeStart, err, want)
+		c, settings, err := Project([]byte("deploy:\n  release_command: " + in + "\n"))
+		if err != nil || !reflect.DeepEqual(c.Deploy.ReleaseCommand, want) {
+			t.Errorf("release_command %s: %q, %v, want %q", in, c.Deploy.ReleaseCommand, err, want)
 		}
 		if len(settings) != 0 {
-			t.Errorf("before_start %s reaches the program: %v", in, settings)
+			t.Errorf("release_command %s reaches the program: %v", in, settings)
 		}
 	}
-	if c, _, err := Project([]byte("deploy:\n  front: none\n")); err != nil || c.Deploy.BeforeStart != nil {
-		t.Errorf("default: %q, %v", c.Deploy.BeforeStart, err)
+	if c, _, err := Project([]byte("deploy:\n  front: none\n")); err != nil || c.Deploy.ReleaseCommand != nil {
+		t.Errorf("default: %q, %v", c.Deploy.ReleaseCommand, err)
 	}
 	for bad, why := range map[string]string{
 		`"migrate --to 'a b'"`: "quotes",
@@ -959,9 +959,9 @@ func TestDeployBeforeStart(t *testing.T) {
 		"3":                    "string",
 		"[migrate]":            "single value",
 	} {
-		_, _, err := Project([]byte("deploy:\n  before_start: " + bad + "\n"))
-		if err == nil || !strings.Contains(err.Error(), "deploy.before_start") || !strings.Contains(err.Error(), why) {
-			t.Errorf("before_start %s: got %v, want an error that says %q", bad, err, why)
+		_, _, err := Project([]byte("deploy:\n  release_command: " + bad + "\n"))
+		if err == nil || !strings.Contains(err.Error(), "deploy.release_command") || !strings.Contains(err.Error(), why) {
+			t.Errorf("release_command %s: got %v, want an error that says %q", bad, err, why)
 		}
 	}
 }
@@ -1058,7 +1058,7 @@ func TestUnknownKeyInTifaYamlFails(t *testing.T) {
 		want  []string
 		avoid []string
 	}{
-		"old key":          {"deploy:\n  front: none\n  ssh: cloudflare\n", []string{"tifa.yaml line 3: deploy.ssh is not a setting of tifa.yaml", "the settings of deploy are front, connect, before_start, start_timeout, auto"}, []string{"did you mean"}},
+		"old key":          {"deploy:\n  front: none\n  ssh: cloudflare\n", []string{"tifa.yaml line 3: deploy.ssh is not a setting of tifa.yaml", "the settings of deploy are front, connect, release_command, start_timeout, auto"}, []string{"did you mean"}},
 		"typo":             {"deploy:\n  conect: direct\n", []string{"tifa.yaml line 2: deploy.conect is not a setting of tifa.yaml: did you mean deploy.connect?"}, nil},
 		"dotted":           {"server.adr: :8080\n", []string{"tifa.yaml line 1: server.adr is not a setting of tifa.yaml: did you mean server.addr?"}, nil},
 		"unknown section":  {"servr:\n  addr: :8080\n", []string{"tifa.yaml line 1: servr is not a setting of tifa.yaml: did you mean server?"}, []string{"servr.addr"}},

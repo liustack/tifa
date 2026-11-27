@@ -520,7 +520,7 @@ func TestStdRootsListTheStandardLibrary(t *testing.T) {
 }
 
 // tifa.yaml lists every setting commented out, so as written it loads the defaults. Turned on, it
-// loads them too, except ssr.vms, whose default depends on the machine, and deploy.before_start,
+// loads them too, except ssr.vms, whose default depends on the machine, and deploy.release_command,
 // which both show an example, and the block deploy.auto, which is on once it is there.
 func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "app")
@@ -568,8 +568,8 @@ func TestNewTifaYAMLListsEverySetting(t *testing.T) {
 	// ssr.vms defaults to GOMAXPROCS, at most 4, so the file shows an example.
 	want := config.Default()
 	want.SSR.VMs = c.SSR.VMs
-	// deploy.before_start runs nothing by default, so the file shows the migrate command of the app.
-	want.Deploy.BeforeStart = []string{"migrate"}
+	// deploy.release_command runs nothing by default, so the file shows the migrate command of the app.
+	want.Deploy.ReleaseCommand = []string{"migrate"}
 	// The block deploy.auto turns deploys on by being there, with the branch the file shows.
 	want.Deploy.Auto = config.Auto{On: true, Branch: "main", Needs: "ci.yml"}
 	if !reflect.DeepEqual(c, want) {
