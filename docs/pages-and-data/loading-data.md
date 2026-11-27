@@ -36,7 +36,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 ```
 
 - `Load` returns the page data. Its return type must convert to TypeScript (see [JSON rules](../reference/json.md)).
-- `GET`, `POST`, `PUT`, `PATCH` and `DELETE` handle the HTTP method they are named after, and so do `HEAD`, `OPTIONS`, `CONNECT` and `TRACE` (see [HEAD, OPTIONS, CONNECT and TRACE](handlers.md#head-options-connect-and-trace)).
+- `GET`, `POST`, `PUT`, `PATCH` and `DELETE` handle the HTTP method they are named after, and so do `HEAD`, `OPTIONS` and `TRACE` (see [HEAD, OPTIONS and TRACE](handlers.md#head-options-and-trace)). CONNECT goes to `tifa.SetHTTPHandler` instead (see [CONNECT](handlers.md#connect)).
 - `Layout` returns the data of the Layout of the folder (see [Layout](layouts.md#the-layout-of-a-folder)).
 - A folder with a `page.tsx` is a page. The framework renders its GET, so you cannot also write `GET`. A page that needs no data and no other method can be `page.tsx` alone, without `route.go`.
 - A folder with `route.go` and no `page.tsx` is an API route when it declares a method handler: every method handler answers as written, and `Load` is not allowed, because `Load` loads the data of a page. A `route.go` with only a `Layout` is no API route. It gives the pages below it their Layout data.

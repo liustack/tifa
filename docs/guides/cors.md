@@ -37,7 +37,7 @@ A POST with a JSON body is not a simple request, so the browser first sends an O
 
 ## The preflight goes in OnRequest
 
-Without a hook, Tifa answers an OPTIONS request itself, with 204 and `Allow: GET, HEAD, POST, OPTIONS` for a route with `GET` and `POST`, and a `route.go` may have an `OPTIONS` of its own ([HEAD, OPTIONS, CONNECT and TRACE](../pages-and-data/handlers.md#head-options-connect-and-trace)). Neither is the place for CORS. The browser needs `Access-Control-Allow-Origin` on every answer it reads, the GET and the POST as well as the preflight, and on every route the other site calls. `OnRequest` sees every request first, so one hook covers them all, and its answer to the preflight comes before any `OPTIONS` of a route.
+Without a hook, Tifa answers an OPTIONS request itself, with 204 and `Allow: GET, HEAD, POST, OPTIONS` for a route with `GET` and `POST`, and a `route.go` may have an `OPTIONS` of its own ([HEAD, OPTIONS and TRACE](../pages-and-data/handlers.md#head-options-and-trace)). Neither is the place for CORS. The browser needs `Access-Control-Allow-Origin` on every answer it reads, the GET and the POST as well as the preflight, and on every route the other site calls. `OnRequest` sees every request first, so one hook covers them all, and its answer to the preflight comes before any `OPTIONS` of a route.
 
 ## The hook
 

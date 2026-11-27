@@ -2,7 +2,7 @@
 summary: 'route.go 里的 Load、page.tsx 里的数据、route.gen、tifa.HTML、Load 怎样使用 Ctx，以及那里的 c.Request() 含有什么'
 audience: app
 order: 3
-translatedFrom: fa64cf2c4b33
+translatedFrom: 796985df41b7
 read_when:
   - '编写页面的 `Load`，或者页面的 route.go'
   - '编写 page.tsx，或者使用 `./route.gen` 导出的东西'
@@ -37,7 +37,7 @@ func POST(c *tifa.Ctx, in ShipInput) (orders.Shipment, error) {
 ```
 
 - `Load` 返回页面数据。它的返回类型必须能转换成 TypeScript（见 [JSON 规则](../reference/json.zh-CN.md)）。
-- `GET`、`POST`、`PUT`、`PATCH` 和 `DELETE` 处理与它们同名的 HTTP 方法，`HEAD`、`OPTIONS`、`CONNECT` 和 `TRACE` 也一样（见 [HEAD、OPTIONS、CONNECT 和 TRACE](handlers.zh-CN.md#head-options-connect-and-trace)）。
+- `GET`、`POST`、`PUT`、`PATCH` 和 `DELETE` 处理与它们同名的 HTTP 方法，`HEAD`、`OPTIONS` 和 `TRACE` 也一样（见 [HEAD、OPTIONS 和 TRACE](handlers.zh-CN.md#head-options-and-trace)）。CONNECT 则交给 `tifa.SetHTTPHandler`（见 [CONNECT](handlers.zh-CN.md#connect)）。
 - `Layout` 返回这个文件夹的布局的数据（见[布局](layouts.zh-CN.md#the-layout-of-a-folder)）。
 - 有 `page.tsx` 的文件夹是一个页面。框架负责渲染它的 GET，所以你不能再写 `GET`。一个不需要数据、也不需要其他方法的页面，可以只有 `page.tsx`，不要 `route.go`。
 - 有 `route.go` 但没有 `page.tsx` 的文件夹，只要声明了方法处理函数，就是一个 API 路由：每个方法处理函数都按你写的方式响应，并且不允许有 `Load`，因为 `Load` 是用来加载页面数据的。只有 `Layout` 的 `route.go` 不是 API 路由，它只是给下面的页面提供布局数据。

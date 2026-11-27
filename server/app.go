@@ -99,7 +99,7 @@ type Route struct {
 	// The handlers of route.go, named after their HTTP methods, nil when absent. A page has no GET
 	// and no HEAD. Without HEAD, GET answers HEAD. Without OPTIONS, the server answers it with 204
 	// and Allow.
-	GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, CONNECT, TRACE func(c *tifa.Ctx) error
+	GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, TRACE func(c *tifa.Ctx) error
 	// SSR is false when the route or a Layout in its chain sets SSR = false.
 	SSR bool
 	// NoMemo is true when route.go sets Memo = false. The HTML of the page is not cached
@@ -199,7 +199,7 @@ func (s *server) register(layouts []Layout, routes []Route) {
 		for _, h := range []struct {
 			method string
 			fn     func(*tifa.Ctx) error
-		}{{"GET", r.GET}, {"HEAD", r.HEAD}, {"POST", r.POST}, {"PUT", r.PUT}, {"PATCH", r.PATCH}, {"DELETE", r.DELETE}, {"OPTIONS", r.OPTIONS}, {"CONNECT", r.CONNECT}, {"TRACE", r.TRACE}} {
+		}{{"GET", r.GET}, {"HEAD", r.HEAD}, {"POST", r.POST}, {"PUT", r.PUT}, {"PATCH", r.PATCH}, {"DELETE", r.DELETE}, {"OPTIONS", r.OPTIONS}, {"TRACE", r.TRACE}} {
 			if h.fn != nil {
 				s.handle(h.method, r.Path, h.fn)
 			}

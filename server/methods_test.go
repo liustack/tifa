@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -32,8 +31,7 @@ func methodsApp(seen *[]string) App {
 				return c.NoContent(200)
 			}},
 		Route{ID: "app/api/debug", Path: "/api/debug", SSR: true, Layouts: []string{"app/layout"},
-			TRACE:   func(c *tifa.Ctx) error { return c.Text(200, c.Request().Method+" "+c.Request().URL.Path) },
-			CONNECT: func(c *tifa.Ctx) error { return c.Text(200, "tunnel "+c.Request().URL.Path) }},
+			TRACE: func(c *tifa.Ctx) error { return c.Text(200, c.Request().Method+" "+c.Request().URL.Path) }},
 	)
 	return app
 }
@@ -145,27 +143,21 @@ func TestCrossSiteHeadAndOptionsReachTheRoute(t *testing.T) {
 	}
 }
 
-// CONNECT and TRACE reach the handlers of a route like the other methods, and are in its Allow. A
-// CONNECT for a host and port, as a client asks a proxy, has no path, so it matches no route.
-func TestConnectAndTraceOfARoute(t *testing.T) {
+// TRACE reaches the handler of a route like the other methods, and is in its Allow. CONNECT is not
+// a method of a route: it gets 405, and Allow never lists it.
+func TestTraceOfARoute(t *testing.T) {
 	var seen []string
 	s := newAppServer(t, methodsApp(&seen))
 	if w := send(s, "TRACE", "/api/debug", ""); w.Code != 200 || w.Body.String() != "TRACE /api/debug" {
 		t.Errorf("TRACE /api/debug: %d %q", w.Code, w.Body.String())
 	}
-	if w := send(s, "CONNECT", "/api/debug", ""); w.Code != 200 || w.Body.String() != "tunnel /api/debug" {
-		t.Errorf("CONNECT /api/debug: %d %q", w.Code, w.Body.String())
-	}
-	if w := send(s, "OPTIONS", "/api/debug", ""); w.Header().Get("Allow") != "OPTIONS, CONNECT, TRACE" {
+	if w := send(s, "OPTIONS", "/api/debug", ""); w.Header().Get("Allow") != "OPTIONS, TRACE" {
 		t.Errorf("OPTIONS /api/debug: Allow %q", w.Header().Get("Allow"))
+	}
+	if w := send(s, "CONNECT", "/api/debug", ""); w.Code != 405 || w.Header().Get("Allow") != "OPTIONS, TRACE" {
+		t.Errorf("CONNECT /api/debug: %d, Allow %q", w.Code, w.Header().Get("Allow"))
 	}
 	if w := send(s, "TRACE", "/api/health", ""); w.Code != 405 {
 		t.Errorf("TRACE of a route without it: %d", w.Code)
-	}
-	r := httptest.NewRequest("CONNECT", "shop.example:443", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, r)
-	if w.Code != 404 {
-		t.Errorf("CONNECT shop.example:443: %d, want 404", w.Code)
 	}
 }

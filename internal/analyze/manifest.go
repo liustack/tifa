@@ -92,7 +92,7 @@ type Route struct {
 	// Load is nil when the route has no Load.
 	Load *Load `json:"load"`
 	// Handlers lists the method handlers route.go declares, in the order GET, HEAD, POST, PUT, PATCH,
-	// DELETE, OPTIONS, CONNECT, TRACE.
+	// DELETE, OPTIONS, TRACE.
 	Handlers []Handler `json:"handlers"`
 	// SSR is false when the route or any Layout in its chain sets SSR = false.
 	SSR bool `json:"ssr"`
@@ -150,8 +150,8 @@ type QueryField struct {
 // Handler describes a method handler of route.go, a function named after the HTTP method it
 // answers. It takes an input after the Ctx or not, and returns a result before the error or not.
 type Handler struct {
-	// Method is GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, CONNECT or TRACE. HEAD, OPTIONS,
-	// CONNECT and TRACE take the Ctx alone.
+	// Method is GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS or TRACE. HEAD, OPTIONS and TRACE take
+	// the Ctx alone.
 	Method string `json:"method"`
 	// Input is the Go type of the input, qualified by full import paths, empty when the handler takes none.
 	Input string `json:"input"`

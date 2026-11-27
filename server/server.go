@@ -120,10 +120,11 @@ func newServer(cfg config.Config, hooks Hooks) *server {
 	return s
 }
 
-// methods are the methods a route may have a handler for, the standard ones of RFC 9110, in the
-// order Allow lists them. A CONNECT for a host and port, as a client asks a proxy, has no path and
-// so matches no route. One with a path, as net/rpc sends, reaches the CONNECT of its route.
-var methods = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"}
+// methods are the methods a route may have a handler for, the standard ones of RFC 9110 but
+// CONNECT, in the order Allow lists them. CONNECT works on the connection, not on a route: the
+// wrapper of tifa.SetHTTPHandler takes it, and without one it gets 404 or 405 like a method a
+// route lacks.
+var methods = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE"}
 
 // handle registers a method handler of a route. The path is registered once without a method,
 // so OnRequest runs with the matched pattern even when the method has no handler.

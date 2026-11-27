@@ -96,14 +96,42 @@ func OnRequest(c *tifa.Ctx, next func(*tifa.Ctx) error) error {
 - `c.SetReadTimeout(d)` gives the body `d` from now to arrive, and the answer `server.write_timeout` after it, since it is written once the body is in. A body still coming when the time is over is answered with 408. A request with no body, such as a GET, keeps its deadlines and the call does nothing.
 - Both return an error once the body is being read, and `SetReadTimeout` also when `d` is not over 0 or when the response cannot reach the connection, such as behind a middleware of `tifa.SetHTTPHandler` that does not unwrap it. Check the error and return it.
 
-## HEAD, OPTIONS, CONNECT and TRACE
+## HEAD, OPTIONS and TRACE
 
-These four take the Ctx alone, `func HEAD(c *tifa.Ctx) error`, and write their own answer with `c.SetHeader`, `c.NoContent`, `c.Text` or `c.Writer()`. `tifa routes` lists them with the others, and `route.gen` has no function for them: a page has no use for them, and `fetch` refuses CONNECT and TRACE.
+These three take the Ctx alone, `func HEAD(c *tifa.Ctx) error`, and write their own answer with `c.SetHeader`, `c.NoContent`, `c.Text` or `c.Writer()`. `tifa routes` lists them with the others, and `route.gen` has no function for them: a page has no use for them, and `fetch` refuses TRACE.
 
 - **HEAD.** You rarely need one: without it, `GET` answers HEAD with the same headers and no body, and a page answers it as it renders. Write one when the headers are cheap and the body is not, such as a download whose size, `ETag` and `Last-Modified` come from a database row while the file sits elsewhere, or when the path answers HEAD alone. Send the headers the GET would send, since a client or a cache takes them for those of the GET. A route with `HEAD` and no `GET` answers GET with 405. A folder with `page.tsx` cannot have `HEAD`.
 - **OPTIONS.** Without one, Tifa answers OPTIONS with 204 and an `Allow` header that lists the methods of the path: those of `route.go`, `GET` and `HEAD` for a page or a `GET`, and `OPTIONS`. `OnRequest` runs first, as for any request. Write your own to say more than `Allow` does, such as the `DAV` header of a WebDAV path. The preflight of a call from another site belongs in `OnRequest`, not here, since its CORS headers go on every answer of the routes it opens: see [Calls from another site](../guides/cors.md).
-- **CONNECT.** Asks for a tunnel. A client asking a proxy sends a host and port in place of a path (`CONNECT example.com:443`), which matches no route and gets 404. A CONNECT with a path, as Go's `net/rpc` sends, reaches the `CONNECT` of its route, which takes the connection with `http.NewResponseController(c.Writer()).Hijack()`. Over HTTP/2, Go turns extended CONNECT off by default.
 - **TRACE.** Sends the request back, for finding out what a proxy on the way changed. A handler that writes the request headers into its answer writes back the cookies and `Authorization` of the request too.
+
+## CONNECT
+
+CONNECT asks for a tunnel: after the answer, the connection carries whatever the two ends send. It works on the connection, not on a route, and a client asking a proxy sends a host and port in place of a path (`CONNECT db.internal:5432`), which no route could match. So `route.go` has no `CONNECT`: a function of that name that takes the Ctx fails the build. Take it in the wrapper of `tifa.SetHTTPHandler` (see [Setting up in OnStart](hooks.md#setting-up-in-onstart)), which sees every request before routing:
+
+```go
+func OnStart(ctx context.Context) error {
+	tifa.SetHTTPHandler(func(app http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodConnect {
+				app.ServeHTTP(w, r)
+				return
+			}
+			// CONNECT db.internal:5432 has r.Host "db.internal:5432" and no r.URL.Path.
+			conn, rw, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			rw.WriteString("HTTP/1.1 200 Connection established\r\n\r\n")
+			rw.Flush()
+			tunnel(conn, rw.Reader, r.Host) // yours: the connection is now the tunnel's
+		})
+	})
+	return nil
+}
+```
+
+The wrapper is plain `net/http`: `OnRequest` and the cross-site check do not run, so check who may open a tunnel yourself. `Hijack` works over HTTP/1.1. Over HTTP/2 a CONNECT is one stream of a shared connection and `Hijack` returns an error, and Go turns extended CONNECT off by default. Without a wrapper, a CONNECT for a host and port gets 404, and one with the path of a route gets 405 and its `Allow`, which never lists CONNECT.
 
 ## Where a write goes
 

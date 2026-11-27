@@ -34,7 +34,7 @@ const (
 
 // methods lists the HTTP methods whose handlers route.go may declare, each as a function named
 // after it, in manifest order.
-var methods = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"}
+var methods = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE"}
 
 // hooks lists the hooks of hooks.go with their parameter and result types, in manifest order.
 var hooks = []struct {
@@ -646,7 +646,8 @@ func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 // (Post, get): names are read as written, so it would be skipped without a word. Only a function
 // that takes the Ctx as its first parameter, as a handler does, and that no code of the module
 // calls or refers to is reported: one that is called is a helper, and one without a Ctx is the
-// app's own.
+// app's own. CONNECT is not a method of a route, so a function CONNECT that takes the Ctx first is
+// reported too, and one in another case on the same terms as the others.
 func (a *analyzer) checkMethodNames(scope *types.Scope) {
 	for _, name := range scope.Names() {
 		fn, ok := scope.Lookup(name).(*types.Func)
@@ -654,11 +655,15 @@ func (a *analyzer) checkMethodNames(scope *types.Scope) {
 			continue
 		}
 		method := strings.ToUpper(name)
-		if name == method || !slices.Contains(methods, method) {
+		if method != "CONNECT" && (name == method || !slices.Contains(methods, method)) {
 			continue
 		}
 		params := fn.Signature().Params()
-		if params.Len() == 0 || typeString(params.At(0).Type()) != ctxType || a.referenced(fn) {
+		if params.Len() == 0 || typeString(params.At(0).Type()) != ctxType || name != method && a.referenced(fn) {
+			continue
+		}
+		if method == "CONNECT" {
+			a.errorAtDoc(docConnect, fn.Pos(), "%s is not a method handler: CONNECT works on the connection, not on a route. Take it in the wrapper of tifa.SetHTTPHandler, which sees every request before routing, when r.Method is http.MethodConnect", name)
 			continue
 		}
 		a.errorAtDoc(docNames, fn.Pos(), "%s is not a method handler: names are read as written. Write %s to answer %s requests", name, method, method)
@@ -764,10 +769,9 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 }
 
 // plainMethods are the methods whose handler takes the Ctx alone and writes its own answer. The
-// answer to HEAD has no body, the one to OPTIONS is its headers, CONNECT hands the connection over
-// to the handler and TRACE sends the request back, so none has a result to type or an input to
-// decode.
-var plainMethods = map[string]bool{"HEAD": true, "OPTIONS": true, "CONNECT": true, "TRACE": true}
+// answer to HEAD has no body, the one to OPTIONS is its headers and TRACE sends the request back,
+// so none has a result to type or an input to decode.
+var plainMethods = map[string]bool{"HEAD": true, "OPTIONS": true, "TRACE": true}
 
 // plainHandler reports whether the handler obj of one of plainMethods is a func(c *tifa.Ctx) error,
 // the only signature they take, and reports it otherwise.

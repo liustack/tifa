@@ -1140,10 +1140,10 @@ func sourcesComment(g *routeGen) string {
 // Params for its path parameters, and a function per method handler, named after its method,
 // that sends a request to it.
 func routeModule(g *routeGen) ([]byte, error) {
-	// HEAD, OPTIONS, CONNECT and TRACE get no function: a page has no use for an answer without a
-	// body or for the preflight, which the browser sends itself, and fetch refuses CONNECT and TRACE.
+	// HEAD, OPTIONS and TRACE get no function: a page has no use for an answer without a body or
+	// for the preflight, which the browser sends itself, and fetch refuses TRACE.
 	calls := slices.DeleteFunc(slices.Clone(g.handlers), func(h analyze.Handler) bool {
-		return h.Method == "HEAD" || h.Method == "OPTIONS" || h.Method == "CONNECT" || h.Method == "TRACE"
+		return h.Method == "HEAD" || h.Method == "OPTIONS" || h.Method == "TRACE"
 	})
 	// The data and the inputs and results of the handlers share the declarations of the structs.
 	// exports names what the module exports for each type.
