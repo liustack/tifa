@@ -16,7 +16,7 @@ import (
 type Manifest struct {
 	// Module is the module path of the application.
 	Module string `json:"module"`
-	// Hooks lists the hooks defined in the root package, in the order OnStart, OnShutdown, OnRequest, OnError.
+	// Hooks lists the hooks defined in the root package, in the order OnStart, OnShutdown, OnRequest, OnError, OnCommand.
 	Hooks []string `json:"hooks"`
 	// Session is the session type of the app, nil when nothing calls tifa.SetSession.
 	Session *Session `json:"session"`

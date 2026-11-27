@@ -25,6 +25,8 @@ import (
 //	config   print the merged runtime settings as a commented YAML file
 //	version  print the module versions the program was built from
 //
+// and the commands that OnCommand adds, which load the same settings and run nothing of serve.
+//
 // Settings come from flags, environment variables, the .env file of the working directory, the
 // file named by -c, the project tifa.yaml and the defaults, in that order. The settings of the
 // app, which its options.go defines, were read from the same sources when its package started.
@@ -38,7 +40,7 @@ func Main(app App) {
 func start(app App, dev func(*server, fs.FS, config.SSR) http.Handler) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := runSources(ctx, app, config.Process(), os.Stdout, os.Stderr, dev); err != nil {
+	if err := runSources(ctx, app, config.Process(), os.Stdout, os.Stderr, dev, stop); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -46,11 +48,25 @@ func start(app App, dev func(*server, fs.FS, config.SSR) http.Handler) {
 
 // run is runSources with the sources read from args and environ, without a .env file.
 func run(ctx context.Context, app App, args, environ []string, stdout, stderr io.Writer, dev func(*server, fs.FS, config.SSR) http.Handler) error {
-	return runSources(ctx, app, config.Read(args, environ, ""), stdout, stderr, dev)
+	return runSources(ctx, app, config.Read(args, environ, ""), stdout, stderr, dev, nil)
 }
 
-// runSources runs the command line of src.Args with the settings of src.
-func runSources(ctx context.Context, app App, src *config.Sources, stdout, stderr io.Writer, dev func(*server, fs.FS, config.SSR) http.Handler) error {
+// runSources runs the command line of src.Args with the settings of src. release, when set, gives
+// the stop signals back to the system: a command of the app calls it once its context has ended,
+// so a second Ctrl-C ends a command that does not stop. serve never calls it.
+func runSources(ctx context.Context, app App, src *config.Sources, stdout, stderr io.Writer, dev func(*server, fs.FS, config.SSR) http.Handler, release func()) error {
+	root, err := newProgram(ctx, app, src, dev, release)
+	if err != nil {
+		return err
+	}
+	root.SetArgs(src.Args())
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	return root.ExecuteContext(ctx)
+}
+
+// newProgram is the command line of app: serve, config, version and the commands of the app.
+func newProgram(ctx context.Context, app App, src *config.Sources, dev func(*server, fs.FS, config.SSR) http.Handler, release func()) (*cobra.Command, error) {
 	var distDir string
 	lifelineFD := -1 // set by tifa dev, see watchLifeline
 	serve := func(_ *cobra.Command, _ []string) (err error) {
@@ -156,10 +172,12 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 		}
 	}
 	root.AddCommand(serveCmd, configCmd, versionCmd)
-	root.SetArgs(src.Args())
-	root.SetOut(stdout)
-	root.SetErr(stderr)
-	return root.ExecuteContext(ctx)
+	if app.Hooks.OnCommand != nil {
+		if err := addAppCommands(root, app, src, release); err != nil {
+			return nil, err
+		}
+	}
+	return root, nil
 }
 
 // frontFiles returns the front end to serve: the directory named by --dist, or the embedded
