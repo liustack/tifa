@@ -4,6 +4,8 @@ package main
 //
 // The layout on the server, under the home of the deploy user (/srv/tifa when setup creates it):
 //
+//	<app>/ip                the one address the app listens on, only with front external and an
+//	                        address in server.addr
 //	<app>/port              the port visitors reach the app on: 80, or 443 with HTTPS, when it
 //	                        serves them itself, else the loopback port behind the Cloudflare Tunnel
 //	<app>/https             with HTTPS, the domain the app gets its certificate for
@@ -759,6 +761,9 @@ install -d -m 755 "$d" "$d/releases"
 install -d -m 750 "$d/shared"
 if [ ! -e "$d/shared/.env" ]; then (umask 077; : > "$d/shared/.env"); fi
 printf '%s\n' "$port" > "$d/port"
+# The one address the socket listens on, for the health check: none means every address, which
+# the loopback reaches too.
+if [ -n "$ip" ]; then printf '%s\n' "$ip" > "$d/ip"; else rm -f "$d/ip"; fi
 if [ -n "$domain" ]; then
 	install -d -m 700 "$d/certs"
 	printf '%s\n' "$domain" > "$d/https"
@@ -804,7 +809,7 @@ exit 3
 func appScript(app string, port int, domain, ip string, open, cert, move, restart bool, wait int) string {
 	u := unitsAt(app, port, domain, open, cert, ip)
 	flag := map[bool]string{true: "1"}
-	return script(appBody, "app", app, "port", strconv.Itoa(port), "domain", domain,
+	return script(appBody, "app", app, "port", strconv.Itoa(port), "domain", domain, "ip", ip,
 		"move", flag[move], "restart", flag[restart], "health", healthPath, "wait", strconv.Itoa(wait),
 		"socket_unit", u.socket, "http_unit", u.http, "service_unit", u.service)
 }
@@ -948,6 +953,8 @@ const (
 
 // askFunc is the shell function that asks the app on the server for $health and prints the
 // status, 000 for no answer. It waits $1 seconds for the answer, 5 without. It needs $d and $port.
+// An app that listens on one address of the server only (front external with an address in
+// server.addr) has it in the file ip next to port, and is asked there.
 // An app with HTTPS is asked over HTTPS for its domain on the loopback, as a visitor would ask it,
 // without checking the certificate: the check is about the app. Without, it is asked over plain
 // HTTP on its port.
@@ -956,7 +963,10 @@ const askFunc = `ask() {
 		h=$(cat "$d/https")
 		curl -s -k -o /dev/null -w '%{http_code}' --max-time "${1:-5}" --resolve "$h:443:127.0.0.1" "https://$h$health" || true
 	else
-		curl -s -o /dev/null -w '%{http_code}' --max-time "${1:-5}" "http://127.0.0.1:$port$health" || true
+		a=127.0.0.1
+		if [ -s "$d/ip" ]; then a=$(cat "$d/ip"); fi
+		case "$a" in *:*) a="[$a]" ;; esac
+		curl -s -o /dev/null -w '%{http_code}' --max-time "${1:-5}" "http://$a:$port$health" || true
 	fi
 }
 `

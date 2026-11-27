@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -309,3 +312,50 @@ func TestHardenReadsExternalOnOneAddress(t *testing.T) {
 var _ = errors.New
 var _ = context.Background
 var _ = fmt.Sprint
+
+// An app that listens on one address of the server is asked there, not on the loopback: the file
+// ip next to port names it, and a deploy's health check, which every restart shares, curls it.
+func TestHealthCheckAsksTheListenAddress(t *testing.T) {
+	for ip, want := range map[string]string{"10.0.0.5": "http://10.0.0.5:9531/healthz", "fd00::5": "http://[fd00::5]:9531/healthz", "": "http://127.0.0.1:9531/healthz"} {
+		root := t.TempDir()
+		writeShopApp(t, root)
+		writeFile(t, filepath.Join(root, "tifa.yaml"), withFront("server:\n  addr: \":9531\"\ndeploy:\n  front: external\n"))
+		t.Setenv(deployHostEnv, "vps")
+		home := t.TempDir()
+		for _, dir := range []string{"shop/releases", "shop/shared"} {
+			if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		writeFile(t, filepath.Join(home, "shop", "port"), "9531\n")
+		if ip != "" {
+			writeFile(t, filepath.Join(home, "shop", "ip"), ip+"\n")
+		}
+		calls := fakeServer(t, home, map[string]string{})
+		oldBuild := buildForServer
+		t.Cleanup(func() { buildForServer = oldBuild })
+		buildForServer = func(_ context.Context, _, _, _, out string, _, _ io.Writer) error {
+			return os.WriteFile(out, []byte("#!/bin/sh\n"), 0o755)
+		}
+		if out, stderr, err := run(t, "deploy", "--dir", root); err != nil {
+			t.Fatalf("%q: %v\n%s%s", ip, err, out, stderr)
+		}
+		if !strings.Contains(calls(), "--max-time 5 "+want) {
+			t.Errorf("ip %q: want a curl of %s:\n%s", ip, want, calls())
+		}
+	}
+}
+
+// Setup writes the address next to the port, and takes the file away when server.addr names none.
+func TestAppScriptWritesTheListenAddress(t *testing.T) {
+	with := appScript("shop", 9531, "", "10.0.0.5", true, false, false, false, 30)
+	if !strings.Contains(with, "ip='10.0.0.5'") {
+		t.Errorf("no ip:\n%s", with)
+	}
+	if without := appScript("shop", 9531, "", "", true, false, false, false, 30); !strings.Contains(without, "ip=''") {
+		t.Errorf("no empty ip:\n%s", without)
+	}
+	if !strings.Contains(appBody, `"$d/ip"`) {
+		t.Error("appBody does not write the file ip")
+	}
+}
