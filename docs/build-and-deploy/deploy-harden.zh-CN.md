@@ -2,7 +2,7 @@
 summary: '用 `tifa deploy harden` 加固服务器：只许密钥登录 ssh、ufw、自动安装安全更新，它绝不碰什么，怎样避免把你锁在门外，以及怎样撤销'
 audience: app
 order: 22
-translatedFrom: 076ed6ea79ee
+translatedFrom: f7d4166151eb
 read_when:
   - '加固 Tifa 应用所在的服务器，或者服务器还接受 ssh 密码登录而你想把它关掉'
   - '运行 `tifa deploy harden`，或者在看它的计划或报告'
@@ -37,6 +37,8 @@ go tool tifa deploy harden --host vps
 - 服务器上 Tifa 应用接待访客的端口：`front: none` 的应用用 80 和 443，`front: nginx` 的 nginx 也是。
 
 打开 ufw 之前，harden 会列出所有监听在非回环地址上的东西。如果有程序不是 sshd、不是 Tifa 的 socket、也不是 Tifa 的 nginx，harden 就停下：它点名这个程序和端口，不打开 ufw，ufw 里什么都不改。它不去猜这个程序是不是该继续对外开放。请你自己放行它的端口（`sudo ufw allow <port>/tcp`），或者停掉这个程序，再运行 harden。ufw 的某条规则已经放行的端口，算作有交代。
+
+Tifa 的 socket 里有一个例外：`front: external` 的应用。它的端口只该让你的负载均衡器或代理访问，所以 harden 不会把这个端口对所有人放行，ufw 也保持关闭。请先从负载均衡器的地址放行这个端口（`sudo ufw allow from <address> to any port <port> proto tcp`），再运行 harden。有了这条规则，这个端口就算有交代，harden 会在它生效的前提下打开 ufw。
 
 ufw 对每个端口只留一条规则，再为它添加规则时只会改掉原规则的注释。所以 harden 只为还没有任何规则放行的端口加规则，不管那条规则的注释是什么，你的规则和 Tifa 的 nginx 的规则都保持原样。计划里会写明它要加的端口，以及已经有规则的端口。拒绝或限速其中某个端口的规则会保留，计划里也会点出来。要是它拒绝的是 ssh 端口，ufw 就保持关闭。
 

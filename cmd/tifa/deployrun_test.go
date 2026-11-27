@@ -21,7 +21,7 @@ func runApp(t *testing.T) (root, home string, calls func() string) {
 if [ "$1" = exit ]; then echo "exiting with $2" >&2; exit "$2"; fi
 for a in "$@"; do printf 'arg <%s>\n' "$a"; done
 echo "folder $(basename "$PWD")"
-echo "https <${SERVER_TLS_DOMAINS-}> <${SERVER_TLS_CACHE-}>"
+echo "https <${SERVER_TLS_DOMAINS-}> <${SERVER_TLS_CACHE-}> <${SERVER_TLS_CERT-}> <${SERVER_TLS_KEY-}>"
 cat .env
 echo "to stderr" >&2
 `)
@@ -56,7 +56,7 @@ func TestDeployRun(t *testing.T) {
 	for _, a := range args {
 		want.WriteString("arg <" + a + ">\n")
 	}
-	want.WriteString("folder shared\nhttps <> <>\n# mine\nA=1\n")
+	want.WriteString("folder shared\nhttps <> <> <> <>\n# mine\nA=1\n")
 	if out != want.String() {
 		t.Errorf("output:\n%s\nwant:\n%s", out, want.String())
 	}
@@ -68,7 +68,7 @@ func TestDeployRun(t *testing.T) {
 	}
 	// -- ends the flags of tifa too.
 	out, _, err = runRun(t, false, "deploy", "run", "--dir", root, "--", "--help")
-	if err != nil || out != "arg <--help>\nfolder shared\nhttps <> <>\n# mine\nA=1\n" {
+	if err != nil || out != "arg <--help>\nfolder shared\nhttps <> <> <> <>\n# mine\nA=1\n" {
 		t.Errorf("-- --help: %v\n%s", err, out)
 	}
 }
@@ -91,7 +91,7 @@ func TestDeployRunHTTPS(t *testing.T) {
 	root, home, _ := runApp(t)
 	writeFile(t, filepath.Join(home, "shop", "https"), "shop.example.com\n")
 	out, _, err := runRun(t, false, "deploy", "run", "--dir", root, "x")
-	want := "https <shop.example.com> <" + filepath.Join(home, "shop", "certs") + ">\n"
+	want := "https <shop.example.com> <" + filepath.Join(home, "shop", "certs") + "> <> <>\n"
 	if err != nil || !strings.Contains(out, want) {
 		t.Errorf("%v\n%s\nwant %q", err, out, want)
 	}

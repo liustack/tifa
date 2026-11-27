@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -171,7 +173,7 @@ func TestDeployPrune(t *testing.T) {
 // The units listen on the loopback port of the app and run the program of the current release
 // in the shared folder, which holds .env and the data.
 func TestDeployUnits(t *testing.T) {
-	socket, service := unitsOf("shop", 9531, "").socket, unitsOf("shop", 9531, "").service
+	socket, service := unitsOf("shop", 9531, "", false, false).socket, unitsOf("shop", 9531, "", false, false).service
 	for _, want := range []string{"[Socket]\nListenStream=127.0.0.1:9531\n", "WantedBy=sockets.target"} {
 		if !strings.Contains(socket, want) {
 			t.Errorf("socket unit lacks %q:\n%s", want, socket)
@@ -288,6 +290,20 @@ var fakeServerArgv func() string
 // on the server, so the scripts run on this machine with home as the home of the deploy user.
 // health holds what GET /healthz answers for a release, 404 when it is not listed. calls returns
 // the ssh and systemctl calls so far.
+// fakeServerBin is the folder of the programs of the last fakeServer.
+var fakeServerBin string
+
+// addFakeHost makes ssh to host log in to the fake server at home, with the address addr, which
+// ssh -G prints for it, and the host name name, which the machine ID starts with. It needs a
+// fakeServer first, whose programs it shares.
+func addFakeHost(t *testing.T, host, home, addr, name string) {
+	t.Helper()
+	writeFile(t, filepath.Join(fakeServerBin, "home-"+host), home)
+	writeFile(t, filepath.Join(fakeServerBin, "addr-"+host), addr)
+	writeFile(t, filepath.Join(home, ".run", "hostname"), name+"\n")
+	writeFile(t, filepath.Join(home, ".run", "lowport"), "80\n")
+}
+
 func fakeServer(t *testing.T, home string, health map[string]string) (calls func() string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -311,12 +327,19 @@ func fakeServer(t *testing.T, home string, health map[string]string) (calls func
 		return string(data)
 	}
 	// Every argument of ssh is logged whole, so a test can tell no secret is on a command line.
-	// ssh -G says the alias vps is at 203.0.113.7.
-	tool("ssh", `if [ "$1" = -G ]; then echo "hostname 203.0.113.7"; exit 0; fi
+	// ssh -G says the alias vps is at 203.0.113.7. addFakeHost adds more servers, each a home of
+	// its own with its own address.
+	fakeServerBin = bin
+	tool("ssh", `if [ "$1" = -G ]; then a=$(cat `+shellQuote(bin)+`/addr-"$3" 2>/dev/null || echo 203.0.113.7); echo "hostname $a"; exit 0; fi
 printf '%s\n' "$*" >> `+shellQuote(argv)+`
 while [ "$1" != "--" ]; do if [ "$1" = -l ]; then user=$2; fi; shift; done
 echo "ssh $user $2" >> `+shellQuote(log)+`
-HOME=`+shellQuote(home)+` XDG_RUNTIME_DIR=`+shellQuote(filepath.Join(home, ".run"))+` PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
+h=`+shellQuote(home)+`
+if [ -f `+shellQuote(bin)+`/home-"$2" ]; then h=$(cat `+shellQuote(bin)+`/home-"$2"); fi
+HOME="$h" XDG_RUNTIME_DIR="$h/.run" PATH=`+shellQuote(bin)+`:"$PATH" exec sh -c "$3"`)
+	// hostname says what a test wrote in .run/hostname of the home, else what the machine says.
+	realHostname, _ := exec.LookPath("hostname")
+	tool("hostname", `if [ -f "$HOME/.run/hostname" ]; then cat "$HOME/.run/hostname"; else exec `+shellQuote(realHostname)+` "$@"; fi`)
 	// show answers with the file .run/show-<unit> of the home, else .run/show, which a test writes.
 	tool("systemctl", `echo "systemctl $*" >> `+shellQuote(log)+`
 case " $* " in *" show "*)
@@ -326,7 +349,7 @@ case " $* " in *" show "*)
 	cat "$f" 2>/dev/null ;; esac`)
 	tool("curl", `echo "curl $*" >> `+shellQuote(log)+`
 rel=$(basename "$(readlink "$HOME/shop/current")")
-cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
+cat "$HOME/.run/health-$rel" 2>/dev/null || cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 	tool("loginctl", `cat `+shellQuote(filepath.Join(home, ".run", "linger"))+` 2>/dev/null || echo no`)
 	tool("flock", `echo "flock $*" >> `+shellQuote(log))
 	// sudo runs the command after its options, unless the test wrote .run/nosudo: then it wants a
@@ -335,7 +358,13 @@ cat `+shellQuote(healthDir)+`/"$rel" 2>/dev/null || printf 404`)
 if [ -f "$HOME/.run/nosudo" ]; then echo "sudo: a password is required" >&2; exit 1; fi
 while [ $# -gt 0 ]; do case "$1" in -*) shift ;; *) break ;; esac; done
 exec "$@"`)
-	tool("sleep", "exit 0")
+	// The clock of the server is a file: sleep moves it on at once, and date +%s reads it, so a
+	// wait of the scripts takes no time and counts the same each run. date with another format is
+	// the date of the machine.
+	clock := shellQuote(filepath.Join(bin, "clock"))
+	realDate, _ := exec.LookPath("date")
+	tool("sleep", `c=$(cat `+clock+` 2>/dev/null || echo 1000000); echo $((c + ${1%.*})) > `+clock)
+	tool("date", `case "$*" in *+%s*) cat `+clock+` 2>/dev/null || echo 1000000 ;; *) exec `+shellQuote(realDate)+` "$@" ;; esac`)
 	// With -f it says so and waits as the one process of the ssh, so killing the ssh ends it.
 	tool("journalctl", `echo "journalctl $*" >> `+shellQuote(log)+`
 case " $* " in *" -f "*) echo following; exec /bin/sleep 30 ;; esac
@@ -353,8 +382,8 @@ echo the app said goodbye`)
 	t.Cleanup(func() { ufwConf, ufwProgram = oldConf, oldProgram })
 	// This machine reaches a port of the server when the test wrote .run/open-<port>.
 	oldAnswers := portAnswers
-	portAnswers = func(_ context.Context, host string, port int) bool {
-		if host != "203.0.113.7" && !strings.HasSuffix(host, ".example.com") {
+	portAnswers = func(_ context.Context, _, host string, port int) bool {
+		if !strings.HasPrefix(host, "203.0.113.") && !strings.HasSuffix(host, ".example.com") {
 			t.Errorf("asked %s for port %d", host, port)
 		}
 		_, err := os.Stat(filepath.Join(home, ".run", fmt.Sprintf("open-%d", port)))
@@ -539,7 +568,7 @@ func TestDeployCreatesTheApp(t *testing.T) {
 		t.Errorf(".env: %v", err)
 	}
 	socket, _ := os.ReadFile(filepath.Join(home, ".config", "systemd", "user", "tifa-shop.socket"))
-	if string(socket) != unitsOf("shop", 80, "").socket {
+	if string(socket) != unitsOf("shop", 80, "", false, false).socket {
 		t.Errorf("socket unit %q", socket)
 	}
 	for _, want := range []string{"ssh tifa vps", "systemctl --user enable --now tifa-shop.socket"} {
@@ -572,7 +601,7 @@ func TestDeployParseProbeFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := serverState{OS: "Linux", Arch: "aarch64", Home: "/srv/tifa", Bus: true, Linger: true, Port: 9528,
-		Used: []int{9527, 9600, 443}, SocketSum: "aa", ServiceSum: "bb", TunnelID: "t-1", Machine: "vps-1234",
+		Used: []int{9527, 9600, 443}, OtherPorts: []int{9527}, SocketSum: "aa", ServiceSum: "bb", TunnelID: "t-1", Machine: "vps-1234",
 		Cloudflared: "/usr/bin/cloudflared", TunnelActive: true, Apt: true,
 		HostKeys: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"}, GitHubKeys: []string{"acme/shop"},
 		AppDir: true, Others: []string{"notes"}, CloudflaredByTifa: true,
@@ -755,7 +784,7 @@ func TestDeployRemembersTheServer(t *testing.T) {
 	}
 	servers, err := readServers()
 	if err != nil || len(servers) != 1 || servers[0].ID == "" || servers[0].Host != "ubuntu@vps" ||
-		len(servers[0].Apps) != 1 || servers[0].Apps[0] != (knownApp{Name: "shop", Path: root, Host: "ubuntu@vps"}) {
+		len(servers[0].Apps) != 1 || !reflect.DeepEqual(servers[0].Apps[0], knownApp{Name: "shop", Path: root, Host: "ubuntu@vps"}) {
 		t.Fatalf("remembered %+v, %v", servers, err)
 	}
 	if want := "Remembered " + servers[0].name() + " (ubuntu@vps) in " + shownServersPath() + ", so the next app on this machine needs no " + deployHostEnv + "."; !strings.Contains(out, want) {
@@ -858,9 +887,9 @@ func TestDeployRollbackToFlow(t *testing.T) {
 	}
 }
 
-// deploy.start_timeout is how long the server asks for /healthz, once a second: the new release
-// gets that many tries. Without the setting it is 30.
-func TestDeployStartTimeoutSetsTheTries(t *testing.T) {
+// deploy.start_timeout is how long the server asks for /healthz, once a second: an app that
+// answers at once is asked that many times. Without the setting it is 30.
+func TestDeployStartTimeoutSetsTheWait(t *testing.T) {
 	for name, tc := range map[string]struct {
 		yaml string
 		want int
@@ -878,22 +907,89 @@ func TestDeployStartTimeoutSetsTheTries(t *testing.T) {
 			}
 			// The new release is asked as many times as the setting says, the old one answers the first time.
 			if got := strings.Count(calls(), "curl ") - before; got != tc.want+1 {
-				t.Errorf("asked %d times, want %d tries and one answer of the old release", got, tc.want)
+				t.Errorf("asked %d times, want %d and one answer of the old release", got, tc.want)
 			}
 		})
 	}
 }
 
 // The setting reaches the scripts as a whole number of seconds, and the check of the release a
-// failed deploy goes back to reads the same $tries, since both call check.
-func TestStartTimeoutTries(t *testing.T) {
+// failed deploy goes back to reads the same $wait, since both call check.
+func TestStartTimeoutWait(t *testing.T) {
 	for in, want := range map[time.Duration]int{time.Second: 1, 30 * time.Second: 30, 90 * time.Second: 90, 10 * time.Minute: 600} {
-		if got := (deployTarget{startTimeout: in}).healthTries(); got != want {
+		if got := (deployTarget{startTimeout: in}).healthWait(); got != want {
 			t.Errorf("%v: %d, want %d", in, got, want)
 		}
 	}
-	script := activateScript(activation{App: "shop", ID: "1", Back: "0", Tries: 45})
-	if !strings.Contains(script, "tries='45'") {
-		t.Errorf("script has no tries of 45:\n%s", script)
+	script := activateScript(activation{App: "shop", ID: "1", Back: "0", Wait: 45})
+	if !strings.Contains(script, "wait='45'") {
+		t.Errorf("script has no wait of 45:\n%s", script)
+	}
+}
+
+// A socket that takes the connection and never answers, as the socket of systemd does while the
+// app fails to start again and again, fails the check within about start_timeout: each request
+// waits at most the time that is left.
+func TestHealthCheckKeepsToStartTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the server scripts run under sh")
+	}
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var held []net.Conn
+	t.Cleanup(func() {
+		ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range held {
+			c.Close()
+		}
+	})
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			held = append(held, c)
+			mu.Unlock()
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	body := fmt.Sprintf("d=%s\nport=%d\nhealth=/healthz\nunit=tifa-shop\nwait=3\n", shellQuote(t.TempDir()), port) + healthCheckFunc + "check\n"
+	start := time.Now()
+	out, err := exec.Command("sh", "-c", body).CombinedOutput()
+	took := time.Since(start)
+	if err == nil {
+		t.Fatalf("the check passed:\n%s", out)
+	}
+	if took > 5*time.Second || !strings.Contains(string(out), "got no answer within 3 seconds") {
+		t.Errorf("took %v:\n%s", took, out)
+	}
+}
+
+// The tifa.yaml of a new app names every value of deploy.front.
+func TestNewTifaYAMLNamesEveryFront(t *testing.T) {
+	data, err := newapp.ReadFile("newapp/tifa.yaml.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line string
+	for _, l := range strings.Split(string(data), "\n") {
+		if strings.Contains(l, "front:") {
+			line = l
+		}
+	}
+	for _, v := range []string{"none (", "| cloudflare (", "| nginx (", "| external ("} {
+		if !strings.Contains(line, v) {
+			t.Errorf("the line of deploy.front lacks %q:\n%s", v, line)
+		}
 	}
 }

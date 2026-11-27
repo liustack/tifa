@@ -14,6 +14,8 @@ read_when:
 
 Set a secret, read the log, see which release runs, run a command of the app, take an app off a server, and find the files of an app on it.
 
+An app on several servers gets each command on every server, except `run`, which goes to the first one, and `logs -f`, which follows the one you name with `--host`: see [The other commands](deploy-several-servers.md#the-other-commands).
+
 ## Settings and secrets on the server
 
 ```sh

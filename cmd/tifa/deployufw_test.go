@@ -110,6 +110,27 @@ ufw allow 80/tcp comment 'tifa shop2'
 	if got := u.tifaPorts("shop"); !reflect.DeepEqual(got, []int{443, 8443}) {
 		t.Errorf("the ports of tifa shop: %v", got)
 	}
+
+	// A rule in the long form that lets some address in to a port, a load balancer say, is no rule for
+	// visitors and still allows the port from somewhere.
+	u, err = parseUFW(ufwRead(ufwInactive, `ufw allow from 10.0.0.5 to any port 8080 proto tcp comment 'load balancer'
+ufw limit in on eth1 from 10.0.0.0/8 port 1234 to 10.0.0.9 port 9000:9010
+ufw allow from 10.0.0.5 to any app OpenSSH
+ufw allow from 10.0.0.5 port 53 to any
+ufw allow from 10.0.0.5 to any port 5353 proto udp
+ufw deny from 10.0.0.5 to any port 5432 proto tcp
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for port, want := range map[int]bool{8080: true, 9005: true, 1234: false, 22: false, 53: false, 5353: false, 5432: false} {
+		if got := u.allowsFromSomewhere(port); got != want {
+			t.Errorf("port %d allowed from somewhere: %v", port, got)
+		}
+	}
+	if len(u.rules) != 0 {
+		t.Errorf("long rules read as short ones: %+v", u.rules)
+	}
 }
 
 // ufw on and blocking: the plan allows ports 80 and 443 for the app with a domain, and nothing

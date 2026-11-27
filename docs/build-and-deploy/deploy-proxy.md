@@ -1,16 +1,18 @@
 ---
-summary: 'Put nginx, a CDN or a reverse proxy in front of a Tifa app: `deploy.front: nginx`, the CDN settings and cross-origin 403s behind a proxy'
+summary: 'Put nginx, a load balancer, a CDN or a reverse proxy in front of a Tifa app: `deploy.front: nginx` and `external`, the CDN settings and cross-origin 403s behind a proxy'
 audience: app
 order: 14
 read_when:
   - Putting several Tifa apps on one server without Cloudflare, with `deploy.front: nginx`, or setup stopped because the server has an nginx that Tifa did not install
+  - Putting a load balancer of your provider or a proxy of your own in front of a Tifa app, with `deploy.front: external`, and entering the targets and the health check in it
   - Putting a CDN or a reverse proxy such as nginx, Cloudflare or CloudFront in front of a Tifa app
+  - 'The domain is in your own Cloudflare account, proxied, without the tunnel of `front: cloudflare`, and you choose between Full (strict) and Flexible'
   - A POST gets 403 with `cross-origin request detected` only behind the proxy
 ---
 
 # Put nginx or a CDN in front
 
-Visitors can reach the program through nginx that `tifa deploy setup` installs, or through a proxy or CDN of your own. This page covers both.
+Visitors can reach the program through nginx that `tifa deploy setup` installs, through a load balancer you set up at your provider, or through a proxy or CDN of your own. This page covers all three, and your own Cloudflare in front of the server.
 
 ## Behind nginx
 
@@ -81,6 +83,115 @@ Without a domain there is one server, with `listen 80 default_server;`. A server
 **Moves.** Setup plans a move between `none`, `cloudflare` and `nginx` like any other change. An app that moves to nginx first moves to a loopback port, which frees port 80 for nginx, so visitors wait for a moment. An app that moves away takes its site and certificate out of nginx, and nginx and certbot with it when no other app has a site. An app cannot move to `front: none` while other apps are behind nginx: nginx holds the ports, and setup stops and says so.
 
 `tifa deploy remove` takes the site and the certificate of the app out of nginx, and with the last app uninstalls nginx, and certbot when setup installed it, with their configuration, and deletes `/etc/tifa/nginx`. When setup only added the nginx plugin to a certbot that was there, remove takes the plugin and leaves certbot, its timer and your certificates alone. A site that nginx will not let go stays, and so do its certificate and nginx: the error says what nginx said, and the next remove goes on. The other apps keep answering. To take nginx off Tifa by hand, run `apt-get purge` on the packages named in `/etc/tifa/nginx`, delete `/etc/nginx`, `/etc/letsencrypt` and that file, and delete the ufw rules with the comment `tifa nginx front`.
+
+## Behind your load balancer
+
+With `front: external`, something of yours in front of the servers sends visitors to the app: most often a load balancer you set up at your provider, such as an AWS Application Load Balancer, or else a proxy of your own. It ends HTTPS with its own certificate and sends plain HTTP to the port of the app on each server. Tifa only deploys: it sets up no balancer, calls no API of your provider, and installs no nginx or certificate. The app answers plain HTTP and does not redirect to HTTPS. It works with one server and is the front for [several servers](deploy-several-servers.md).
+
+```yaml
+site:
+  url: https://shop.example.com
+deploy:
+  front: external
+```
+
+**The port.** The app listens on its own port, from 9527 up, on every address of the server, not only on the loopback as behind the tunnel or nginx. With several servers it has the same port on all of them, which setup picks free on each. The plan names it: `port 9527 on every address of the server, for the load balancer or proxy in front`.
+
+To choose the port, set `deploy.port`, from 80 to 65535. Some proxies reach only certain ports of the server, Cloudflare among them ([its ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)):
+
+```yaml
+deploy:
+  front: external
+  port: 8080
+```
+
+Setup stops before it changes anything when another app or program listens on that port on a server, and names it. On port 80 or 443 the app still serves plain HTTP, with no certificate. A port below 1024 needs root once per server: the plan lets the user `tifa` open ports from 80, as it does for an app that serves visitors itself, and `tifa deploy remove` of the last app on such a port puts the setting back. Changing `deploy.port` moves the app at the next setup: the plan says so, and the app restarts on the new port and passes its health check. A deploy alone never moves it, and stops with a line that says to run setup.
+
+**What to enter in the balancer.** Setup and each deploy end with the targets:
+
+```text
+load balancer or proxy: send plain HTTP to these targets, and check each with GET /healthz, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a /healthz route):
+  203.0.113.7:9527         vps
+  203.0.113.8:9527         vps2
+```
+
+- **Targets**: the address of each server and the port of the app. When the balancer and the servers share a private network, use the private addresses instead.
+- **Protocol to the targets**: HTTP. The balancer ends HTTPS.
+- **Health check**: `GET /healthz` on the same port. Write [a health check](deploy-by-hand.md#health-check) that answers 204 while the app can serve. An app without that route answers 404, which `tifa deploy` counts as up, but a balancer that wants 200 marks every server down. Leave the balancer's PROXY protocol off: the app reads plain HTTP.
+
+**Headers.** `tifa deploy` sets none: the balancer does, and the app reads them.
+
+- Keep `Host` as the browser sent it. The program compares `Host` and `Origin` to refuse writes from other sites, so a balancer that rewrites `Host` makes your own forms fail with 403 (see [Cross-site writes](headers-and-origins.md#cross-site-writes)).
+- `X-Forwarded-For` and `X-Forwarded-Proto` are what the balancer says about the visitor. Tifa does not read the address, and reads `X-Forwarded-Proto` only to not warn about a sign-in over plain HTTP. `c.Request().RemoteAddr` is the address of the balancer. To log or limit by visitor, read the header in `OnRequest`, and only from the last entry the balancer added: what is before it came from the visitor.
+- The rest of [Behind a CDN or proxy](#behind-a-cdn-or-proxy) holds too: compression, caching, `No-Gzip-Compression`.
+
+**The firewall.** The port answers anyone who can reach it, over plain HTTP, past the balancer. Setup opens it nowhere, neither in ufw nor at your provider, and the plan says so. Let only the balancer reach the port: in the security group or firewall of your provider, or with `sudo ufw allow from <addresses of the balancer> to any port 9527 proto tcp` when ufw is on. When the port answers from your own machine, setup and deploy say so after the targets.
+
+**During a deploy** the socket of the app keeps the connections while the new program starts, so a health check of the balancer waits instead of failing. It fails only when the start takes longer than the timeout of the check, and the balancer takes a server out only after several failed checks in a row. Keep the start under the timeout of the check, 5 seconds at AWS and Google Cloud unless you change it.
+
+### Balancer settings
+
+Checked against the vendors' documentation on 2026-11-27. Names change, so open the linked page if a field is missing.
+
+**AWS Application Load Balancer**
+
+- A target group with target type `instance` or `ip`, protocol HTTP, and the port of the app. A listener on HTTPS 443 with your certificate forwards to it.
+- Health check: protocol HTTP, path `/healthz`, port "traffic port". Success codes ("Matcher") take a range, so `200-499` matches `tifa deploy`, and the default is `200`. Timeout 5 seconds, two failures in a row take a target out, by default ([target group health checks](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)).
+- In the security group of the servers, allow the port of the app from the security group of the balancer only.
+
+**Google Cloud**
+
+- An external Application Load Balancer with a backend service on an instance group (or a zonal NEG) of the servers, protocol HTTP, and the named port set to the port of the app.
+- Health check: HTTP, request path `/healthz`, the serving port. It passes only on 200, so the app needs a `/healthz` route that answers 200: a redirect or a 204 counts as down. Interval and timeout are 5 seconds, two failures in a row take a server out ([health checks](https://docs.cloud.google.com/load-balancing/docs/health-check-concepts)).
+- Allow the port of the app in the VPC firewall from the ranges of the load balancer and its health checks, which that page lists, and from nothing else.
+
+**DigitalOcean**
+
+- A forwarding rule from HTTPS 443, with your certificate, to HTTP on the port of the app.
+- Health check: protocol HTTP, the port of the app (the default is 80), path `/healthz`. A status from 200 to 399 passes ([manage load balancers](https://docs.digitalocean.com/products/networking/load-balancers/how-to/manage/)).
+- The balancer reaches Droplets in its VPC on their private addresses. Allow the port of the app in the Cloud Firewall of the Droplets from the balancer only.
+
+**Hetzner Cloud**
+
+- A service with protocol HTTPS and a certificate, source port 443, and the port of the app as destination port. Its health check: HTTP, the port of the app, path `/healthz`.
+- Put the balancer and the servers in one Network to add the servers by their private addresses ([creating a load balancer](https://docs.hetzner.com/cloud/load-balancers/getting-started/creating-a-load-balancer/)). Allow the port of the app in the firewall of the servers from that Network only.
+
+## Your own Cloudflare in front
+
+Use this when the domain is in a Cloudflare account of yours, its DNS record proxied (the orange cloud), and you do not want the tunnel of `front: cloudflare`. What to set in `tifa.yaml` follows the SSL/TLS encryption mode of the zone in Cloudflare.
+
+**Full (strict): `front: none`.** The app serves HTTPS itself, and Cloudflare connects to it on port 443 and checks its certificate.
+
+```yaml
+site:
+  url: https://shop.example.com
+deploy:
+  front: none
+```
+
+The certificate comes from one of two places:
+
+- **Let's Encrypt**, as without Cloudflare. Behind the proxy, the check of Let's Encrypt on port 443 cannot reach the app, and the program falls back by itself to the check on port 80, which Cloudflare passes on. Keep your redirect rules, WAF rules and Workers off `/.well-known/acme-challenge/` on that host, or the check fails. Tested on 2026-11-27 with a proxied record in Full mode: the program got its certificate from Let's Encrypt through port 80, Cloudflare served the site with 200, and plain HTTP got a 308 to HTTPS.
+- **A Cloudflare Origin CA certificate**, which Cloudflare makes for your domain and trusts in Full (strict) mode. Browsers do not trust it, so keep the record proxied. Save the certificate and its key on your machine and name them with `TIFA_DEPLOY_TLS_CERT` and `TIFA_DEPLOY_TLS_KEY`, and setup uploads them (see [Your own certificate](deploy-setup.md#the-app-serves-visitors-itself)).
+
+**Flexible: `front: external`.** Cloudflare ends HTTPS, and connects to the app over plain HTTP on a port it proxies for HTTP, such as 80 or 8080 ([network ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)):
+
+```yaml
+deploy:
+  front: external
+  port: 80
+```
+
+The way from Cloudflare to the server is then plain HTTP, which anyone on that path can read. Full (strict) encrypts it.
+
+**Never Flexible with `front: none`.** The app sends each plain HTTP request to HTTPS, Cloudflare in Flexible mode asks for it over plain HTTP again, and the browser stops with too many redirects ([ERR_TOO_MANY_REDIRECTS](https://developers.cloudflare.com/ssl/troubleshooting/too-many-redirects/)).
+
+With either mode:
+
+- **The address of the visitor** is in `CF-Connecting-IP`. `c.Request().RemoteAddr` is an address of Cloudflare (see Cloudflare in [CDN settings](#cdn-settings)).
+- **The server can still be reached past Cloudflare** by anyone who knows its address. Letting only [the addresses of Cloudflare](https://www.cloudflare.com/ips/) reach the port of the app, in the firewall of your provider or in ufw, is your choice: Tifa does not do it.
+- **Clear the cache of Cloudflare after each deploy** yourself, when it keeps pages (see [After a deploy](deploy-by-hand.md#after-a-deploy)). Only `front: cloudflare` does it for you.
+- **Several servers.** Use `front: external` with a load balancer of yours in front of the servers, and point the proxied record at it. Several proxied A records, one per server, are not recommended: Cloudflare does not say how it picks one, and it does not stop sending visitors to a server that is down.
 
 ## Behind a CDN or proxy
 

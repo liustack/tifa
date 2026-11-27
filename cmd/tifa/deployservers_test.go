@@ -274,7 +274,11 @@ func TestPickServer(t *testing.T) {
 
 // loadTarget is loadDeployTarget with its one-line notice thrown away.
 func loadTarget(dir, hostFlag string) (deployTarget, error) {
-	return loadDeployTarget(dir, hostFlag, io.Discard)
+	var flags []string
+	if hostFlag != "" {
+		flags = []string{hostFlag}
+	}
+	return loadDeployTarget(dir, flags, io.Discard)
 }
 
 // shopApp is a bare app called shop.
@@ -298,7 +302,7 @@ func TestDeployHostFromHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	var said strings.Builder
-	d, err := loadDeployTarget(root, "", &said)
+	d, err := loadDeployTarget(root, nil, &said)
 	if err != nil || d.host != "ssh://203.0.113.7:22" || d.dest.port != 22 || d.dest.knownID != "vps-1a2b3c4d" {
 		t.Fatalf("%+v, %v", d, err)
 	}
@@ -314,16 +318,16 @@ func TestDeployHostFromHome(t *testing.T) {
 
 	// Anything named wins, and then nothing is said.
 	said.Reset()
-	if d, err := loadDeployTarget(root, "from-flag", &said); err != nil || d.host != "from-flag" || said.Len() != 0 || d.dest.knownID != "" {
+	if d, err := loadDeployTarget(root, []string{"from-flag"}, &said); err != nil || d.host != "from-flag" || said.Len() != 0 || d.dest.knownID != "" {
 		t.Errorf("flag: %+v, %v, %q", d, err, said.String())
 	}
 	t.Setenv(deployHostEnv, "from-env")
-	if d, err := loadDeployTarget(root, "", &said); err != nil || d.host != "from-env" || said.Len() != 0 {
+	if d, err := loadDeployTarget(root, nil, &said); err != nil || d.host != "from-env" || said.Len() != 0 {
 		t.Errorf("env: %+v, %v, %q", d, err, said.String())
 	}
 	t.Setenv(deployHostEnv, "")
 	writeFile(t, filepath.Join(root, ".env"), "TIFA_DEPLOY_HOST=from-dotenv\n")
-	if d, err := loadDeployTarget(root, "", &said); err != nil || d.host != "from-dotenv" || said.Len() != 0 {
+	if d, err := loadDeployTarget(root, nil, &said); err != nil || d.host != "from-dotenv" || said.Len() != 0 {
 		t.Errorf(".env: %+v, %v, %q", d, err, said.String())
 	}
 }
@@ -399,7 +403,7 @@ func TestDeployHostSeveralInHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	var said strings.Builder
-	d, err := loadDeployTarget(root, "", &said)
+	d, err := loadDeployTarget(root, nil, &said)
 	if err != nil || d.host != "vps-ssh-shop.example.com" || !strings.Contains(said.String(), "shop is set up on hz") {
 		t.Errorf("%+v, %v, %q", d, err, said.String())
 	}

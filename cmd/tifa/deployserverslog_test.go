@@ -30,7 +30,7 @@ func TestSetupRemembersTheServer(t *testing.T) {
 	if err != nil || !strings.Contains(errOut, "shop is set up on vps") || strings.Contains(out, "Remembered") {
 		t.Fatalf("%v\nstdout:\n%s\nstderr:\n%s", err, out, errOut)
 	}
-	newSetupServer(t, "", strings.Replace(factsOf("shop", 80, "appdir yes\n"), "unit-service "+sha(unitsOf("shop", 80, "").service), "unit-service 00", 1))
+	newSetupServer(t, "", strings.Replace(factsOf("shop", 80, "appdir yes\n"), "unit-service "+sha(unitsOf("shop", 80, "", false, false).service), "unit-service 00", 1))
 	out, _ = runSetup(t, root, false, "")
 	if !strings.Contains(out, "Plan for shop on ssh://203.0.113.7:22 (from ") || !strings.Contains(out, "config.yaml)") {
 		t.Errorf("the plan does not say where the server came from:\n%s", out)

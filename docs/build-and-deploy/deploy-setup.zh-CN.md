@@ -2,7 +2,7 @@
 summary: '用 `tifa deploy setup` 配好服务器、Cloudflare 和 GitHub：计划、每种 `front` 改了什么、在没有 gh 的机器上运行 setup'
 audience: app
 order: 11
-translatedFrom: 144631644edd
+translatedFrom: dc09b0a56184
 read_when:
   - '在没有 gh 的机器上运行 tifa deploy setup 或 remove，用 TIFA_DEPLOY_GITHUB_TOKEN 里的细粒度令牌'
   - '`front: none` 的已部署应用从外面访问不到，setup 因为 80 或 443 端口被占而停下，你想知道要开放哪些端口，或者想知道 setup 和 remove 在 ufw 里改了什么'
@@ -102,7 +102,23 @@ setup 只删除 Tifa 自己创建并做了标记的东西（它没法删掉你�
 - **有域名时**，也就是 `site.url` 的主机，比如 `https://shop.example.com`：systemd 为应用打开 443 和 80 端口，应用运行它[内置的 HTTPS](https.zh-CN.md#https)。setup 把 `SERVER_TLS_DOMAINS=<domain>` 和 `SERVER_TLS_CACHE=%h/<app>/certs` 写进服务的环境，这样程序从 Let's Encrypt 获取证书，并保存在 `/srv/tifa/<app>/certs`，每个发布都共用它。80 端口回答 Let's Encrypt 的检查，其他请求都转到 HTTPS。第一次部署之前，DNS 必须把域名指向这台服务器：程序拿到证书之前不回答 HTTPS，部署的健康检查会失败，并说明原因。
 - **没有域名时**：没有 `site.url`，或者它的主机是 IP 地址或 `localhost`。应用在 80 端口上提供普通 HTTP。
 
-端口由 systemd 拿着，所以应用以 `tifa` 身份运行，不需要 root，也不需要任何 capability，重启时也不拒绝连接。在 Linux 上，用户的 systemd 只能打开 1024 起的端口，所以 setup 每台服务器以 root 做一次：把 `net.ipv4.ip_unprivileged_port_start = 80` 写到 `/etc/sysctl.d/60-tifa-ports.conf`。之后 80 到 1023 的端口对服务器上的每个用户都开放，不再只有 root 能用。对这个应用运行 `tifa deploy remove` 会删掉这个文件，并改回原来的值。
+**你自己的证书。** 想用你手上的证书提供 HTTPS（比如 [Cloudflare Origin CA 证书](deploy-proxy.zh-CN.md#your-own-cloudflare-in-front)），就在应用的 `.env`（git 会忽略它）或环境变量里写出它在你机器上的文件，不要写进 `tifa.yaml`：
+
+```sh
+TIFA_DEPLOY_TLS_CERT=certs/origin.pem
+TIFA_DEPLOY_TLS_KEY=certs/origin.key
+```
+
+不是绝对路径时，从应用的根目录算起。两个都设，或者都不设。它们只用于 `front: none` 并且 `site.url` 里有域名的情况，证书必须覆盖这个域名。setup 在读服务器之前，先在你的机器上检查：两个文件都是 PEM，私钥属于这张证书，证书覆盖 `site.url` 的主机，并且没有过期。有一项不对，就停下并说明原因。
+
+setup 经 ssh 把这两个文件上传到 `/srv/tifa/<app>/shared/tls/`，名为 `cert.pem` 和 `key.pem`，只有用户 `tifa` 能读（目录 `0700`，文件 `0600`），并把带着它们路径的 `SERVER_TLS_CERT` 和 `SERVER_TLS_KEY` 写进服务的环境，替代 `SERVER_TLS_DOMAINS` 和 `SERVER_TLS_CACHE`。私钥从不出现在命令行或输出里。80 端口照样把访客转到 HTTPS。
+
+- **以你机器上的文件为准。** 服务器上的文件不一样时，计划会列出两张证书，各自覆盖的名字和过期日期，你同意后（或带了 `--yes`）就替换。每个文件先写在旁边，再改名盖过去。程序发现文件变了会自己加载，不用重启，新的一对加载不了时，它继续用手上那一对。
+- **只有 setup 上传。** 部署从来不需要这两个文件，所以 CI 里没有它们。证书续期后，带着新文件再运行一次 setup。
+- **改回 Let's Encrypt。** 不设这两个输入时，setup 会计划改回去：服务重新拿到 `SERVER_TLS_DOMAINS` 并重启，然后删掉 `shared/tls`。
+- `tifa.yaml` 里的 `server.tls_cert` 和 `server.tls_key` 是程序运行处的路径，用于手动部署或 Kubernetes。设了这两个输入时，服务的环境优先，setup 会用一行说明。
+
+端口由 systemd 拿着，所以应用以 `tifa` 身份运行，不需要 root，也不需要任何 capability，重启时也不拒绝连接。在 Linux 上，用户的 systemd 只能打开 1024 起的端口，所以 setup 每台服务器以 root 做一次：把 `net.ipv4.ip_unprivileged_port_start = 80` 写到 `/etc/sysctl.d/60-tifa-ports.conf`。之后 80 到 1023 的端口对服务器上的每个用户都开放，不再只有 root 能用。对最后一个用低于 1024 端口的应用运行 `tifa deploy remove`，会删掉这个文件，并改回原来的值。
 
 **一台服务器一个应用。** 一个端口只能有一个程序监听，所以一台服务器上只能有一个应用自己接待访客。setup 在改动任何东西之前，先看应用需要的端口（80，有域名时还有 443）上有谁在监听：`ss -ltnp`，以及 `tifa` 的 systemd 拿着的 socket。端口被 Tifa 的另一个应用占着，或者被 nginx、Caddy、Apache 之类的程序占着时，setup 会停下，说出是谁、哪个端口，什么也不改。请停掉那个程序并让它开机不再启动，或者移除另一个应用，或者给这个应用和另一个应用都用 `front: cloudflare` 或 `front: nginx`，那样多个应用可以共用一台服务器（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)）。
 

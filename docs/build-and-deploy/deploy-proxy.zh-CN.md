@@ -1,17 +1,19 @@
 ---
-summary: '在 Tifa 应用前面放 nginx、CDN 或反向代理：`deploy.front: nginx`、CDN 的设置，以及代理后面的跨站 403'
+summary: '在 Tifa 应用前面放 nginx、负载均衡器、CDN 或反向代理：`deploy.front: nginx` 和 `external`、CDN 的设置，以及代理后面的跨站 403'
 audience: app
 order: 14
-translatedFrom: c5dc8c021ea6
+translatedFrom: 6ce3b9195f7f
 read_when:
   - '不用 Cloudflare，用 `deploy.front: nginx` 把几个 Tifa 应用放在同一台服务器上，或者 setup 因为服务器上有一个不是 Tifa 装的 nginx 而停下'
+  - '用 `deploy.front: external` 在 Tifa 应用前面放服务商的负载均衡器或你自己的代理，并把目标和健康检查填进去'
   - '在 Tifa 应用前面放 CDN 或 nginx、Cloudflare、CloudFront 之类的反向代理'
+  - '域名在你自己的 Cloudflare 账号里、开了代理，不用 `front: cloudflare` 的隧道，要在 Full (strict) 和 Flexible 之间选'
   - 'POST 只在代理后面得到 403，信息是 `cross-origin request detected`'
 ---
 
 # 在前面放 nginx 或 CDN {#put-nginx-or-a-cdn-in-front}
 
-访客可以通过 `tifa deploy setup` 装好的 nginx 到达程序，也可以通过你自己的代理或 CDN。这一篇讲这两种。
+访客可以通过 `tifa deploy setup` 装好的 nginx 到达程序，也可以通过你在服务商那里建的负载均衡器，或者你自己的代理或 CDN。这一篇讲这三种，以及服务器前面是你自己的 Cloudflare 的情况。
 
 ## 在 nginx 后面 {#behind-nginx}
 
@@ -82,6 +84,115 @@ server {
 **搬迁。** setup 把 `none`、`cloudflare` 和 `nginx` 之间的搬迁，当作其他改动一样列进计划。搬到 nginx 的应用，先搬到回环地址的端口上，这会为 nginx 腾出 80 端口，所以访客要等一小会儿。搬走的应用把它的站点和证书从 nginx 里拿掉，没有别的应用有站点时，nginx 和 certbot 也一起走。其他应用还在 nginx 后面时，应用不能搬到 `front: none`：nginx 占着端口，setup 会停下并说明。
 
 `tifa deploy remove` 把应用的站点和证书从 nginx 里拿掉，最后一个应用时还会卸载 nginx，以及 setup 安装过的 certbot，连同它们的配置，并删掉 `/etc/tifa/nginx`。如果 setup 只是给原来就有的 certbot 加了 nginx 插件，remove 只拿走插件，certbot、它的定时器和你的证书都不动。nginx 不肯放掉的站点会留下，它的证书和 nginx 也一起留下：报错里说明 nginx 说了什么，下一次 remove 接着做。其他应用继续回答。想手动让 nginx 不再归 Tifa 管，请对 `/etc/tifa/nginx` 里列出的包运行 `apt-get purge`，删掉 `/etc/nginx`、`/etc/letsencrypt` 和那个文件，并删掉注释为 `tifa nginx front` 的 ufw 规则。
+
+## 在你的负载均衡器后面 {#behind-your-load-balancer}
+
+用 `front: external` 时，服务器前面你自己的东西把访客送到应用：多半是你在服务商那里建的负载均衡器（比如 AWS Application Load Balancer），也可以是你自己的代理。它用自己的证书负责 HTTPS，用普通 HTTP 把请求发到每台服务器上应用的端口。Tifa 只管部署：它不建负载均衡器，不调用服务商的任何 API，也不装 nginx 或证书。应用回答普通 HTTP，不跳转到 HTTPS。一台服务器也能用，几台服务器只能用它（见[几台服务器](deploy-several-servers.zh-CN.md)）。
+
+```yaml
+site:
+  url: https://shop.example.com
+deploy:
+  front: external
+```
+
+**端口。** 应用在自己的端口上监听（从 9527 起），监听服务器的所有地址，不像在隧道或 nginx 后面那样只监听回环地址。放在几台服务器上时，每台的端口都一样，由 setup 挑一个每台都空着的。方案里会写出来：`port 9527 on every address of the server, for the load balancer or proxy in front`。
+
+想自己定端口，就设 `deploy.port`，从 80 到 65535。有些代理只能连到服务器的某些端口，Cloudflare 就是这样（见[它支持的端口](https://developers.cloudflare.com/fundamentals/reference/network-ports/)）：
+
+```yaml
+deploy:
+  front: external
+  port: 8080
+```
+
+某台服务器上已有别的应用或程序在这个端口上监听时，setup 在改动任何东西之前就停下，并说出是谁。用 80 或 443 端口时，应用照样回答普通 HTTP，没有证书。低于 1024 的端口每台服务器要用一次 root：方案会让用户 `tifa` 能打开 80 起的端口，和应用自己接待访客时一样，用这类端口的最后一个应用被 `tifa deploy remove` 时，这个设置会还原。改了 `deploy.port`，下次 setup 会挪动应用：方案里会写出来，应用在新端口上重启并通过健康检查。光部署不会挪，它会停下并提示你运行 setup。
+
+**要填进负载均衡器的东西。** setup 和每次部署最后都会列出目标：
+
+```text
+load balancer or proxy: send plain HTTP to these targets, and check each with GET /healthz, which a status from 200 to 499 passes (a balancer that takes one status wants 200, so give the app a /healthz route):
+  203.0.113.7:9527         vps
+  203.0.113.8:9527         vps2
+```
+
+- **目标**：每台服务器的地址加应用的端口。负载均衡器和服务器在同一个私有网络里时，改用私有地址。
+- **发给目标的协议**：HTTP。HTTPS 由负载均衡器负责。
+- **健康检查**：同一个端口上的 `GET /healthz`。写一个[健康检查](deploy-by-hand.zh-CN.md#health-check)，在应用能服务时回答 204。没有这个路由的应用回答 404，`tifa deploy` 算它正常，但只认 200 的负载均衡器会把每台服务器都标成不可用。负载均衡器的 PROXY protocol 不要打开：应用读的是普通 HTTP。
+
+**请求头。** `tifa deploy` 什么都不设：由负载均衡器设，由应用读。
+
+- `Host` 要保持浏览器发来的样子。程序比较 `Host` 和 `Origin` 来拒绝来自别的站点的写请求，负载均衡器改写了 `Host`，你自己的表单就会得到 403（见[跨站写请求](headers-and-origins.zh-CN.md#cross-site-writes)）。
+- `X-Forwarded-For` 和 `X-Forwarded-Proto` 是负载均衡器对访客的说法。Tifa 不读地址，读 `X-Forwarded-Proto` 只是为了在普通 HTTP 上登录时不误报警告。`c.Request().RemoteAddr` 是负载均衡器的地址。要按访客记日志或限流，就在 `OnRequest` 里读这个头，并且只取负载均衡器加的最后一项：它前面的内容来自访客。
+- [在 CDN 或代理后面](#behind-a-cdn-or-proxy)的其余内容也适用：压缩、缓存、`No-Gzip-Compression`。
+
+**防火墙。** 谁能连到这个端口，谁就能绕过负载均衡器用普通 HTTP 访问应用。setup 哪里都不打开它，ufw 和服务商那里都不开，方案里会说明这一点。只让负载均衡器能连到这个端口：在服务商的安全组或防火墙里设，ufw 开着时用 `sudo ufw allow from <负载均衡器的地址> to any port 9527 proto tcp`。这个端口能从你自己的机器访问到时，setup 和 deploy 会在目标后面说出来。
+
+**部署期间**，应用的 socket 在新程序启动时保留连接，所以负载均衡器的健康检查是在等，而不是失败。只有启动时间超过检查的超时，检查才会失败，而且要连续失败好几次，负载均衡器才会把一台服务器拿出去。让启动时间短于检查的超时，AWS 和 Google Cloud 默认是 5 秒。
+
+### 负载均衡器的设置 {#balancer-settings}
+
+2026-11-27 对照各厂商的文档核对过。名字会变，找不到某个字段时打开链接的页面看。
+
+**AWS Application Load Balancer**
+
+- 一个目标组，目标类型是 `instance` 或 `ip`，协议 HTTP，端口是应用的端口。一个 HTTPS 443 的监听器带上你的证书，转发到这个目标组。
+- 健康检查：协议 HTTP，路径 `/healthz`，端口选 "traffic port"。成功代码（"Matcher"）可以写一个范围，所以 `200-499` 和 `tifa deploy` 一致，默认是 `200`。默认超时 5 秒，连续两次失败就把目标拿出去（[目标组健康检查](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)）。
+- 在服务器的安全组里，只允许负载均衡器的安全组访问应用的端口。
+
+**Google Cloud**
+
+- 一个外部 Application Load Balancer，后端服务指向服务器所在的实例组（或可用区 NEG），协议 HTTP，命名端口设成应用的端口。
+- 健康检查：HTTP，请求路径 `/healthz`，用服务端口。只有 200 才算通过，所以应用需要一个回答 200 的 `/healthz` 路由：重定向或 204 都算不可用。间隔和超时都是 5 秒，连续两次失败就把服务器拿出去（[健康检查](https://docs.cloud.google.com/load-balancing/docs/health-check-concepts)）。
+- 在 VPC 防火墙里只允许那个页面列出的负载均衡器和健康检查的地址段访问应用的端口，别的都不放。
+
+**DigitalOcean**
+
+- 一条转发规则，从 HTTPS 443（带你的证书）到应用端口上的 HTTP。
+- 健康检查：协议 HTTP，应用的端口（默认是 80），路径 `/healthz`。200 到 399 的状态码算通过（[管理负载均衡器](https://docs.digitalocean.com/products/networking/load-balancers/how-to/manage/)）。
+- 负载均衡器通过私有地址连到同一个 VPC 里的 Droplet。在 Droplet 的 Cloud Firewall 里只允许负载均衡器访问应用的端口。
+
+**Hetzner Cloud**
+
+- 一个服务，协议 HTTPS 带证书，源端口 443，目标端口是应用的端口。它的健康检查：HTTP，应用的端口，路径 `/healthz`。
+- 把负载均衡器和服务器放进同一个 Network，就能用服务器的私有地址添加它们（[创建负载均衡器](https://docs.hetzner.com/cloud/load-balancers/getting-started/creating-a-load-balancer/)）。在服务器的防火墙里只允许这个 Network 访问应用的端口。
+
+## 前面是你自己的 Cloudflare {#your-own-cloudflare-in-front}
+
+域名在你自己的 Cloudflare 账号里、DNS 记录开了代理（橙色云朵），又不想用 `front: cloudflare` 的隧道时，看这一节。`tifa.yaml` 怎么写，取决于 Cloudflare 里这个 zone 的 SSL/TLS 加密模式。
+
+**Full (strict)：`front: none`。** 应用自己提供 HTTPS，Cloudflare 连到它的 443 端口，并检查它的证书。
+
+```yaml
+site:
+  url: https://shop.example.com
+deploy:
+  front: none
+```
+
+证书来自下面两处之一：
+
+- **Let's Encrypt**，和没有 Cloudflare 时一样。在代理后面，Let's Encrypt 在 443 端口上的检查到不了应用，程序会自己改用 80 端口上的检查，Cloudflare 会把它转过来。这个主机的 `/.well-known/acme-challenge/` 不要被你的跳转规则、WAF 规则和 Workers 碰到，否则检查会失败。2026-11-27 用开了代理的记录、Full 模式实测过：程序经 80 端口从 Let's Encrypt 拿到了证书，Cloudflare 返回网站时是 200，普通 HTTP 得到一个转到 HTTPS 的 308。
+- **Cloudflare Origin CA 证书**，由 Cloudflare 为你的域名签发，Full (strict) 模式信任它。浏览器不信任它，所以记录要一直开着代理。把证书和私钥存在你的机器上，用 `TIFA_DEPLOY_TLS_CERT` 和 `TIFA_DEPLOY_TLS_KEY` 写出它们，setup 会上传（见[你自己的证书](deploy-setup.zh-CN.md#the-app-serves-visitors-itself)）。
+
+**Flexible：`front: external`。** Cloudflare 负责 HTTPS，用普通 HTTP 连到应用，端口要选它为 HTTP 代理的端口，比如 80 或 8080（见[网络端口](https://developers.cloudflare.com/fundamentals/reference/network-ports/)）：
+
+```yaml
+deploy:
+  front: external
+  port: 80
+```
+
+这样从 Cloudflare 到服务器这一段是普通 HTTP，路上的人都能看到内容。Full (strict) 会把它加密。
+
+**`front: none` 不要配 Flexible。** 应用把每个普通 HTTP 请求转到 HTTPS，Flexible 模式下的 Cloudflare 又用普通 HTTP 去要，浏览器最后会因为跳转太多而停下（见 [ERR_TOO_MANY_REDIRECTS](https://developers.cloudflare.com/ssl/troubleshooting/too-many-redirects/)）。
+
+两种模式都要注意：
+
+- **访客的地址**在 `CF-Connecting-IP` 里。`c.Request().RemoteAddr` 是 Cloudflare 的地址（见 [CDN 设置](#cdn-settings) 里的 Cloudflare）。
+- **知道服务器地址的人仍然可以绕过 Cloudflare 直接访问。** 要不要在服务商的防火墙或 ufw 里只让 [Cloudflare 的地址](https://www.cloudflare.com/ips/)访问应用的端口，由你决定：Tifa 不做这件事。
+- **每次部署之后自己清 Cloudflare 的缓存**，如果它缓存了页面（见[部署之后](deploy-by-hand.zh-CN.md#after-a-deploy)）。只有 `front: cloudflare` 会替你清。
+- **几台服务器。** 用 `front: external`，在服务器前面放你自己的负载均衡器，让开了代理的记录指向它。不建议用几条开了代理的 A 记录、每台服务器一条：Cloudflare 没说它怎么从中挑一条，也不会停止把访客送到挂掉的服务器。
 
 ## 在 CDN 或代理后面 {#behind-a-cdn-or-proxy}
 

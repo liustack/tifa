@@ -21,6 +21,7 @@ import (
 var deployInputNames = []string{
 	deployHostEnv, secretSSHKey, secretKnownHosts, secretCFID, secretCFSecret,
 	varTSClient, varTSAudience, varMarker, envPurgeToken, envZoneID, githubTokenEnv,
+	ownCertEnv, ownKeyEnv,
 }
 
 const deployPrefix = "TIFA_DEPLOY_"

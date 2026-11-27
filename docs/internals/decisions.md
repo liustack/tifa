@@ -1016,7 +1016,7 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 ### How long a new release may take to pass its check
 
-**Settled (2026-11-27).** `deploy.start_timeout` in `tifa.yaml`: a Go duration in whole seconds from `1s` to `10m`, `30s` when left out. It is how many times, a second apart, the server asks for `/healthz` before a release counts as failed. The check of the release a failed deploy goes back to, and of a `deploy rollback`, takes the same number, since all three run the same check function on the server. It replaced the fixed 30 tries. The same day the idea had been turned down in the Database area (a start that takes longer keeps visitors waiting): the user settled it the other way, with the cost written in the docs.
+**Settled (2026-11-27).** `deploy.start_timeout` in `tifa.yaml`: a Go duration in whole seconds from `1s` to `10m`, `30s` when left out. It is how long the server asks for `/healthz`, about once a second, before a release counts as failed: a deadline, and each request waits at most the time that is left, so a socket that holds the connection cannot stretch it. The check of the release a failed deploy goes back to, and of a `deploy rollback`, takes the same time, since all three run the same check function on the server. It replaced the fixed 30 tries. The same day the idea had been turned down in the Database area (a start that takes longer keeps visitors waiting): the user settled it the other way, with the cost written in the docs.
 
 **Why.** An app whose `OnStart` runs a long migration cannot deploy in 30 seconds, and the only way out was a hand-run statement on the server. Kamal has `deploy_timeout` for the same reason. The name follows `server.read_timeout` and `ssr.wait_timeout`: what is waited for, then `_timeout`. `deploy.deploy_timeout` would say deploy twice, and `health_timeout` names the check, while the person waits for the start. The upper bound of 10 minutes is there because the wait is a stall of the whole site: visitors' requests sit on the systemd socket while the new release starts, so a longer wait is a longer outage, not a slower deploy.
 
@@ -1060,7 +1060,7 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 - Downloading `gh` or `cf` by itself. Setup installs them only with a package manager the machine already has, only when `tifa.yaml` needs them, and as a line of the plan the user agrees to.
 - wrangler, which `cf` replaces.
-- A reverse proxy of Tifa's own for several apps on one server. Tifa ships none. A Cloudflare Tunnel or `front: nginx` shares a server: [An nginx of Tifa for several apps on one server](#an-nginx-of-tifa-for-several-apps-on-one-server).
+- A reverse proxy of Tifa's own for several apps on one server, or in front of several servers. Tifa ships none. A Cloudflare Tunnel or `front: nginx` shares a server: [An nginx of Tifa for several apps on one server](#an-nginx-of-tifa-for-several-apps-on-one-server).
 - A local `tifa deploy` that hands over to GitHub Actions by itself, which would change what a command does without a word.
 - A GitHub App in place of the `gh` sign-in. Put off as too early.
 
@@ -1079,6 +1079,49 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 **Turned down.** Plugging into an nginx the user already has (2026-11-26): writing sites into it and reloading it. The same reason, and an app of Tifa would then depend on a server that other people also edit.
 
 **Reopen when** many users ask to run Tifa apps behind an nginx they cannot give up, and a way is found that leaves its configuration to the user.
+
+### Several servers for one app
+
+**Settled (2026-11-27).** One app can run on several servers, behind a load balancer of the user: `deploy.front: external` (named `loadbalancer` until the same day, see [Something of the user's in front](#something-of-the-users-in-front)). The servers are a list in `TIFA_DEPLOY_HOST` (or `--host` given again, or with commas), and one server is the same as before. One process per machine.
+
+- Setup sets up each server in turn, the first first, gives the app one port that is free on all of them, and lets it listen on every address of the server, not only the loopback. GitHub Actions gets every server in one round after them: one key on each, the host keys of each, and the list in the secret `TIFA_DEPLOY_HOST`. `~/.tifa/config.yaml` keeps the list with each server.
+- A deploy builds once, uploads to every server, runs `deploy.release_command` once on the first, then switches one server at a time, each once the one before passed its health check. When one fails, it goes back by itself, and the servers before it are moved back, so all of them run one release. `rollback`, `status`, `logs`, `env` and `remove` work on every server, `run` on the first unless `--host` names another.
+- Setup prints the targets, the port, `GET /healthz` and the statuses that pass, for the user to enter in the balancer. It opens the port in no firewall, and says to let only the balancer reach it.
+- The app's storage is the app's choice. Tifa checks nothing about it, and the docs say what works: a database all servers reach, a session store of their own, and no SQLite, which is one file on one machine.
+
+**Why.** One VPS is where an app starts, not a limit. A load balancer is what every provider sells for this, and the user knows the network between its servers.
+
+**Turned down (2026-11-27).**
+- `front: none` on several servers: each server would serve its own HTTPS with its own certificate, with nothing to spread the load.
+- Tifa setting up the load balancer, or calling any cloud API: Tifa calls no cloud API, and the user sets up the balancer. Every provider has its own, and they change.
+- A balancer node of Tifa's own in front of the servers: a reverse proxy of Tifa's own, turned down above in [Tifa downloading programs, wrangler, and a front door of its own](#tifa-downloading-programs-wrangler-and-a-front-door-of-its-own).
+- An nginx entry server for several servers, with `front: nginx`: the network between the servers (their addresses, private networks, firewalls) is the user's and varies too much for deploy to set up safely. **Reopen when** deploy manages a private network between servers.
+- Several servers behind a Cloudflare Tunnel, with `front: cloudflare`: a tunnel run on several machines has a replica on each, and Cloudflare sends each request to the replica closest to it, trying another only when that one fails, so the servers do not share the load ([Tunnel availability](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-availability/)). `none`, `nginx` and `cloudflare` with several servers are refused when the command reads its settings, and the error names `external`.
+
+### Something of the user's in front
+
+**Settled (2026-11-27).** `deploy.front: external` says that something of the user's stands in front of the servers: a load balancer at the provider, the user's own Cloudflare, or a proxy of their own. Tifa only deploys. The app serves plain HTTP on its port on every address of the server, with no certificate and no redirect to HTTPS, on one server or several. It replaced `loadbalancer` before any release, with no alias.
+
+`deploy.port` (settled the same day) sets the port of the app with `front: external` only, from 80 to 65535, and any other front with it fails with the reason. Without it setup picks the first port free from 9527, as before. Setup fails when another app or program holds the port, and a port below 1024 reuses the sysctl of `front: none` (`net.ipv4.ip_unprivileged_port_start = 80`, removed with the last app that has a port below 1024). A port below 80 is refused: the sysctl opens ports from 80. Changing the port is a move in the setup plan: new socket, restart, health check. A deploy alone refuses to run on the old port.
+
+**Why.** The same setting fits every front the user runs, and the old name said load balancer only, so a user with their own Cloudflare in Flexible mode, or their own proxy, would not have found it. Cloudflare proxies only some ports of the origin (HTTP 80, 8080, 8880, 2052, 2082, 2086, 2095, [network ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/)), and none of them is in the range setup picks from.
+
+### Your own Cloudflare in front
+
+**Settled (2026-11-27).**
+- The redirect from plain HTTP to HTTPS of an app that serves HTTPS itself stays on, with no setting to turn it off. Caddy, Kamal (kamal-proxy with `ssl: true`) and Rails (`config.force_ssl`, on in production by default) redirect the same way. A user who wants plain HTTP to reach the app, as Cloudflare in Flexible mode sends it, uses `front: external`.
+- Flexible mode is `front: external` with `deploy.port` set to a port Cloudflare proxies for HTTP, such as 80 or 8080. Full (strict) is `front: none`, with Let's Encrypt or the user's own certificate. Flexible in front of `front: none` loops on the redirect, and the docs say so.
+- `front: cloudflare` keeps the Cloudflare Tunnel.
+
+**Turned down (2026-11-27).**
+- A Cloudflare Load Balancer set up by Tifa for several servers. **Reopen when** users ask for balancing that Cloudflare manages.
+- Tifa managing the DNS of the user's Cloudflare without the Tunnel, with proxied A records: more to manage (A records, certificates, the firewall of the origin) and no one asked. **Reopen when** users ask for it.
+
+### Your own certificate with front none
+
+**Settled (2026-11-27).** An app with `front: none` and a domain can serve HTTPS with a certificate of the user's, such as a Cloudflare Origin CA certificate. The files are named on the developer's machine by `TIFA_DEPLOY_TLS_CERT` and `TIFA_DEPLOY_TLS_KEY`, read like `TIFA_DEPLOY_HOST` (the environment, else the `.env` of the app), never in `tifa.yaml`. Both or neither, and only with `front: none` and a domain. Setup checks them on the machine first (PEM, the key matches, the certificate covers the host of `site.url`, not expired), uploads them to `/srv/tifa/<app>/shared/tls/` (owned by `tifa`, folder `0700`, files `0600`, each written beside its place and renamed), and the service gets `SERVER_TLS_CERT` and `SERVER_TLS_KEY` in place of `SERVER_TLS_DOMAINS` and `SERVER_TLS_CACHE`. The local files are the truth: other files on the server are replaced in the plan, which shows both, with no restart since the program reloads them. Without the inputs, setup goes back to Let's Encrypt and deletes `shared/tls`. Only setup uploads, never deploy. `server.tls_cert` in `tifa.yaml` stays a runtime setting, for the place the program runs, and setup says when the service overrides it.
+
+**Why.** The certificate belongs to the developer's machine like the host, and a path on the server that Tifa owns is one setup can check, replace and delete. CI runners do not have the files, so a deploy must not need them. Writing the paths into `tifa.yaml` would commit a path of one machine, and reading the server's `.env` would leave setup unable to see or check the certificate.
 
 ### A secret that passes through the agent
 
@@ -1105,7 +1148,7 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 **Settled (2026-11-27).** `tifa deploy harden` is a command of its own, per server and not per app, that is run once and touches ssh. It makes ssh take keys only, turns on ufw when it is off or not installed, and makes sure security updates install by themselves. It changes Debian and Ubuntu (apt) only, and only after the plan is agreed to.
 
 - ssh: a file `/etc/ssh/sshd_config.d/00-tifa-harden.conf` with `PasswordAuthentication no` and `KbdInteractiveAuthentication no`, and `PermitRootLogin prohibit-password` only when `sshd -T` says `yes`. The name starts with `00` because sshd keeps the first value it reads for a keyword and reads the files of that folder in the order of their names: cloud-init's `50-cloud-init.conf` (`PasswordAuthentication yes` on many VPS images) would win over a later name. After `sshd -t` and the reload, a login from the machine of the developer with a new connection (no `ControlMaster`, no password prompt) must work. The session of the change stays open until that login answers, and undoes the change when it fails or when `tifa` dies.
-- ufw: only when it is off or not installed, with the ports of ssh and of the apps of Tifa that serve visitors. A listener on a non-loopback address that is not sshd, a socket of Tifa or the nginx of Tifa stops it, and harden names the program and its port. It does not guess. A ufw that is on is reported and not changed. The ssh port is never closed or limited.
+- ufw: only when it is off or not installed, with the ports of ssh and of the apps of Tifa that serve visitors. A listener on a non-loopback address that is not sshd, a socket of Tifa or the nginx of Tifa stops it, and harden names the program and its port. It does not guess. A ufw that is on is reported and not changed. The ssh port is never closed or limited. The port of an app with `front: external` is no visitor port: only the load balancer of the user should reach it, so it stops ufw like an unknown listener until a rule allows it, one from an address (the long form of ufw) too. Setup marks the socket of such an app with a line `# tifa: front external`, where the read of harden finds it, since on port 80 its socket looks like the one of `front: none`.
 - Updates: `unattended-upgrades` installed and on. A reboot that waits is reported and never done.
 - Record: `/etc/tifa/harden` holds what harden changed and the state from before. `--undo` puts back exactly that. `tifa deploy remove` does not undo it, since hardening belongs to the server.
 - `tifa deploy setup` prints one line when the server accepts ssh passwords, and changes nothing else.

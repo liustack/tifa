@@ -130,9 +130,12 @@ type serverState struct {
 	Home     string // home of the deploy user
 	Port     int    // 0 before the app exists on the server
 	Used     []int  // ports of the other apps, and ports something listens on
-	Current  string // the release current links to, empty before the first deploy
-	Releases []string
-	Records  []deployRecord
+	// OtherPorts are the ports of the other apps of the deploy user, which they keep while they
+	// do not run.
+	OtherPorts []int
+	Current    string // the release current links to, empty before the first deploy
+	Releases   []string
+	Records    []deployRecord
 	// Linger and Bus say the systemd of the deploy user runs without a login: what the units of
 	// an app need.
 	Linger, Bus bool
@@ -173,6 +176,9 @@ type serverState struct {
 	// HTTPS is the domain the app serves HTTPS for itself, empty without. HTTPSum is the SHA-256
 	// of the unit of its port 80, tifa-<app>-http.socket, empty when missing.
 	HTTPS, HTTPSum string
+	// TLSCertSum and TLSKeySum are the SHA-256 of the certificate and key setup uploaded into
+	// shared/tls, empty without them.
+	TLSCertSum, TLSKeySum string
 	// LowPort is the first port the deploy user may listen on, 0 when the server did not say.
 	// PortsConf says the server has portsConf, which setup wrote.
 	LowPort   int
@@ -259,6 +265,12 @@ func (s serverState) holder(app string, port int) (otherApp string, programs []s
 	return "", nil, false
 }
 
+// freeFor says nothing but app listens on port, and no other app of the deploy user has it.
+func (s serverState) freeFor(app string, port int) bool {
+	_, _, taken := s.holder(app, port)
+	return !taken && !slices.Contains(s.OtherPorts, port)
+}
+
 // Prepared reports whether the server can hold an app: the systemd of the deploy user runs.
 func (s serverState) Prepared() bool { return s.Linger && s.Bus }
 
@@ -290,6 +302,7 @@ func parseServerState(out string) (serverState, error) {
 				s.Port = p
 			} else {
 				s.Used = append(s.Used, p)
+				s.OtherPorts = append(s.OtherPorts, p)
 			}
 		case "listen":
 			s.Used = append(s.Used, listeningPorts(value)...)
@@ -309,6 +322,10 @@ func parseServerState(out string) (serverState, error) {
 			s.HTTPS = strings.TrimSpace(value)
 		case "unit-http":
 			s.HTTPSum = strings.TrimSpace(value)
+		case "tls-cert":
+			s.TLSCertSum = strings.TrimSpace(value)
+		case "tls-key":
+			s.TLSKeySum = strings.TrimSpace(value)
 		case "lowport":
 			p, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil || p < 0 || p > 65535 {
@@ -401,14 +418,12 @@ func parseServerState(out string) (serverState, error) {
 	return s, nil
 }
 
-// good reports whether release id passed its health check once, and returns its record.
+// good reports whether release id passed its health check and did not fail since, and returns
+// its record: the last record of id says ok. A release that passed on this server and failed on
+// another of the app has a failed record after its ok.
 func (s serverState) good(id string) (deployRecord, bool) {
-	for _, r := range slices.Backward(s.Records) {
-		if r.ID == id && r.Result == "ok" {
-			return r, true
-		}
-	}
-	return deployRecord{}, false
+	r := s.latest(id)
+	return r, r.ID != "" && r.Result == "ok"
 }
 
 // latest returns the last record of release id, or none.
@@ -508,31 +523,40 @@ func unitName(app string) string { return "tifa-" + app }
 type appUnits struct{ socket, http, service string }
 
 // unitsOf writes the units of app for its port: 80 or 443 when it serves visitors itself, else a
-// loopback port behind the Cloudflare Tunnel. domain is the domain it serves HTTPS for, on 443.
+// loopback port behind the Cloudflare Tunnel or nginx, or with open that port on every address of
+// the server, for the load balancer or proxy of the user, plain HTTP whatever the port. domain is
+// the domain it serves HTTPS for itself, on 443.
 //
 // The sockets hold the ports while the program restarts, see docs/build-and-deploy/deploy-by-hand.md. With
 // HTTPS the program gets two, each named by the setting it serves, and the settings of the
 // built-in HTTPS in its environment: the certificates stay in certs, next to the releases.
-func unitsOf(app string, port int, domain string) appUnits {
+func unitsOf(app string, port int, domain string, open, cert bool) appUnits {
 	unit := unitName(app)
+	itself := !open && servesVisitors(port)
 	listen := fmt.Sprintf("ListenStream=127.0.0.1:%d\n", port)
-	switch port {
-	case httpPort:
+	switch {
+	case open:
+		listen = fmt.Sprintf("ListenStream=%d\n", port)
+	case port == httpPort:
 		listen = "ListenStream=80\n"
-	case httpsPort:
+	case port == httpsPort:
 		listen = "ListenStream=443\nFileDescriptorName=server.addr\n"
 	}
+	mark := ""
+	if open {
+		mark = externalMark + "\n"
+	}
 	u := appUnits{socket: fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
-[Unit]
+%s[Unit]
 Description=%s socket (Tifa)
 
 [Socket]
 %s
 [Install]
 WantedBy=sockets.target
-`, app, listen)}
+`, mark, app, listen)}
 	sockets, extra := unit+".socket", ""
-	if port == httpsPort {
+	if itself && port == httpsPort {
 		u.http = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
 Description=%s plain HTTP socket (Tifa): Let's Encrypt and the redirect to HTTPS
@@ -547,6 +571,9 @@ WantedBy=sockets.target
 `, app, unit)
 		sockets += " " + unit + "-http.socket"
 		extra = fmt.Sprintf("Sockets=%s\nEnvironment=SERVER_TLS_DOMAINS=%s SERVER_TLS_CACHE=%%h/%s/certs\n", sockets, domain, app)
+		if cert {
+			extra = fmt.Sprintf("Sockets=%s\nEnvironment=SERVER_TLS_CERT=%%h/%[2]s/%[3]s/cert.pem SERVER_TLS_KEY=%%h/%[2]s/%[3]s/key.pem\n", sockets, app, tlsDir)
+		}
 	}
 	u.service = fmt.Sprintf(`# Written by tifa deploy setup, which writes it again when it differs.
 [Unit]
@@ -620,8 +647,9 @@ ss -Hltnp | sed 's/^/listen /'
 `
 
 // portsBody runs as root. It lets users other than root listen on ports from 80, so the systemd
-// of the deploy user can open ports 80 and 443 for the app that serves visitors itself, with no
-// right given to the app. The value it found goes into the file, so remove can put it back.
+// of the deploy user can open ports below 1024 for the apps that need them: 80 and 443 for the app
+// that serves visitors itself, deploy.port behind something of the user's. No right goes to the
+// app. The value it found goes into the file, so remove can put it back.
 const portsBody = `set -eu
 # tifa: open ports 80 and 443 to the systemd of the deploy user
 f=` + portsConf + `
@@ -631,8 +659,8 @@ if [ -f "$f" ]; then
 	if [ -n "$kept" ]; then before=$kept; fi
 fi
 printf '%s\n' "# Written by tifa deploy setup: users other than root may listen on ports from 80, so the systemd" \
-	"# of the user tifa opens ports 80 and 443 for the app that serves visitors itself. tifa deploy remove" \
-	"# of that app deletes this file and puts back the value from before." \
+	"# of the user tifa opens the ports below 1024 of its apps. tifa deploy remove of the last app" \
+	"# that needs one deletes this file and puts back the value from before." \
 	"# before: $before" "net.ipv4.ip_unprivileged_port_start = 80" > "$f.part"
 mv "$f.part" "$f"
 sysctl -q -w net.ipv4.ip_unprivileged_port_start=80
@@ -756,13 +784,14 @@ echo "---"
 exit 3
 `
 
-// appScript is appBody for app on port, with domain for HTTPS. move says its sockets listen
-// elsewhere than before, restart that its units changed. It checks the restarted app for tries seconds.
-func appScript(app string, port int, domain string, move, restart bool, tries int) string {
-	u := unitsOf(app, port, domain)
+// appScript is appBody for app on port, with domain for HTTPS, and with open on every address of
+// the server. move says its sockets listen elsewhere than before, restart that its units changed. It
+// checks the restarted app for up to wait seconds.
+func appScript(app string, port int, domain string, open, cert, move, restart bool, wait int) string {
+	u := unitsOf(app, port, domain, open, cert)
 	flag := map[bool]string{true: "1"}
 	return script(appBody, "app", app, "port", strconv.Itoa(port), "domain", domain,
-		"move", flag[move], "restart", flag[restart], "health", healthPath, "tries", strconv.Itoa(tries),
+		"move", flag[move], "restart", flag[restart], "health", healthPath, "wait", strconv.Itoa(wait),
 		"socket_unit", u.socket, "http_unit", u.http, "service_unit", u.service)
 }
 
@@ -809,6 +838,9 @@ EOF
 	fi
 fi
 if [ -s "$d/https" ]; then echo "https $(cat "$d/https")"; fi
+for n in cert key; do
+	if [ -f "$d/` + tlsDir + `/$n.pem" ]; then echo "tls-$n $(sha256sum < "$d/` + tlsDir + `/$n.pem" | cut -d' ' -f1)"; fi
+done
 if [ -r "$lowport_file" ]; then echo "lowport $(cat "$lowport_file")"; fi
 if [ -f ` + portsConf + ` ]; then echo "ports-conf yes"; fi
 ` + ufwProbe + `# ss names only the programs of this user. systemd names the sockets it holds for this user.
@@ -900,39 +932,46 @@ const (
 )
 
 // askFunc is the shell function that asks the app on the server for $health and prints the
-// status, 000 for no answer. It needs $d and $port. An app with HTTPS is asked over HTTPS for its
-// domain on the loopback, as a visitor would ask it, without checking the certificate: the check
-// is about the app. Without, it is asked over plain HTTP on its port.
+// status, 000 for no answer. It waits $1 seconds for the answer, 5 without. It needs $d and $port.
+// An app with HTTPS is asked over HTTPS for its domain on the loopback, as a visitor would ask it,
+// without checking the certificate: the check is about the app. Without, it is asked over plain
+// HTTP on its port.
 const askFunc = `ask() {
 	if [ -s "$d/https" ]; then
 		h=$(cat "$d/https")
-		curl -s -k -o /dev/null -w '%{http_code}' --max-time 5 --resolve "$h:443:127.0.0.1" "https://$h$health" || true
+		curl -s -k -o /dev/null -w '%{http_code}' --max-time "${1:-5}" --resolve "$h:443:127.0.0.1" "https://$h$health" || true
 	else
-		curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port$health" || true
+		curl -s -o /dev/null -w '%{http_code}' --max-time "${1:-5}" "http://127.0.0.1:$port$health" || true
 	fi
 }
 `
 
 // healthCheckFunc is the shell function that asks the app for healthPath, shared by the scripts that
-// restart it. It needs $d, $health, $port, $tries and $unit.
+// restart it, about once a second until $wait seconds have passed. A request waits at most the
+// time that is left, so a socket that takes the connection and never answers, as the socket of
+// systemd does while the app fails to start again and again, cannot make the wait longer. It needs
+// $d, $health, $port, $wait and $unit.
 const healthCheckFunc = askFunc + `check() {
-	i=0
-	while [ "$i" -lt "$tries" ]; do
-		code=$(ask)
+	end=$(( $(date +%s) + wait ))
+	while :; do
+		left=$(( end - $(date +%s) ))
+		if [ "$left" -gt 5 ]; then left=5; fi
+		if [ "$left" -lt 1 ]; then left=1; fi
+		code=$(ask "$left")
 		if [ "$code" -ge 100 ] && [ "$code" -lt 500 ] && systemctl --user is-active --quiet "$unit.service"; then
 			echo "health check: GET $health answered $code"
 			return 0
 		fi
-		i=$((i + 1))
+		if [ $(( $(date +%s) + 1 )) -ge "$end" ]; then break; fi
 		sleep 1
 	done
 	if [ "$code" != 000 ]; then
 		echo "health check: GET $health answered $code"
 	elif [ -s "$d/https" ]; then
 		h=$(cat "$d/https")
-		echo "health check: GET https://$h$health got no answer in $tries tries. Without a certificate for $h the program answers no HTTPS: Let's Encrypt must reach this server at $h on port 80 or 443, so DNS must point here and the firewall must let it in. The log says why"
+		echo "health check: GET https://$h$health got no answer within $wait seconds. Without a certificate for $h the program answers no HTTPS: Let's Encrypt must reach this server at $h on port 80 or 443, so DNS must point here and the firewall must let it in. The log says why"
 	else
-		echo "health check: GET $health got no answer in $tries tries"
+		echo "health check: GET $health got no answer within $wait seconds"
 	fi
 	return 1
 }
@@ -991,13 +1030,13 @@ type activation struct {
 	Action          string   // deploy or rollback
 	Back            string   // the release to go back to when ID fails, or empty
 	Prune           []string // releases to delete when ID passes
-	Tries           int
+	Wait            int      // seconds the health check of ID, and of Back, may take
 }
 
 func activateScript(a activation) string {
 	return script(activateBody, "app", a.App, "id", a.ID, "commit", a.Commit, "port", strconv.Itoa(a.Port),
 		"action", a.Action, "back", a.Back, "prune", strings.Join(a.Prune, " "), "health", healthPath,
-		"tries", strconv.Itoa(a.Tries))
+		"wait", strconv.Itoa(a.Wait))
 }
 
 // tunnelUnit runs cloudflared for the tunnel of the server as a system service. The token reaches

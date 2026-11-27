@@ -33,14 +33,14 @@ func TestDeployUnitsServeVisitors(t *testing.T) {
 			}
 		}
 	}
-	plain := unitsOf("shop", httpPort, "")
+	plain := unitsOf("shop", httpPort, "", false, false)
 	has("plain socket", plain.socket, "[Socket]\nListenStream=80\n\n[Install]")
 	has("plain service", plain.service, "Requires=tifa-shop.socket\nAfter=tifa-shop.socket\n", "ExecStart=%h/shop/current/shop\n")
 	if plain.http != "" || strings.Contains(plain.service, "Environment=") || strings.Contains(plain.socket, "127.0.0.1") {
 		t.Errorf("plain HTTP: %+v", plain)
 	}
 
-	tls := unitsOf("shop", httpsPort, "shop.example.com")
+	tls := unitsOf("shop", httpsPort, "shop.example.com", false, false)
 	has("HTTPS socket", tls.socket, "ListenStream=443\nFileDescriptorName=server.addr\n")
 	has("HTTP socket", tls.http, "ListenStream=80\nFileDescriptorName=server.http_addr\nService=tifa-shop.service\n", "WantedBy=sockets.target")
 	has("HTTPS service", tls.service,
@@ -49,7 +49,7 @@ func TestDeployUnitsServeVisitors(t *testing.T) {
 		"Environment=SERVER_TLS_DOMAINS=shop.example.com SERVER_TLS_CACHE=%h/shop/certs\n",
 		"WorkingDirectory=%h/shop/shared\n")
 
-	tunnel := unitsOf("shop", 9531, "")
+	tunnel := unitsOf("shop", 9531, "", false, false)
 	has("tunnel socket", tunnel.socket, "[Socket]\nListenStream=127.0.0.1:9531\n")
 	if tunnel.http != "" || strings.Contains(tunnel.service, "Environment=") {
 		t.Errorf("behind the tunnel: %+v", tunnel)
@@ -172,7 +172,7 @@ func TestSetupMovesTheLoopbackApp(t *testing.T) {
 
 	// The script itself: the old socket stops before the units change, and the app restarts on the
 	// new one and passes its check.
-	body := appScript("shop", httpPort, "", true, true, 30)
+	body := appScript("shop", httpPort, "", false, false, true, true, 30)
 	stop, write := strings.Index(body, `systemctl --user stop $old`), strings.Index(body, `printf '%s' "$socket_unit"`)
 	if stop < 0 || write < 0 || stop > write || !strings.Contains(body, `systemctl --user restart "$unit.service"`) || !strings.Contains(body, "if check; then exit 0; fi") {
 		t.Errorf("app script:\n%s", body)
@@ -320,7 +320,7 @@ func TestDeployServesVisitorsOverHTTPS(t *testing.T) {
 
 	// The next release gets no answer: the check says what HTTPS needs, and the one before runs.
 	out, _, err = run(t, "deploy", "--dir", root)
-	if err == nil || !strings.Contains(out, "health check: GET https://shop.example.com/healthz got no answer in 30 tries. Without a certificate for shop.example.com the program answers no HTTPS: Let's Encrypt must reach this server at shop.example.com on port 80 or 443") {
+	if err == nil || !strings.Contains(out, "health check: GET https://shop.example.com/healthz got no answer within 30 seconds. Without a certificate for shop.example.com the program answers no HTTPS: Let's Encrypt must reach this server at shop.example.com on port 80 or 443") {
 		t.Errorf("%v\n%s", err, out)
 	}
 	if strings.Contains(out, "visitors:") {
@@ -358,7 +358,7 @@ func TestDeployRemoveServesVisitors(t *testing.T) {
 	}
 	for _, want := range []string{
 		"remove  server: stop and disable tifa-shop.socket, tifa-shop-http.socket and tifa-shop.service, delete their unit files and /srv/tifa/shop with its releases, shared/.env, the data in shared/ and deploys.log, and its certificates in certs/",
-		"remove  server: /etc/sysctl.d/60-tifa-ports.conf, which let the systemd of tifa open ports 80 and 443, and the value from before it, as root",
+		"remove  server: /etc/sysctl.d/60-tifa-ports.conf, which let the systemd of tifa open ports below 1024, and the value from before it, as root",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)

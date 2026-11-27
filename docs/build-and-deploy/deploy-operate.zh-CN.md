@@ -2,7 +2,7 @@
 summary: '管理已部署的应用：`tifa deploy env`、没有终端时设置密钥、`logs`、`status`、`run`、`remove`，以及应用在服务器上把文件放在哪里'
 audience: app
 order: 15
-translatedFrom: fd5d712c006d
+translatedFrom: 81f9f866be08
 read_when:
   - '用 tifa deploy env 设置已部署应用 .env 里的密钥或设置'
   - 'agent 运行 tifa deploy env set，或带 --cache-purge-token 的 tifa deploy setup，浏览器里打开了一个页面用来输入密钥'
@@ -14,6 +14,8 @@ read_when:
 # 管理已部署的应用 {#run-a-deployed-app}
 
 设置密钥，读日志，查看运行的是哪个版本，运行应用的命令，把应用从服务器上拿掉，以及找到应用在服务器上的文件。
+
+放在几台服务器上的应用，每个命令都作用于每台服务器，只有两个例外：`run` 去第一台，`logs -f` 跟着你用 `--host` 指定的那一台。见[其他命令](deploy-several-servers.zh-CN.md#the-other-commands)。
 
 ## 服务器上的设置和 secret {#settings-and-secrets-on-the-server}
 
