@@ -974,3 +974,22 @@ func TestHealthCheckKeepsToStartTimeout(t *testing.T) {
 		t.Errorf("took %v:\n%s", took, out)
 	}
 }
+
+// The tifa.yaml of a new app names every value of deploy.front.
+func TestNewTifaYAMLNamesEveryFront(t *testing.T) {
+	data, err := newapp.ReadFile("newapp/tifa.yaml.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line string
+	for _, l := range strings.Split(string(data), "\n") {
+		if strings.Contains(l, "front:") {
+			line = l
+		}
+	}
+	for _, v := range []string{"none (", "| cloudflare (", "| nginx (", "| loadbalancer ("} {
+		if !strings.Contains(line, v) {
+			t.Errorf("the line of deploy.front lacks %q:\n%s", v, line)
+		}
+	}
+}
