@@ -2,7 +2,7 @@
 summary: '一页看完 Tifa 应用的全部约定：文件和文件夹、route.go 认的名字、根目录的 hooks 和选项、构建拒绝的写法，以及生成的文件'
 audience: app
 order: 1
-translatedFrom: 90cfd470eb35
+translatedFrom: 726c09579365
 read_when:
   - '查一个文件、一个文件夹或一个名字在 Tifa 应用里做什么，或者该写哪一个'
   - '构建拒绝了一个文件夹名、一个文件或 `route.go` 里的一个名字，或者你写的名字好像被忽略了'
@@ -30,7 +30,7 @@ Tifa 读取的每样东西占一行，后面链到讲它的那一页。名字按
 | `vite.config.ts`、`tsconfig.json` | 带 `tifa()` 插件的 Vite 配置，以及继承 `.tifa/tsconfig.json` 的 tsconfig。见[应用的 tsconfig 和 Vite 配置](generated-files.zh-CN.md#the-apps-tsconfig-and-vite-config) |
 | `.tifa/` | 由 `tifa build`、`tifa gen` 和 `tifa dev` 写出。不要改它，也不要提交它。见[生成的文件](#generated-files) |
 
-根目录的其他文件，比如 `db.go`、`mail.go`、`migrate.go`、`migrations/` 或 `sessions.go`，是应用自己的，`tifa new` 会写出其中一些。Tifa 一个都不读。根包可以放 hooks 和整个应用共享的东西，不放业务域的代码。见[应用的结构](../start/structure.zh-CN.md)。
+根目录的其他文件，比如 `db.go`、`mail.go`、`migrations/` 或 `sessions.go`，是应用自己的，`tifa new` 会写出其中一些。Tifa 一个都不读。根包可以放 hooks 和整个应用共享的东西，不放业务域的代码。见[应用的结构](../start/structure.zh-CN.md)。
 
 只有 `hooks.go` 存在时，Tifa 才读 hooks。四个 hook 的名字随后在根包里查找，包里的任何文件都行。把它们放在 `hooks.go` 里。
 

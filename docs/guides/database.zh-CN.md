@@ -1,13 +1,13 @@
 ---
-summary: '怎样用 SQLite 保存数据：迁移和让回滚一直能用的规则、`database is locked`、把 `db.backup` 备份到 R2 或 S3、Postgres'
+summary: '怎样用 SQLite 保存数据：用 goose 做迁移和让回滚一直能用的规则、`database is locked`、把 `db.backup` 备份到 R2 或 S3、Postgres'
 audience: app
 order: 2
-translatedFrom: 8d0a68ef726c
+translatedFrom: fa165e1c91a1
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'
   - '在 `migrations/` 里写文件，或者应用因为其中一个文件启动不了'
-  - '为 Tifa 应用在 SQLite 和 Postgres 之间做选择'
+  - '为 Tifa 应用在 SQLite 和 Postgres 之间做选择，或者用 goose 以外的迁移库'
   - '为读写数据库的代码写 Go 测试'
   - '写入时报 `database is locked` 或 `SQLITE_BUSY`'
   - '备份数据库、把它搬到新机器，或者回到更早的时间来撤销一次错误的部署'
@@ -42,8 +42,7 @@ package notes
 import (
 	"context"
 	"database/sql"
-	"io/fs"
-	"net/url"
+	"embed"
 
 	_ "github.com/liustack/sqlite"
 )
@@ -51,32 +50,25 @@ import (
 // DB is the database of the app. OnStart opens it and OnShutdown closes it.
 var DB *sql.DB
 
-// OpenDB opens the database at path and runs the files of migrations/ that it has not run yet.
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
+// OpenDB opens the database at path, after it runs the files of migrations/ that it has not run
+// yet (see "Change the tables" below).
 func OpenDB(path string) (*sql.DB, error) {
-	return openDB(path, migrationFiles)
+	if err := migrate(context.Background(), path, migrationFiles); err != nil {
+		return nil, err
+	}
+	return open(path)
 }
 
-// openDB is OpenDB with the migrations/ folder of files, which the tests of migrate.go replace.
-func openDB(path string, files fs.FS) (*sql.DB, error) {
-	// The pragmas run on every connection of the pool. WAL lets reads go on during a write, and
-	// SQLite checks foreign keys only when asked to. A write waits up to 5s for another one by
-	// default (change it with _pragma=busy_timeout(ms)). A transaction that reads first and then
-	// writes can fail with SQLITE_BUSY even with a timeout, so _txlock=immediate makes every
-	// transaction take the write lock as it starts.
-	q := url.Values{
-		"_pragma": {"journal_mode(WAL)", "synchronous(NORMAL)", "foreign_keys(1)"},
-		"_txlock": {"immediate"},
-	}
-	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
-	if err != nil {
-		return nil, err
-	}
-	// migrate.go runs the files of migrations/ that the database has not run yet.
-	if err := migrate(context.Background(), db, path, files); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
+// open opens the database at path. The pragmas run on every connection of the pool. WAL lets
+// reads go on during a write, and SQLite checks foreign keys only when asked to. A write waits up
+// to 5s for another one by default (change it with _pragma=busy_timeout(ms)). A transaction that
+// reads first and then writes can fail with SQLITE_BUSY even with a timeout, so _txlock=immediate
+// makes every transaction take the write lock as it starts.
+func open(path string) (*sql.DB, error) {
+	return sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_txlock=immediate")
 }
 ```
 
@@ -112,27 +104,30 @@ var DBPath = tifa.String("db.path", "app.db", "SQLite database file")
 
 ## 改表 {#change-the-tables}
 
-`tifa new` 建的应用把表写成 `migrations/` 里一串带编号的 SQL 文件，每次改动一个文件。每次启动时，`OpenDB` 在应用开始监听之前，按顺序运行数据库还没运行过的文件。运行器是 `migrate.go`，它是你应用自己的代码。
+`tifa new` 建的应用把表写成 `migrations/` 里一串带编号的 SQL 文件，每次改动一个文件。每次启动时，在应用开始监听之前，`OpenDB` 用 [goose](https://github.com/pressly/goose)（一个做迁移的 Go 库）按顺序运行数据库还没运行过的文件。goose 把它运行过的每个文件记在表 `goose_db_version` 里。
 
 ```text
 migrations/
   001_init.sql                the tables tifa new made
   002_todo_created_at.sql
   003_jobs.sql
-migrate.go                    the runner
-migrate_test.go               its tests, and the one that writes schema.sql
+db.go                         OpenDB, which runs them
+migrate_test.go               TestSchema, which writes schema.sql, and TestDropsSayWhy
 schema.sql                    the tables as the files leave them, for reading
 ```
 
 ### 加一个迁移 {#add-a-migration}
 
-把改动写成下一个文件：
+把改动写成下一个文件。文件以 `-- +goose Up` 开头：
 
 ```sql
 -- migrations/002_todo_created_at.sql
+-- +goose Up
 ALTER TABLE todos ADD COLUMN created_at TEXT NOT NULL DEFAULT '';
 UPDATE todos SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now');
 ```
+
+goose 在每个位于行尾的分号处把文件切成语句，所以触发器（它的主体里有分号）要放在 `-- +goose StatementBegin` 和 `-- +goose StatementEnd` 之间（[goose 的注解](https://pressly.github.io/goose/documentation/annotations/)）。不用写 `-- +goose Down`：数据库永远不会退回去，见[让回滚一直能用](#keep-a-rollback-working)。
 
 然后重新写出 `schema.sql`，把两者一起提交：
 
@@ -142,37 +137,111 @@ go test -run TestSchema -update
 
 `schema.sql` 是唯一一个能看到每张表当前样子的文件。不要编辑它：`TestSchema` 从迁移文件写出它，它和迁移文件对不上时，`go test` 和 `go tool tifa check` 都会失败。在 `schema.sql` 里手改的表，永远到不了已经存在的数据库。
 
-迁移文件只写 SQL。需要 Go 的数据处理，比如对每一行调用一个服务，放进应用的 Go 代码里，比如一个[后台任务](jobs.zh-CN.md)。
+迁移文件只写 SQL。需要 Go 的数据处理，比如对每一行调用一个服务，放进应用的 Go 代码里：一个你只运行一次的应用命令，或者一个[后台任务](jobs.zh-CN.md)。
 
-### 运行器做什么 {#what-the-runner-does}
+### 启动时发生什么 {#what-happens-at-start}
 
-- **要么全做，要么都不做。** SQLite 可以回滚对表的改动，所以一次启动的所有文件在一个事务里运行。有文件失败，或者程序中途停下，数据库都保持原样，`OnStart` 返回错误，应用不会启动。
+代码在 `db.go` 里。它很短，是你自己的代码，可以改：
+
+```go
+// migrate runs the files of the migrations/ folder of files that the database at path has not run
+// yet, with goose, each in a transaction of its own. Without db.backup, it first copies the
+// database to path.before-migrations.
+func migrate(ctx context.Context, path string, files fs.FS) error {
+	dir, err := fs.Sub(files, "migrations")
+	if err != nil {
+		return err
+	}
+	// goose gets a pool of one connection, which Close drops: a file with
+	// -- +goose NO TRANSACTION, such as a table rebuild, turns foreign keys off on it.
+	db, err := open(path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	p, err := goose.NewProvider(goose.DialectSQLite3, db, dir)
+	if err != nil {
+		return err
+	}
+	current, newest, err := p.GetVersions(ctx)
+	if err != nil {
+		return err
+	}
+	if current > newest {
+		// A newer release ran more files and was rolled back. goose skips them, and this release
+		// runs on those tables.
+		slog.Warn("migrations: the database ran files this release does not have", "database_version", current, "newest_file", newest)
+	}
+	if DBBackup == "" && current > 0 && current < newest {
+		// VACUUM INTO writes a consistent copy, and fails when the file exists.
+		if err := os.Remove(path + ".before-migrations"); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "VACUUM INTO ?", path+".before-migrations"); err != nil {
+			return err
+		}
+	}
+	ran, err := p.Up(ctx)
+	if err != nil {
+		return fmt.Errorf("migrations: %w", err)
+	}
+	for _, r := range ran {
+		slog.Info("migrations: ran", "file", r.Source.Path)
+	}
+	return nil
+}
+```
+
+- **每个文件一个事务。** goose 在同一个事务里运行一个文件并记下它。文件失败了，或者程序在它中途停下，这个文件什么都不会留下，`OnStart` 返回错误，比如 `migrations: partial migration error (type:sql,version:4): sqlite: no such table: nope`，应用不会启动。它之前的文件会留下：三个新文件里第三个失败时，前两个已经在数据库里了，下次启动从第三个接着运行。这时部署失败后退回的那个发布，就要在带着这两个文件改动的表上运行，而[让回滚一直能用](#keep-a-rollback-working)本来就要求每个发布都能这样。
 - **在第一个请求之前。** `OnStart` 在应用开始监听之前就完成了，所以没有请求会看到改了一半的表。
-- **它记住每个文件。** 表 `schema_migrations` 存着每个运行过的文件的名字和 SHA-256。文件在运行之后又被改过，启动就会停下，报 `migrations/002_todo_created_at.sql changed after it ran on this database. Put it back as it was ... and write the change in a new file, migrations/004_<what>.sql`。没有绕过它的办法：对已运行文件的修改，永远到不了运行过它的数据库。
-- **它能在更新的表上运行。** 数据库运行过程序没有的文件时（更新的发布运行了它们，然后被回滚），它记一条警告，列出这些文件，然后照常启动。
-- **它保住指向重建的表的行。** 它在自己专用的一个连接上关掉外键来运行，结束后关闭这个连接，并在提交之前运行 `PRAGMA foreign_key_check`。有行指向不存在的行，这次运行就失败。如果外键开着，[重建表](#change-a-column-type-or-a-constraint)时的 `DROP TABLE` 会删掉其他表里用 `ON DELETE CASCADE` 指向它的行。
-- **没有备份时，它先复制数据库。** 选项 `db.backup` 为空，并且有文件要在一个已经有表的数据库上运行时，它先在旁边写一份副本，从文件 2 开始的那次运行写成 `app.db.before-002`，并删掉上一次运行的副本。设置了 `db.backup` 时，备份里已经有之前的每个状态，见[撤销一次错误的部署](#undo-a-bad-deploy)。
+- **它能在更新的表上运行。** 数据库运行过程序没有的文件时（更新的发布运行了它们，然后被回滚），goose 不声不响地跳过它们。这时 `OpenDB` 记一条警告 `migrations: the database ran files this release does not have database_version=5 newest_file=4`，然后照常启动。
+- **goose 用自己的连接。** 它在一个只有一个连接的连接池上运行，`OpenDB` 在打开应用的连接池之前就把它关掉。goose 在这个连接上运行文件的每条语句，所以一个关掉外键的文件（[重建表](#change-a-column-type-or-a-constraint)就会这样做）永远不会让应用在外键关着的情况下运行。
+- **没有备份时，它先复制数据库。** 选项 `db.backup` 为空，并且有新文件要在一个之前运行过文件的数据库上运行时，它先在旁边写一份副本 `app.db.before-migrations`，替换上一次启动留下的副本。设置了 `db.backup` 时，备份里已经有之前的每个状态，见[撤销一次错误的部署](#undo-a-bad-deploy)。
 - **构建不运行迁移。** `tifa build` 只读你的代码（[理念](../start/philosophy.zh-CN.md#do-things-the-go-way)），所以它不需要数据库。
 
 只在你自己机器上运行过的文件还可以改，比如部署之前的最新那个：把本地的 `app.db` 挪开，下次启动会用所有文件重新建出它。
 
-在 `tifa new` 开始写 `migrations/` 之前建的应用，每次启动都运行 `schema.sql`。要换过来，把它的语句原样放进 `migrations/001_init.sql`，保留 `IF NOT EXISTS`，再从一个新应用里拿来 `migrate.go`、`migrate_test.go` 和 `db.go` 里 `openDB` 那部分。在已经存在的数据库上，`001_init.sql` 什么也不改，并被记为已运行。
+### 从 schema.sql 或更早的运行器换过来 {#move-over-from-schemasql-or-an-earlier-runner}
+
+在 `tifa new` 开始写 `migrations/` 之前建的应用，每次启动都运行 `schema.sql`。把它的语句原样放进 `migrations/001_init.sql`，保留 `IF NOT EXISTS`，放在第一行 `-- +goose Up` 后面。从一个新应用里拿来 `db.go` 的 `migrate` 和 `open`，以及 `migrate_test.go`，再运行 `go get github.com/pressly/goose/v3`。在已经存在的数据库上，`001_init.sql` 什么也不改，goose 把它记为已运行。
+
+用了这篇指南早先版本里那个运行器的应用，用 `PRAGMA user_version` 数它运行过的文件。在每个文件开头加上 `-- +goose Up`，并在第一次用 goose 启动之前，把它运行过的文件按 goose 的方式记进数据库。下面这些语句就做这件事，在已经有这些记录的数据库上它们什么也不改。只要还有数据库可能需要它们，就在 `migrate` 里 `goose.NewProvider` 之前运行它们：
+
+```go
+// The files the runner before goose ran, counted in PRAGMA user_version.
+if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS goose_db_version (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  version_id INTEGER NOT NULL,
+  is_applied INTEGER NOT NULL,
+  tstamp     TIMESTAMP DEFAULT (datetime('now'))
+);
+INSERT INTO goose_db_version (version_id, is_applied)
+  WITH RECURSIVE v(n) AS (SELECT 0 UNION ALL SELECT n + 1 FROM v WHERE n < (SELECT user_version FROM pragma_user_version))
+  SELECT n, 1 FROM v WHERE NOT EXISTS (SELECT 1 FROM goose_db_version);`); err != nil {
+	return err
+}
+```
 
 ### 让回滚一直能用 {#keep-a-rollback-working}
 
 [`tifa deploy rollback`](../build-and-deploy/deploy.zh-CN.md#roll-back)，以及没通过检查的部署，都会在同一个数据库上启动更旧的发布。数据库不会退回去：那样会丢掉访客在这之后写的东西。所以更旧的发布必须能在每个更新发布的表上运行：
 
-- **不要编辑在你自己机器以外的任何地方运行过的文件。** 写下一个文件。
+- **不要编辑在你自己机器以外的任何地方运行过的文件。** 写下一个文件。一个文件运行过之后，goose 就不再看它，所以修改永远到不了运行过它的数据库，而新数据库会拿到修改，两者就这样分开了。
 - **每个发布都必须能在下一个发布的表上运行。** 这些是安全的：加表，加一个允许 `NULL` 或带默认值的列，加索引。这些虽然是在加东西，但还是会弄坏旧代码：旧代码的写入通不过的 `UNIQUE` 索引或 `CHECK`，以及改变值的含义的 `UPDATE`，比如把 `'done'` 改成 `'completed'`。
 - **每个 `SELECT` 和 `INSERT` 都写明列名。** 用 `SELECT *` 时，之后加一列会让 `Scan` 报 `sql: expected 4 destination arguments in Scan, not 3`。`INSERT INTO todos VALUES (...)` 会因为列数不对而失败。
-- **改名或删除分三个发布做。** 先加新列，两边都写。然后改为读新列。等你能回滚到的发布都不再用旧列之后，在更晚的一个发布里删掉它：回滚能到达最近 5 个通过了检查的发布，`go tool tifa deploy status` 会列出它们。删除或改名表、列的文件，第一行写一句注释，说明为什么这样做是安全的，没有这句注释，`migrate_test.go` 里的 `TestDropsSayWhy` 会失败。
+- **改名或删除分三个发布做。** 先加新列，两边都写。然后改为读新列。等你能回滚到的发布都不再用旧列之后，在更晚的一个发布里删掉它：回滚能到达最近 5 个通过了检查的发布，`go tool tifa deploy status` 会列出它们。删除或改名表、列的文件，在 `-- +goose` 那几行之后的第一行写一句注释，说明为什么这样做是安全的，没有这句注释，`migrate_test.go` 里的 `TestDropsSayWhy` 会失败。
 
 ### 改列的类型或约束 {#change-a-column-type-or-a-constraint}
 
-SQLite 的 `ALTER TABLE` 能加列、给列改名、删列，以及给表改名。其他改动，比如列的类型、`NOT NULL`、默认值、`CHECK` 或外键，都要把表重建一遍（[SQLite 的步骤](https://www.sqlite.org/lang_altertable.html#otheralter)）。运行器已经关掉外键并检查它们，所以文件里只放其余的步骤。`migrations/004_todo_done_check.sql`：
+SQLite 的 `ALTER TABLE` 能加列、给列改名、删列，以及给表改名。其他改动，比如列的类型、`NOT NULL`、默认值、`CHECK` 或外键，都要把表重建一遍（[SQLite 的步骤](https://www.sqlite.org/lang_altertable.html#otheralter)）。重建里的 `DROP TABLE` 会删掉其他表里用 `ON DELETE CASCADE` 指向这张表的行，除非外键是关着的。`PRAGMA foreign_keys` 在事务里不起作用，而 goose 在事务里运行文件，所以文件用 `-- +goose NO TRANSACTION` 关掉 goose 的事务，自己开一个（[驱动对此的说明](https://pkg.go.dev/github.com/liustack/sqlite#hdr-Foreign_keys_in_a_migration)）。`migrations/004_todo_done_check.sql`：
 
 ```sql
 -- Builds todos again to add CHECK (done IN (0, 1)), with every column it had.
+-- +goose Up
+-- +goose NO TRANSACTION
+PRAGMA foreign_keys = OFF;
+BEGIN IMMEDIATE;
 CREATE TABLE new_todos (
   id    INTEGER PRIMARY KEY,
   title TEXT    NOT NULL,
@@ -182,21 +251,36 @@ INSERT INTO new_todos (id, title, done) SELECT id, title, done FROM todos;
 DROP TABLE todos;
 ALTER TABLE new_todos RENAME TO todos;
 -- DROP TABLE removed the indexes and triggers of todos: make them again here.
+-- Fails when a row points at a row that is not there, so COMMIT does not run.
+CREATE TEMP TABLE foreign_keys_ok (rows_pointing_nowhere INTEGER CHECK (rows_pointing_nowhere = 0));
+INSERT INTO foreign_keys_ok SELECT count(*) FROM pragma_foreign_key_check;
+DROP TABLE foreign_keys_ok;
+COMMIT;
+PRAGMA foreign_keys = ON;
 ```
 
+- 保持这个顺序：在 `BEGIN` 之前关掉外键，在 `COMMIT` 之前检查。`PRAGMA foreign_key_check` 只列出指向不存在的行的那些行，临时表上的 `CHECK` 把任何一行这样的行变成错误。一条语句失败时，goose 就停在那里，`OpenDB` 关掉 goose 的连接，这会撤销还没结束的事务：表保持原样，这个文件算作没运行。
 - 在 `INSERT ... SELECT` 里写明列名，这样一列的数据不会落进另一列。
 - 新表保留了每一列，所以更旧的发布还能在它上面运行，除非新约束让它们的写入失败。
 - 第一行说明这次重建保留了什么。因为文件里有 `DROP TABLE`，`TestDropsSayWhy` 会要求这一行。
 
 ### 迁移能花多长时间 {#how-long-a-migration-may-take}
 
-`tifa deploy` 给新发布 30 秒（或者你用 `deploy.start_timeout` 设的时间）来回答它的[健康检查](../build-and-deploy/deploy.zh-CN.md#deploy)。迁移、`db.backup` 为空时的数据库副本，以及 `OnStart` 的其余部分，都必须在这段时间里完成。做不完时，部署就把这个发布算作失败，启动之前那个：事务从没提交，所以数据库保持原样，下次部署同一个发布也会同样失败。
+`tifa deploy` 等新发布回答健康检查的时间是 `deploy.start_timeout`，没设置时是 30 秒，而新发布启动期间访客都在等（见[慢启动](../build-and-deploy/deploy.zh-CN.md#a-slow-start)）。迁移、`db.backup` 为空时的数据库副本，以及 `OnStart` 的其余部分，都必须在这段时间里完成。做不完时，部署就把这个发布算作失败，启动之前那个：正在运行的文件被撤销，它之前的文件留下，下次部署同一个发布时从那里接着运行。
 
-加一列不花时间，不管表有多大。在大表上建索引或重建表，可能会更久。这样的文件要写成能运行两次的样子，比如 `CREATE INDEX IF NOT EXISTS todos_by_done ON todos (done);`，找个空闲的时候在服务器上手动运行这条语句，然后再部署：文件运行时发现索引已经在了，马上就完成。数据库很大时保持 `db.backup` 开着，因为副本会把整个文件写一遍。
+加一列不花时间，不管表有多大。在大表上建索引或重建表，可能会更久。为它调大 `deploy.start_timeout`，或者把它变小：这样的文件要写成能运行两次的样子，比如 `CREATE INDEX IF NOT EXISTS todos_by_done ON todos (done);`，找个空闲的时候在服务器上手动运行这条语句，然后再部署，文件运行时发现索引已经在了，马上就完成。数据库很大时保持 `db.backup` 开着，因为副本会把整个文件写一遍。
 
 ### Postgres {#postgres}
 
-这个运行器是给 SQLite 的。Postgres 应用用 [goose](https://github.com/pressly/goose)，一个运行内嵌 SQL 文件的 Go 库，规则相同：每次改动一个带编号的文件，不编辑运行过的文件，每个发布都能在下一个发布的表上运行。goose 也能在更新的发布迁移过的数据库上启动。见[什么时候用 Postgres](#when-to-use-postgres)。
+同一个 `migrate` 也能给 Postgres 应用用：用 pgx 打开数据库（见[什么时候用 Postgres](#when-to-use-postgres)），给 `goose.NewProvider` 传 `goose.DialectPostgres`。去掉 `VACUUM INTO` 副本，它是 SQLite 专用的，再删掉 `TestSchema` 和 `schema.sql`，它们读的是 SQLite 的表。文件里写 Postgres 的 SQL，规则相同。Postgres 用 `ALTER TABLE` 改列的类型或约束，在 goose 的事务里就能做，所以不需要重建表。
+
+### 别的迁移库 {#another-migration-library}
+
+任何库都能用，只要它做到 `tifa deploy` 依赖的三件事：
+
+- **它在 `OnStart` 里运行**，在应用开始监听之前，并在上面说的启动等待时间里完成。
+- **它能在运行过它没有的文件的数据库上启动。** 回滚之后，更旧的发布会看到更新发布的版本。goose 跳过它们。golang-migrate 不行：数据库处在一个它没有文件的版本时，它的 `Up` 报 `no migration found for version 5` 停下，一个文件中途失败之后，它报 `Dirty database version 5. Fix and force version.` 停下。这样回滚退回的那个发布就启动不了，网站一直停着，直到有人手动修好数据库。
+- **运行失败后，留下的表正在运行的发布还能用**：每个文件一个事务，或者所有文件一个事务，SQLite 和 Postgres 上都是这样。
 
 ## 在 Load 和处理函数里使用 {#use-it-in-load-and-handlers}
 
@@ -558,7 +642,7 @@ func TestGetAndSetDone(t *testing.T) {
 }
 ```
 
-测试数据库运行真实的迁移，所以一个有问题的迁移会让整个测试套件失败。`tifa new` 写的 `migrate_test.go` 测其余的部分：`TestMigrateTwice` 把同一个文件打开两次，确认第二次什么都没运行，`TestSchema` 检查 `schema.sql`，`TestDropsSayWhy` 检查删除或改名的文件的第一行，`TestRebuildKeepsTheRowsThatPointAtTheTable` 重建一张有其他行指向它的表。
+测试数据库运行真实的迁移，所以一个有问题的迁移会让整个测试套件失败。`tifa new` 写的 `migrate_test.go` 还有两个测试：`TestSchema` 检查 `schema.sql`，`TestDropsSayWhy` 检查删除或改名的文件的第一行。
 
 根包在它自己的测试里不能导入 `testdb`（这个导入会绕回来），所以它的测试自己带一个三行的辅助函数。路由代码用 `tifatest.NewCtx` 测试，见 [测试](../pages-and-data/testing-apps.zh-CN.md#testing)。
 
@@ -582,6 +666,6 @@ func OpenDB(url string) (*sql.DB, error) {
 }
 ```
 
-这篇指南里其他一切都保持原来的形状：一个在 `OnStart` 里打开的 `DB` 变量，一个放地址的选项（`db.url`，现在因为它含有密码，是一个 `tifa.Secret`，见 [发送邮件](email.zh-CN.md#settings)），通过 `database/sql` 做查询。变化的是：占位符是 `$1`、`$2`，pragma 没有了，上面的迁移运行器是 SQLite 专用的，所以用 goose，规则相同（[Postgres](#postgres)）。这时测试需要一个真正的 Postgres，所以通过一个设置给它们一个，没设置时就跳过。
+这篇指南里其他一切都保持原来的形状：一个在 `OnStart` 里打开的 `DB` 变量，一个放地址的选项（`db.url`，现在因为它含有密码，是一个 `tifa.Secret`，见 [发送邮件](email.zh-CN.md#settings)），通过 `database/sql` 做查询。变化的是：占位符是 `$1`、`$2`，pragma 没有了，`migrate` 给 goose 传 Postgres 的方言（[Postgres](#postgres)）。这时测试需要一个真正的 Postgres，所以通过一个设置给它们一个，没设置时就跳过。
 
 会话可以保存在同一个数据库里：[会话](../pages-and-data/sessions.zh-CN.md#where-to-store-sessions)。

@@ -29,7 +29,7 @@ One line for each thing Tifa reads, with a link to the page that explains it. Na
 | `vite.config.ts`, `tsconfig.json` | The Vite config with the `tifa()` plugin, and a tsconfig that extends `.tifa/tsconfig.json`. See [The app's tsconfig and Vite config](generated-files.md#the-apps-tsconfig-and-vite-config) |
 | `.tifa/` | Written by `tifa build`, `tifa gen` and `tifa dev`. Do not edit or commit it. See [Generated files](#generated-files) |
 
-Other files at the root, such as `db.go`, `mail.go`, `migrate.go`, `migrations/` or `sessions.go`, are the app's own, and `tifa new` writes some of them. Tifa reads none of them. The root package may hold the hooks and what the whole app shares, and no domain code. See [Structuring an app](../start/structure.md).
+Other files at the root, such as `db.go`, `mail.go`, `migrations/` or `sessions.go`, are the app's own, and `tifa new` writes some of them. Tifa reads none of them. The root package may hold the hooks and what the whole app shares, and no domain code. See [Structuring an app](../start/structure.md).
 
 Tifa reads `hooks.go` only when it exists. The four hook names are then looked up in the root package, in any file of it. Keep them in `hooks.go`.
 

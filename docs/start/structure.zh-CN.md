@@ -2,7 +2,7 @@
 summary: 'Tifa 应用的文件放在哪里：app/ 里的领域、hooks、共享资源、包的导入'
 audience: app
 order: 4
-translatedFrom: 56ed5b6354f6
+translatedFrom: 9e0fed77be8f
 read_when:
   - '新建 Tifa 应用'
   - '决定一个类型、一条查询或一个共享资源放在哪里'
@@ -25,7 +25,7 @@ myapp/
   setup.ts                  top-level code of the JavaScript side: i18next formatters and other setup
   options.go                the options of the app: var DBPath = tifa.String(...)
   db.go                     var DB, opened in OnStart and closed in OnShutdown
-  migrate.go  migrations/   the tables of every domain, one numbered SQL file per change
+  migrations/               the tables of every domain, one numbered goose SQL file per change, run by db.go
   schema.sql                the tables as the migrations leave them, written by a test
   content.go                the content collections: var Blog = content.Define[Post](...)
   content/                  the Markdown files of the collections

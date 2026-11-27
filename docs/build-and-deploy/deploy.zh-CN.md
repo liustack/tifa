@@ -2,7 +2,7 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: 584f7ad9e700
+translatedFrom: 26f4d7e137bf
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -106,7 +106,7 @@ go tool tifa deploy
 
 `tifa deploy` 停掉旧程序，在 systemd 的 socket 后面启动新程序，所以站点从不拒绝请求。但新发布启动期间（包括 `OnStart` 和其中的迁移），访客的请求都在 socket 上等着。`start_timeout` 设得越长，允许的启动就越慢，而慢启动就是整个站点停住那么久：设成 `start_timeout: 5m` 后，一个要花四分钟的迁移会让每位访客等四分钟。
 
-新发布在 `start_timeout` 内没有回答 `/healthz`，就算失败。这时什么都不会改变：旧发布重新运行，没做完的如果是迁移，数据库也保持原样（它的事务从没提交）。要么把设置调大到够这项工作用，要么把慢的工作变小：拆分迁移，或者在安静的时候手动建一个很长的索引（见[迁移能花多长时间](../guides/database.zh-CN.md#how-long-a-migration-may-take)）。
+新发布在 `start_timeout` 内没有回答 `/healthz`，就算失败。这时旧发布重新运行。没做完的如果是迁移，正在运行的那个文件会被撤销（每个文件在自己的事务里运行），它之前的文件留下。要么把设置调大到够这项工作用，要么把慢的工作变小：拆分迁移，或者在安静的时候手动建一个很长的索引（见[迁移能花多长时间](../guides/database.zh-CN.md#how-long-a-migration-may-take)）。
 
 ```yaml
 deploy:
@@ -173,7 +173,7 @@ go tool tifa deploy rollback 20261120T110000Z
 
 那个发布可以比正在运行的更旧，也可以更新。它必须还在服务器上，并且部署时通过了健康检查。不满足时什么都不改，错误信息会列出能去的发布。它就是正在运行的那个时，也什么都不改，命令会说明这一点。
 
-数据库保持原样。回滚在更新的发布留下的表上启动更旧的发布，访客在这之后写的东西都还在，更旧的发布会记一条警告，列出它没有的迁移。只要每个发布都能在下一个发布的表上运行，这就行得通，见[让回滚一直能用](../guides/database.zh-CN.md#keep-a-rollback-working)。要连数据也撤销，就用备份回到更早的时间：[撤销一次错误的部署](../guides/database.zh-CN.md#undo-a-bad-deploy)。
+数据库保持原样。回滚在更新的发布留下的表上启动更旧的发布，访客在这之后写的东西都还在，更旧的发布会记一条警告，写出数据库运行过的最新迁移。只要每个发布都能在下一个发布的表上运行，这就行得通，见[让回滚一直能用](../guides/database.zh-CN.md#keep-a-rollback-working)。要连数据也撤销，就用备份回到更早的时间：[撤销一次错误的部署](../guides/database.zh-CN.md#undo-a-bad-deploy)。
 
 ## Tifa 记住的服务器 {#the-servers-tifa-remembers}
 
