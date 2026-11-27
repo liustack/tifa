@@ -75,6 +75,7 @@ GREETING="Hello # not a comment\n"
 - Lines starting with `#` and blank lines are skipped. An unquoted value ends at a `#` after a space or a tab and loses the spaces around it, so `TLS_CERT= # none` is empty and `COLOR=#fff` is `#fff`.
 - A value in double quotes may hold `\n`, `\t`, `\"` and `\\`. A value in single quotes is taken as it is. A quoted value stays on one line.
 - A line it cannot read stops the program with its line number.
+- `GOMEMLIMIT`, `GOGC` and `GOMAXPROCS` work in `.env` as in the environment. Go reads them before the program reads `.env`, so the program sets them itself when it starts, before anything else, and `ssr.vms` follows a `GOMAXPROCS` of `.env`. A value Go would not take stops the program. Other names Go reads, such as `GODEBUG`, work only in the real environment.
 - `tifa deploy` reads its inputs from this file too, `TIFA_DEPLOY_HOST` to know the server and the other names that start with `TIFA_DEPLOY_`. The program ignores them. Without `TIFA_DEPLOY_HOST`, `tifa deploy` uses the server it remembered in `~/.tifa/config.yaml`, and `TIFA_HOME` moves that folder (see [Deploy with tifa deploy](deploy.md#deploy-with-tifa-deploy)).
 
 `tifa dev` runs the app in the app root, so the app reads the `.env` there, and a change of `.env` starts the app again. Vite does not read `.env` (`envDir: false`): a page gets the values it needs from its `Load`.

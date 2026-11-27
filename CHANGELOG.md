@@ -7,6 +7,7 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 ### Added
 
 - `tifa deploy setup --plan` prints the plan and stops. It changes nothing on the server, in Cloudflare, in GitHub, in `~/.tifa` or on this machine, installs and logs in no tool, and asks nothing, so a script, a CI job or a coding agent can run it without a terminal. It exits with 0 when everything matches `tifa.yaml`, 2 when the plan has something to do or something for you, and 1 when the plan could not be made, the same for one server or several. `--plan --json` prints one JSON object with the same status. Without a terminal and without `--yes`, setup still prints the plan and stops with an error, and the error now points to `--plan`. See [Only look at the plan](docs/build-and-deploy/deploy-setup.md#only-look-at-the-plan).
+- `GOMEMLIMIT`, `GOGC` and `GOMAXPROCS` in `.env` now take effect, as they do in the environment, so `go tool tifa deploy env set GOMEMLIMIT` limits the memory of a deployed app. Go reads these names before the program reads `.env`, so they used to do nothing there. The program now sets them when it starts, and `ssr.vms` follows a `GOMAXPROCS` of `.env`. The real environment still wins, and a value Go would not take, such as `150MB`, stops the program. See [.env](docs/build-and-deploy/config.md#env).
 
 ### Fixed
 

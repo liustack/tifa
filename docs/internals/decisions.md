@@ -831,6 +831,10 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 **Instead.** One `.env`, read from the working directory, below the real environment. Vite does not read it: [Values from the environment](../guides/environment.md).
 
+### The Go runtime names in .env
+
+**Settled (2026-11-28).** `GOMEMLIMIT`, `GOGC` and `GOMAXPROCS` in `.env` take effect: the program sets them with `debug.SetMemoryLimit`, `debug.SetGCPercent` and `runtime.GOMAXPROCS` when it starts, before the settings load, so `ssr.vms` follows a `GOMAXPROCS` of `.env`. The real environment wins, and an invalid value stops the program. Why: `.env` is the environment of a machine, and `tifa deploy env set` writes it, so a memory limit set there was silently ignored. Small machines need `GOMEMLIMIT`: on a 512 MB server the heap of the default settings grew to twice what it held and the kernel killed the program. Other names Go reads, such as `GODEBUG`, stay environment only, since some take effect only at start. No Tifa setting such as `server.memory_limit`: the Go name is the one people and agents know.
+
 ### A prefix for environment variables
 
 **Turned down (2026-11-03, again 2026-11-18).** `TIFA_SERVER_ADDR`, or a prefix an app may turn on.

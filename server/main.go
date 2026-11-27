@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"syscall"
 
@@ -55,6 +56,9 @@ func run(ctx context.Context, app App, args, environ []string, stdout, stderr io
 // the stop signals back to the system: a command of the app calls it once its context has ended,
 // so a second Ctrl-C ends a command that does not stop. serve never calls it.
 func runSources(ctx context.Context, app App, src *config.Sources, stdout, stderr io.Writer, dev func(*server, fs.FS, config.SSR) http.Handler, release func()) error {
+	if err := applyGoRuntime(src); err != nil {
+		return err
+	}
 	root, err := newProgram(ctx, app, src, dev, release)
 	if err != nil {
 		return err
@@ -63,6 +67,25 @@ func runSources(ctx context.Context, app App, src *config.Sources, stdout, stder
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	return root.ExecuteContext(ctx)
+}
+
+// applyGoRuntime sets GOMEMLIMIT, GOGC and GOMAXPROCS of the .env file as Go sets them from the
+// environment. It runs before the settings are loaded, so ssr.vms follows GOMAXPROCS of .env too.
+func applyGoRuntime(src *config.Sources) error {
+	g, err := src.GoRuntime()
+	if err != nil {
+		return err
+	}
+	if g.MemoryLimit != nil {
+		debug.SetMemoryLimit(*g.MemoryLimit)
+	}
+	if g.GCPercent != nil {
+		debug.SetGCPercent(*g.GCPercent)
+	}
+	if g.MaxProcs != nil {
+		runtime.GOMAXPROCS(*g.MaxProcs)
+	}
+	return nil
 }
 
 // newProgram is the command line of app: serve, config, version and the commands of the app.
