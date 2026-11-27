@@ -93,7 +93,7 @@ func TestRegisterServesInterfaceRoutes(t *testing.T) {
 	if w := send(s, "DELETE", "/api/health", ""); w.Code != 409 || !strings.Contains(w.Body.String(), "busy") {
 		t.Errorf("DELETE /api/health: %d %s", w.Code, w.Body.String())
 	}
-	if w := send(s, "PUT", "/api/health", ""); w.Code != 405 || w.Header().Get("Allow") != "GET, HEAD, DELETE" {
+	if w := send(s, "PUT", "/api/health", ""); w.Code != 405 || w.Header().Get("Allow") != "GET, HEAD, DELETE, OPTIONS" {
 		t.Errorf("PUT /api/health: %d, Allow %q", w.Code, w.Header().Get("Allow"))
 	}
 	if w := send(s, "POST", "/projects/p1", ""); w.Code != 201 || !strings.Contains(w.Body.String(), `"created":"p1"`) {

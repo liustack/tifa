@@ -1140,6 +1140,11 @@ func sourcesComment(g *routeGen) string {
 // Params for its path parameters, and a function per method handler, named after its method,
 // that sends a request to it.
 func routeModule(g *routeGen) ([]byte, error) {
+	// HEAD, OPTIONS, CONNECT and TRACE get no function: a page has no use for an answer without a
+	// body or for the preflight, which the browser sends itself, and fetch refuses CONNECT and TRACE.
+	calls := slices.DeleteFunc(slices.Clone(g.handlers), func(h analyze.Handler) bool {
+		return h.Method == "HEAD" || h.Method == "OPTIONS" || h.Method == "CONNECT" || h.Method == "TRACE"
+	})
 	// The data and the inputs and results of the handlers share the declarations of the structs.
 	// exports names what the module exports for each type.
 	var goTypes []types.Type
@@ -1153,7 +1158,7 @@ func routeModule(g *routeGen) ([]byte, error) {
 			exports = append(exports, map[string]string{"layout": "LayoutData", "route": "PageData"}[n.file])
 		}
 	}
-	for _, h := range g.handlers {
+	for _, h := range calls {
 		if (h.Input != "") != (h.InputType != nil) || (h.Output != "") != (h.OutputType != nil) {
 			return nil, fmt.Errorf("codegen: %s: the manifest carries no types of %s, analyze the application in this process", g.dir, h.Method)
 		}
@@ -1179,7 +1184,7 @@ func routeModule(g *routeGen) ([]byte, error) {
 	if g.page != nil || g.layout != nil {
 		b.WriteString(`import { getRouteApi } from "@tanstack/react-router"` + "\n")
 	}
-	if len(g.handlers) > 0 {
+	if len(calls) > 0 {
 		names := []string{"call"}
 		if len(g.languages) > 0 {
 			names = append(names, "publicPath")
@@ -1247,7 +1252,7 @@ func routeModule(g *routeGen) ([]byte, error) {
 	if g.page != nil {
 		fmt.Fprintf(&b, "\nexport const page = getRouteApi(%s)\n", jsString(g.page.route.routeID))
 	}
-	for _, h := range g.handlers {
+	for _, h := range calls {
 		b.WriteString("\n")
 		options := []string{"CallOptions"}
 		if len(keys) > 0 {

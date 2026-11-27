@@ -77,8 +77,8 @@ func TestMemoNeverGivesAPageToAnotherVisitor(t *testing.T) {
 	}
 }
 
-// A Load runs only for GET and HEAD. Another method on a page's URL is refused and the Load does
-// not run, also when the request comes from the same origin.
+// A Load runs only for GET and HEAD. Another method on a page's URL is refused, or answered with
+// Allow for OPTIONS, and the Load does not run, also when the request comes from the same origin.
 func TestLoadIsNotReachedByAnotherMethod(t *testing.T) {
 	var loads atomic.Int32
 	app := frontApp()
@@ -90,8 +90,12 @@ func TestLoadIsNotReachedByAnotherMethod(t *testing.T) {
 		r.Header.Set("Sec-Fetch-Site", "same-origin")
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, r)
-		if w.Code != http.StatusMethodNotAllowed {
-			t.Errorf("%s: %d, want 405\n%s", method, w.Code, w.Body.String())
+		want := http.StatusMethodNotAllowed
+		if method == "OPTIONS" {
+			want = http.StatusNoContent
+		}
+		if w.Code != want {
+			t.Errorf("%s: %d, want %d\n%s", method, w.Code, want, w.Body.String())
 		}
 	}
 	// A data request is a GET too: a POST with the navigation parameter is no data request.

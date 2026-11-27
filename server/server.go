@@ -120,7 +120,10 @@ func newServer(cfg config.Config, hooks Hooks) *server {
 	return s
 }
 
-var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
+// methods are the methods a route may have a handler for, the standard ones of RFC 9110, in the
+// order Allow lists them. A CONNECT for a host and port, as a client asks a proxy, has no path and
+// so matches no route. One with a path, as net/rpc sends, reaches the CONNECT of its route.
+var methods = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"}
 
 // handle registers a method handler of a route. The path is registered once without a method,
 // so OnRequest runs with the matched pattern even when the method has no handler.
@@ -173,6 +176,11 @@ func (h routeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		handle := h.methods[r.Method]
 		if handle == nil && r.Method == "HEAD" {
 			handle = h.methods["GET"]
+		}
+		if handle == nil && r.Method == "OPTIONS" {
+			// RFC 9110 9.3.7: the answer to OPTIONS lists the methods of the resource in Allow.
+			c.SetHeader("Allow", allowed(h.methods))
+			return c.NoContent(http.StatusNoContent)
 		}
 		if handle == nil {
 			methodNotAllowed(c.Writer(), h.methods)
@@ -516,17 +524,20 @@ func asPublic(err error, e *tifa.Error) bool {
 func validStatus(status int) bool { return status >= 400 && status <= 599 }
 
 func methodNotAllowed(w http.ResponseWriter, route map[string]func(*tifa.Ctx) error) {
+	w.Header().Set("Allow", allowed(route))
+	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": http.StatusText(http.StatusMethodNotAllowed)})
+}
+
+// allowed is the Allow header of a route: its methods, HEAD when it has GET, and OPTIONS, which
+// every route answers.
+func allowed(route map[string]func(*tifa.Ctx) error) string {
 	var allow []string
 	for _, m := range methods {
-		if route[m] != nil {
+		if route[m] != nil || m == "HEAD" && route["GET"] != nil || m == "OPTIONS" {
 			allow = append(allow, m)
-			if m == "GET" {
-				allow = append(allow, "HEAD")
-			}
 		}
 	}
-	w.Header().Set("Allow", strings.Join(allow, ", "))
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": http.StatusText(http.StatusMethodNotAllowed)})
+	return strings.Join(allow, ", ")
 }
 
 // recovered turns a panic into an error so it follows the same flow as returned errors.

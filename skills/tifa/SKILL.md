@@ -56,7 +56,7 @@ myapp/
 
 | File | Holds |
 | --- | --- |
-| `route.go` | All Go names of the folder: `Layout`, `Load`, `SSR`, `Memo`, `Cache` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. They are read from this file only |
+| `route.go` | All Go names of the folder: `Layout`, `Load`, `SSR`, `Memo`, `Cache` and the method handlers `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, and `HEAD`, `OPTIONS`, `CONNECT`, `TRACE` (Ctx alone). They are read from this file only |
 | `page.tsx` | The page component (default export), and optional `head` and `ErrorBoundary` exports |
 | `layout.tsx` | The Layout component. It renders `<Outlet />` where the child page goes |
 | `layout_.tsx` | Like `layout.tsx`, but drops every Layout above it, the root one too |
@@ -82,7 +82,7 @@ Go side:
 7. Calling `c.Query`, `c.Bind`, `c.BindQuery`, `c.JSON`, `c.Text` or `c.NoContent` in `Load`, in `Layout`, or in helpers they call. Take query parameters as the second parameter, `func Load(c *tifa.Ctx, q Filter) (T, error)`, and return the data or an error. There `c.Request()` is a copy with only the declared query parameters and no body: what needs the whole request goes in `OnRequest`. Do not keep `c` after the function returns (see `references/routing-and-data.md`).
 8. Doing permission checks only in a `Layout`: a cached Layout does not run again on navigation. Check in `OnRequest`, or make each page's `Load` call `tifa.Use(c, theCheckingLayout)`.
 9. Returning types that cannot become JSON and TypeScript: interfaces, funcs, channels, a `MarshalJSON` method. Go slices and maps arrive as `[]` and `{}`, never `null`, and `time.Duration` is not accepted. Integers a browser would round (above 9007199254740991, such as snowflake IDs or `UnixNano`) are refused when a page reads them (`Load`, `Layout`, session data, a handler called with `X-Tifa-Call` by the generated function of a page). `tifatest.Start` refuses it in `Load` and `Layout` too. A plain HTTP client gets the raw number from a handler, and so does a test with `tifatest.Start` unless the request sets `X-Tifa-Call: 1`. Tag the field `json:",string"`, or send milliseconds.
-10. Changing state in a `GET`. The cross-site write check covers POST, PUT, PATCH and DELETE only.
+10. Changing state in a `GET`. The cross-site write check skips GET, HEAD and OPTIONS.
 11. Writing a `main`, editing anything in `.tifa/`, or setting things up in `init()`. Use `OnStart` and `OnShutdown` for resources.
 12. Letting the root package import anything under `app/`. Domains import the root package for `DB` and friends, so that import would close a cycle.
 13. Reading options with `os.Getenv` or your own flags. Define them in `options.go` at the root with `tifa.String`, `tifa.Int`, `tifa.Bool` and the like: `./bin/app config` lists them and a bad value stops startup.

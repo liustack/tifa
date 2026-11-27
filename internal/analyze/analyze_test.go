@@ -29,6 +29,30 @@ func TestConstantsNearSwitchNamesAreTheAppsOwn(t *testing.T) {
 	}
 }
 
+// HEAD, OPTIONS, CONNECT and TRACE are method handlers in manifest order, OPTIONS next to a page
+// too, and a route may have HEAD alone.
+func TestHeadOptionsConnectTraceHandlers(t *testing.T) {
+	m, err := analyzeApp(t, "headoptions")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	got := map[string][]string{}
+	for _, r := range m.Routes {
+		for _, h := range r.Handlers {
+			got[r.Dir] = append(got[r.Dir], h.Method)
+			if h.Method != "GET" && h.Method != "POST" {
+				if h.Input != "" || h.Output != "" || h.Form {
+					t.Errorf("%s %s has %+v", r.Dir, h.Method, h)
+				}
+			}
+		}
+	}
+	want := map[string][]string{"app/api": {"GET", "HEAD", "OPTIONS", "CONNECT", "TRACE"}, "app/probe": {"HEAD"}, "app/page": {"POST", "OPTIONS"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("handlers %v, want %v", got, want)
+	}
+}
+
 func TestValidApp(t *testing.T) {
 	m, err := analyzeApp(t, "valid")
 	if err != nil {
@@ -592,6 +616,21 @@ func TestViolations(t *testing.T) {
 		{"memovalue", [][]string{
 			// app/page has const Memo = true, which is the default and is taken as it is.
 			{"app/other/route.go:3:", "Memo must be a bool constant"},
+		}},
+		// A method in another case is not a handler. One the module calls is a helper, and one without
+		// a Ctx is the app's own: api.Options is called from app/page, and page.Trace takes a string.
+		// HEAD, OPTIONS, CONNECT and TRACE take only the Ctx, and a page has no HEAD of its own.
+		{"methodnames", [][]string{
+			{"app/api/route.go:13:", "Connect is not a method handler", "CONNECT"},
+			{"app/api/route.go:15:", "Post is not a method handler", "POST"},
+			{"app/api/route.go:17:", "patch is not a method handler", "PATCH"},
+			{"app/api/route.go:19:", "Head is not a method handler", "HEAD"},
+			{"app/page/route.go:26:", "Delete is not a method handler", "DELETE"},
+			{"app/page/route.go:28:", "HEAD is not allowed next to page.tsx"},
+			{"app/badsig/route.go:9:", "HEAD must have the signature func(c *tifa.Ctx) error"},
+			{"app/badsig/route.go:11:", "OPTIONS must have the signature func(c *tifa.Ctx) error"},
+			{"app/badsig/route.go:13:", "CONNECT must have the signature func(c *tifa.Ctx) error"},
+			{"app/badsig/route.go:15:", "TRACE must have the signature func(c *tifa.Ctx) error"},
 		}},
 		{"casednames", [][]string{
 			{"app/page/route.go:3:", "cache", "capital letter", "Memo = false"},

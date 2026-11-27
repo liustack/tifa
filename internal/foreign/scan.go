@@ -104,7 +104,7 @@ func fileRule(base string, siblings map[string]bool, top bool) (Rule, bool) {
 }
 
 // handlerNames are the functions of route.go that take the Ctx.
-var handlerNames = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true, "Load": true, "Layout": true}
+var handlerNames = map[string]bool{"GET": true, "HEAD": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true, "OPTIONS": true, "CONNECT": true, "TRACE": true, "Load": true, "Layout": true}
 
 // goFramework is a package whose request type another framework's handlers take.
 type goFramework struct {

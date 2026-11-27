@@ -34,7 +34,7 @@ const (
 
 // methods lists the HTTP methods whose handlers route.go may declare, each as a function named
 // after it, in manifest order.
-var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
+var methods = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"}
 
 // hooks lists the hooks of hooks.go with their parameter and result types, in manifest order.
 var hooks = []struct {
@@ -130,6 +130,7 @@ type analyzer struct {
 	rootPk         *packages.Package   // nil without hooks.go
 	embed          *Embedded           // what the packages of the module embed with go:embed
 	modulePackages []*packages.Package // every package of the module that type checked, tests left out
+	used           map[string]bool     // full names of the functions the code of modulePackages refers to, filled by referenced
 	broken         map[string]bool     // directory IDs of packages skipped because they or their imports do not type check
 	// locales holds the languages of each area, by the folder of its _locales folder. site is the languages of the site once i18n has worked them out.
 	locales map[string][]string
@@ -601,6 +602,7 @@ func (a *analyzer) checkPackageNames(d *dirInfo) {
 	}
 	scope := pkg.Types.Scope()
 	a.checkSwitchNames(scope)
+	a.checkMethodNames(scope)
 	for _, name := range routeNames {
 		obj := scope.Lookup(name)
 		if obj == nil {
@@ -638,6 +640,45 @@ func (a *analyzer) checkSwitchNames(scope *types.Scope) {
 			a.errorAtDoc(docNames, c.Pos(), "%s is not a switch: names are read as written and need a capital letter. %s", name, advice)
 		}
 	}
+}
+
+// checkMethodNames reports a function of route.go named after one of its methods in another case
+// (Post, get): names are read as written, so it would be skipped without a word. Only a function
+// that takes the Ctx as its first parameter, as a handler does, and that no code of the module
+// calls or refers to is reported: one that is called is a helper, and one without a Ctx is the
+// app's own.
+func (a *analyzer) checkMethodNames(scope *types.Scope) {
+	for _, name := range scope.Names() {
+		fn, ok := scope.Lookup(name).(*types.Func)
+		if !ok || filepath.Base(a.fset.Position(fn.Pos()).Filename) != "route.go" {
+			continue
+		}
+		method := strings.ToUpper(name)
+		if name == method || !slices.Contains(methods, method) {
+			continue
+		}
+		params := fn.Signature().Params()
+		if params.Len() == 0 || typeString(params.At(0).Type()) != ctxType || a.referenced(fn) {
+			continue
+		}
+		a.errorAtDoc(docNames, fn.Pos(), "%s is not a method handler: names are read as written. Write %s to answer %s requests", name, method, method)
+	}
+}
+
+// referenced reports whether code of the module calls fn or refers to it as a value. Functions are
+// keyed by full name, since another package may see fn through its own copy of the package.
+func (a *analyzer) referenced(fn *types.Func) bool {
+	if a.used == nil {
+		a.used = map[string]bool{}
+		for _, p := range a.modulePackages {
+			for _, o := range p.TypesInfo.Uses {
+				if f, ok := o.(*types.Func); ok {
+					a.used[f.Origin().FullName()] = true
+				}
+			}
+		}
+	}
+	return a.used[fn.Origin().FullName()]
 }
 
 // routePackage returns the package of the route.go in d, nil without route.go and when the
@@ -704,6 +745,13 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 			a.errorAtDoc(docNames, obj.Pos(), "GET is not allowed next to page.tsx: the framework renders GET for a page")
 			continue
 		}
+		if method == "HEAD" && d.pageTSX {
+			a.errorAtDoc(docNames, obj.Pos(), "HEAD is not allowed next to page.tsx: the framework answers HEAD for a page as it answers GET, without the body, so the headers of the two agree")
+			continue
+		}
+		if plainMethods[method] && !a.plainHandler(obj, method) {
+			continue
+		}
 		if h, ok, uses := a.readHandler(pkg, obj, method); ok {
 			r.Handlers = append(r.Handlers, h)
 			r.uses = append(r.uses, uses...)
@@ -713,6 +761,26 @@ func (a *analyzer) route(d *dirInfo, pkg *packages.Package) *route {
 	r.Memo = a.boolConst(pkg, "Memo", true)
 	r.Cache, r.CacheDefault = a.cacheConst(pkg)
 	return r
+}
+
+// plainMethods are the methods whose handler takes the Ctx alone and writes its own answer. The
+// answer to HEAD has no body, the one to OPTIONS is its headers, CONNECT hands the connection over
+// to the handler and TRACE sends the request back, so none has a result to type or an input to
+// decode.
+var plainMethods = map[string]bool{"HEAD": true, "OPTIONS": true, "CONNECT": true, "TRACE": true}
+
+// plainHandler reports whether the handler obj of one of plainMethods is a func(c *tifa.Ctx) error,
+// the only signature they take, and reports it otherwise.
+func (a *analyzer) plainHandler(obj types.Object, method string) bool {
+	if fn, ok := obj.(*types.Func); ok {
+		sig := fn.Signature()
+		if sig.TypeParams().Len() == 0 && sig.Params().Len() == 1 && typeString(sig.Params().At(0).Type()) == ctxType &&
+			sig.Results().Len() == 1 && typeString(sig.Results().At(0).Type()) == "error" {
+			return true
+		}
+	}
+	a.errorAtDoc(docNames, obj.Pos(), "%s must have the signature func(c *tifa.Ctx) error: it writes its own answer, with no input to decode and no result to type", method)
+	return false
 }
 
 // layout reads the Layout of d, nil when d has none. A directory has a Layout when it has

@@ -33,6 +33,7 @@ func TestScanTreeFindsTheFilesAndHandlersOfOtherFrameworks(t *testing.T) {
 		{"app/handlers/route.go", 13, false, "POST has the signature of an Echo handler"},
 		{"app/handlers/route.go", 15, false, "PUT has the signature of a Fiber handler"},
 		{"app/handlers/route.go", 17, false, "PATCH has the signature of a net/http handler"},
+		{"app/handlers/route.go", 19, false, "OPTIONS has the signature of a net/http handler"},
 		{"app/middleware.ts", 1, true, "middleware.ts is the middleware file of Next.js"},
 		{"app/next/error.tsx", 1, true, "error.tsx is the error file of Next.js"},
 		{"app/next/loading.tsx", 1, true, "loading.tsx is the loading file of Next.js"},

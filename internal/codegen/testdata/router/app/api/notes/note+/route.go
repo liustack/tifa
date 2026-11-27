@@ -21,3 +21,9 @@ func POST(c *tifa.Ctx, in Note) (Note, error) { return in, nil }
 func PUT(c *tifa.Ctx) error { return c.NoContent(204) }
 
 func DELETE(c *tifa.Ctx, in Query) error { return nil }
+
+func HEAD(c *tifa.Ctx) error { return c.NoContent(200) }
+
+func OPTIONS(c *tifa.Ctx) error { return c.NoContent(204) }
+
+func TRACE(c *tifa.Ctx) error { return c.NoContent(200) }
