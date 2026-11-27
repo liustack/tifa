@@ -215,7 +215,8 @@ func TestMemorySwapCloseWaitsForLoad(t *testing.T) {
 	if e := <-closed; e != nil {
 		t.Fatal(e)
 	}
-	if s := p.stats(); s.created != 2 || s.closed != 2 || s.replaced != 0 {
+	// The load that Close waited for starts after Close, so it loads nothing.
+	if s := p.stats(); s.created != 1 || s.closed != 1 || s.replaced != 0 {
 		t.Fatalf("VM leaked at shutdown: %+v", s)
 	}
 }

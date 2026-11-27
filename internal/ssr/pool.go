@@ -545,6 +545,12 @@ func openVM(p *Pool) (*pooledVM, error) {
 	if p.started {
 		limit, stop = 0, p.done
 	}
+	select {
+	case <-stop:
+		// A VM loaded now would only be closed.
+		return nil, ErrClosed
+	default:
+	}
 	vm, err := load(p.bytecode, p.memory, p.stack, p.timeout, p.dev, limit, stop)
 	if err != nil {
 		return nil, err
