@@ -2,7 +2,7 @@
 summary: '怎样在 Tifa 应用里做请求之外的工作：OnStart 里的循环、OnShutdown、定时器、SQLite jobs 表'
 audience: app
 order: 6
-translatedFrom: 5f999ff8928d
+translatedFrom: fcd2667842b5
 read_when:
   - '发邮件、调用慢的服务，或者做任何不该让访客等待的工作'
   - '在 Tifa 应用里每分钟、每小时或每天运行某件事'
@@ -120,7 +120,7 @@ Tifa 对你启动的 goroutine 一无所知。由此得出两点：
 ```go
 // hooks.go
 func OnStart(ctx context.Context) error {
-	db, err := OpenDB(ctx, DBPath)
+	db, err := OpenDB(DBPath)
 	if err != nil {
 		return err
 	}
