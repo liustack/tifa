@@ -2,7 +2,7 @@
 
 ## Goal
 
-tifa is a full-stack Go framework: Go handles routing, data loading, caching and background jobs. React pages are rendered to complete HTML by an in-process, pure Go JavaScript engine, beastjs, and TanStack Router takes over in the browser. The goal is to run the whole app as one process on a low-end VPS or container, with no Node service, process manager, reverse proxy or Redis.
+tifa is a full-stack Go framework: Go handles routing, data loading, caching and background jobs. React pages are rendered to complete HTML by an in-process, pure Go JavaScript engine, beastjs, and TanStack Router takes over in the browser. Tifa starts where a whole app runs as one process on a low-end VPS or container, with no Node service, process manager, reverse proxy or Redis, and is built to grow to several servers.
 
 ## Hard constraints
 
