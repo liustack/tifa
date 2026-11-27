@@ -650,6 +650,21 @@ func (v frontValue) Set(s string) error {
 func (v frontValue) String() string { return *v.p }
 func (v frontValue) kind() string   { return "string" }
 
+// startTimeoutValue is deploy.start_timeout: a whole number of seconds, because the server asks
+// once a second, from one second to MaxStartTimeout.
+type startTimeoutValue struct{ p *time.Duration }
+
+func (v startTimeoutValue) Set(s string) error {
+	d, err := time.ParseDuration(s)
+	if err != nil || d < time.Second || d > MaxStartTimeout || d%time.Second != 0 {
+		return fmt.Errorf("invalid duration %q, use whole seconds from 1s to 10m, such as 30s or 2m", s)
+	}
+	*v.p = d
+	return nil
+}
+func (v startTimeoutValue) String() string { return v.p.String() }
+func (v startTimeoutValue) kind() string   { return "duration" }
+
 // branchValue is deploy.auto.branch: one branch name. Empty means the default branch of the repository.
 type branchValue struct{ p *string }
 

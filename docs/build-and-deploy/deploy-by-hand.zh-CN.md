@@ -2,7 +2,7 @@
 summary: '不用 `tifa deploy` 部署：为服务器构建、运行程序、不丢请求地重启、健康检查和指标'
 audience: app
 order: 16
-translatedFrom: fc9104e6a62f
+translatedFrom: c286f973fc51
 read_when:
   - '部署之后页面显示旧内容或缺少脚本'
   - '决定 Tifa 应用的 systemd 单元或 Dockerfile 需要什么'
@@ -164,7 +164,7 @@ func GET(c *tifa.Ctx) error {
 }
 ```
 
-- `tifa deploy` 在每次部署之后请求 `/healthz`，如果它在 30 秒内没有以低于 500 的状态回答，就回滚（见[部署](deploy.zh-CN.md#deploy)）。
+- `tifa deploy` 在每次部署之后请求 `/healthz`，如果它在 `deploy.start_timeout`（不设置就是 30 秒）内没有以低于 500 的状态回答，就回滚（见[部署](deploy.zh-CN.md#deploy)）。
 - 把负载均衡器、容器的 `HEALTHCHECK` 或 Kubernetes 探针指向 `/healthz`。程序只有在 `OnStart` 完成、VM 都加载好之后才监听，所以第一个 204 就表示它能渲染。被告知停止时，新连接会失败，检查就变红。
 - 这个路由什么也不渲染，所以满了的渲染队列不会让它失败，繁忙的程序也不会因为忙而被重启。要看这一点，请看下面指标里的 `tifa_renders_rejected_total`。
 

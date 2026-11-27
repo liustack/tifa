@@ -553,14 +553,6 @@ A redirect from the handler to the address the page already has does load it aga
 
 **Instead.** The app refuses to start, and the message gives the safe fix only: put the file back as it was, and write the change in the next numbered file. A deploy of such a release fails its health check and goes back to the release before.
 
-### A setting for the 30 seconds of the deploy health check
-
-**Turned down (2026-11-27).** A setting that gives a slow migration longer before the deploy counts the release as failed.
-
-**Why not.** A start that takes longer keeps visitors waiting on the socket for as long.
-
-**Instead.** Migrations and the rest of `OnStart` finish within 30 seconds. A long index or table rebuild runs by hand at a quiet time, or is split: [How long a migration may take](../guides/database.md#how-long-a-migration-may-take).
-
 ## Rendering, memo and Cache
 
 ### React Server Components
@@ -1004,6 +996,35 @@ A redirect from the handler to the address the page already has does load it aga
 **Why not.** `tifa.yaml` holds only what Tifa needs to decide something.
 
 **Instead.** One target, described by `deploy.front`, `deploy.connect` and `deploy.auto`. Anything else about the workflow is an edit of `tifa-deploy.yml`.
+
+### How long a new release may take to pass its check
+
+**Settled (2026-11-27).** `deploy.start_timeout` in `tifa.yaml`: a Go duration in whole seconds from `1s` to `10m`, `30s` when left out. It is how many times, a second apart, the server asks for `/healthz` before a release counts as failed. The check of the release a failed deploy goes back to, and of a `deploy rollback`, takes the same number, since all three run the same check function on the server. It replaced the fixed 30 tries. The same day the idea had been turned down in the Database area (a start that takes longer keeps visitors waiting): the user settled it the other way, with the cost written in the docs.
+
+**Why.** An app whose `OnStart` runs a long migration cannot deploy in 30 seconds, and the only way out was a hand-run statement on the server. Kamal has `deploy_timeout` for the same reason. The name follows `server.read_timeout` and `ssr.wait_timeout`: what is waited for, then `_timeout`. `deploy.deploy_timeout` would say deploy twice, and `health_timeout` names the check, while the person waits for the start. The upper bound of 10 minutes is there because the wait is a stall of the whole site: visitors' requests sit on the systemd socket while the new release starts, so a longer wait is a longer outage, not a slower deploy.
+
+**Cost, as the docs say it.** `tifa deploy` stops the old program and starts the new one behind the socket. While the release starts, `OnStart` and its migrations included, requests wait. A migration that cannot finish in the time fails the deploy: nothing changes and the old release keeps running. The answer is to raise the setting or make the slow work smaller: [A slow start](../build-and-deploy/deploy.md#a-slow-start).
+
+### Commands before and after a deploy in tifa.yaml
+
+**Turned down (2026-11-27).** `deploy.before` and `deploy.after`, shell lines that `tifa deploy` runs around a deploy, as Kamal's `.kamal/hooks` do.
+
+**Why not.**
+- The same line must run in `sh` and in PowerShell, since `tifa deploy` runs natively on Windows. One string cannot be both.
+- It is a second place for build and test scripts, next to CI and the `Makefile` or `package.json`.
+- A local deploy and CI have different secrets, so a hook that works on one machine fails on the other.
+- An `after` hook that fails after the site went live has no clear meaning: the deploy worked, and the command exits with an error.
+- Chaining in the shell, or steps in CI before and after the deploy step, already does it.
+
+**Instead.** [Before and after a deploy](../build-and-deploy/deploy.md#before-and-after-a-deploy).
+
+### A release step on the server before the switch
+
+**Not now (2026-11-27).** A step that runs an app command, such as `./shop migrate`, with the new release on the server before `current` is switched, where a failure stops the deploy: the release phase of Heroku and the `release_command` of Fly.
+
+**Why not now.** `OnStart` within `deploy.start_timeout` does the job for the apps there are. On SQLite the step would also fall short of what it promises: a long write holds the write lock, and the writes of the old release, which still serves visitors, fail after `busy_timeout`. So it would not keep the site up through a long migration either.
+
+**Reopen when** an app needs work done with the new release before it takes traffic that `OnStart` within the wait cannot do, or when Tifa supports deploying apps on Postgres.
 
 ### Tifa downloading programs, wrangler, and a front door of its own
 

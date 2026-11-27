@@ -55,6 +55,10 @@ type Deploy struct {
 	// Connect is the one path ssh takes to the server, from this machine and from CI: direct,
 	// cloudflare or tailscale.
 	Connect string
+	// StartTimeout is how long a new release may take to pass its health check, which the server
+	// asks for once a second. The check of the release a failed deploy goes back to has the same
+	// time. From MinStartTimeout to MaxStartTimeout, whole seconds.
+	StartTimeout time.Duration
 	// Auto says when the GitHub Actions of the repository deploy the app. The block is not there: no
 	// deploys from GitHub Actions.
 	Auto Auto
@@ -227,7 +231,7 @@ func Default() Config {
 		SSR:     SSR{VMs: min(runtime.GOMAXPROCS(0), maxDefaultVMs), VMMemory: 128 << 20, VMStackDepth: MaxVMStackDepth, Timeout: 3 * time.Second, QueueLimit: 32, WaitTimeout: 3 * time.Second, MemoSize: 64 << 20},
 		Cache:   Cache{SMaxage: time.Minute},
 		Session: Session{Cookie: DefaultSessionCookie, MaxAge: 30 * 24 * time.Hour, MemoryLimit: 64 << 20},
-		Deploy:  Deploy{Front: "none", Connect: "direct", Auto: Auto{Needs: DefaultNeeds}},
+		Deploy:  Deploy{Front: "none", Connect: "direct", StartTimeout: DefaultStartTimeout, Auto: Auto{Needs: DefaultNeeds}},
 	}
 }
 
@@ -287,6 +291,7 @@ func fields(c *Config) []field {
 		{"session.memory_limit", "Bytes the default in-memory session store may hold", sizeValue{&c.Session.MemoryLimit, 1}},
 		{"deploy.front", "What visitors come through before the server: none, cloudflare or nginx, on the host of site.url", frontValue{&c.Deploy.Front}},
 		{"deploy.connect", "How deploys reach the server over ssh, from this machine and from CI: direct, cloudflare (through the Cloudflare Tunnel) or tailscale", connectValue{&c.Deploy.Connect}},
+		{"deploy.start_timeout", "How long a new release may take to start and pass its health check, from 1s to 10m, 30s when left out", startTimeoutValue{&c.Deploy.StartTimeout}},
 		{"deploy.auto.branch", "With the block deploy.auto, the branch that deploys from GitHub Actions, the default branch of the repository when left out", branchValue{&c.Deploy.Auto.Branch}},
 		{"deploy.auto.needs", "With the block deploy.auto, the workflow file in .github/workflows that must pass before a deploy (ci.yml when left out), or none to wait for nothing", needsValue{&c.Deploy.Auto.Needs}},
 	}
@@ -447,6 +452,14 @@ func EditDistance(a, b string) int {
 	}
 	return prev[len(b)]
 }
+
+// DefaultStartTimeout is deploy.start_timeout when it is not set. MaxStartTimeout is the longest
+// one: visitors wait on the socket while the new release starts, so a longer start is a stall of
+// the site, not a slow deploy.
+const (
+	DefaultStartTimeout = 30 * time.Second
+	MaxStartTimeout     = 10 * time.Minute
+)
 
 // DefaultNeeds is the workflow deploy.auto waits for when it names none.
 const DefaultNeeds = "ci.yml"

@@ -172,7 +172,7 @@ func TestSetupMovesTheLoopbackApp(t *testing.T) {
 
 	// The script itself: the old socket stops before the units change, and the app restarts on the
 	// new one and passes its check.
-	body := appScript("shop", httpPort, "", true, true)
+	body := appScript("shop", httpPort, "", true, true, 30)
 	stop, write := strings.Index(body, `systemctl --user stop $old`), strings.Index(body, `printf '%s' "$socket_unit"`)
 	if stop < 0 || write < 0 || stop > write || !strings.Contains(body, `systemctl --user restart "$unit.service"`) || !strings.Contains(body, "if check; then exit 0; fi") {
 		t.Errorf("app script:\n%s", body)

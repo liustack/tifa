@@ -66,6 +66,7 @@
 # deploy:
 #   front: none             # what visitors come through before the server: none (the app serves them itself on port 80, and on 443 with HTTPS for the host of site.url) | cloudflare (Tunnel, DNS and cache of the host of site.url, and deploys clear its CDN cache)
 #   connect: direct         # how deploys reach the server over ssh: direct | cloudflare (through the Cloudflare Tunnel) | tailscale (CI joins your tailnet)
+#   start_timeout: 30s      # how long a new release may take to start and answer /healthz, from 1s to 10m. Visitors wait while it starts, so a longer wait is a longer stall of the site
 #   auto:                   # deploy by itself from GitHub Actions. Leave the block out to deploy by hand only
 #     branch: main          # the branch that deploys. Left out: the default branch of the repository on GitHub
 #     needs: ci.yml         # the workflow file in .github/workflows that must pass first, so it must run on pushes to that branch (the ci.yml of tifa new runs on main). Left out: ci.yml. none: do not wait

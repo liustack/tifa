@@ -189,7 +189,7 @@ ALTER TABLE new_todos RENAME TO todos;
 
 ### How long a migration may take
 
-`tifa deploy` gives a new release 30 seconds to answer its [health check](../build-and-deploy/deploy.md#deploy). The migrations, the copy of the database when `db.backup` is empty, and the rest of `OnStart` must fit in that time. When they do not, the deploy counts the release as failed and starts the one before: the transaction never committed, so the database is as it was, and the next deploy of the same release fails the same way.
+`tifa deploy` gives a new release 30 seconds to answer its [health check](../build-and-deploy/deploy.md#deploy), or the time you set with `deploy.start_timeout`. The migrations, the copy of the database when `db.backup` is empty, and the rest of `OnStart` must fit in that time. When they do not, the deploy counts the release as failed and starts the one before: the transaction never committed, so the database is as it was, and the next deploy of the same release fails the same way.
 
 Adding a column takes no time, whatever the size of the table. Building an index on a large table, or rebuilding one, can take longer. Write such a file so that it can run twice, such as `CREATE INDEX IF NOT EXISTS todos_by_done ON todos (done);`, run that statement by hand on the server at a quiet time, then deploy: the file then finds the index and is done at once. Keep `db.backup` on for a large database, since the copy writes the whole file.
 

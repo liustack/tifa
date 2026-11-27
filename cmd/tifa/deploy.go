@@ -69,10 +69,16 @@ type deployTarget struct {
 	front, own string
 	// connectMode is how ssh reaches the server: direct, cloudflare or tailscale. github says
 	// the block deploy.auto is there: the GitHub Actions of the repository deploy the app, as auto says.
-	connectMode string
-	github      bool
-	auto        config.Auto
+	connectMode  string
+	github       bool
+	auto         config.Auto
+	startTimeout time.Duration
 }
+
+// healthTries is how many times, a second apart, the server asks for healthPath before a release
+// counts as failed: deploy.start_timeout in whole seconds. The same number serves the check of the
+// release a failed deploy goes back to.
+func (t deployTarget) healthTries() int { return int(t.startTimeout / time.Second) }
 
 // deployDomain checks the deploy settings against each other and returns the domain of the app:
 // the host of site.url when deploy.front is cloudflare, else empty.
@@ -186,7 +192,7 @@ func loadDeployTarget(dir, hostFlag string, notice io.Writer) (deployTarget, err
 		return deployTarget{}, err
 	}
 	return deployTarget{root: root, app: app, host: h.addr(), dest: h, domain: domain, front: settings.Deploy.Front, own: own,
-		connectMode: settings.Deploy.Connect, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
+		connectMode: settings.Deploy.Connect, startTimeout: settings.Deploy.StartTimeout, github: settings.Deploy.Auto.On, auto: settings.Deploy.Auto}, nil
 }
 
 // sshWaitDelay is how long ssh may leave its output open once it has ended.
@@ -451,7 +457,7 @@ func (t deployTarget) createApp(ctx context.Context, s serverState, stdout, stde
 	if servesVisitors(port) && s.LowPort > httpPort {
 		return s, fmt.Errorf("%s serves visitors on %s itself, which only root may open on %s yet: run go tool tifa deploy setup", t.app, portsText(port), t.host)
 	}
-	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), false, false), nil, io.Discard, stderr); err != nil {
+	if err := t.ssh(ctx, deployUser, appScript(t.app, port, t.ownFor(port), false, false, t.healthTries()), nil, io.Discard, stderr); err != nil {
 		return s, err
 	}
 	fmt.Fprintf(stdout, "created %s on %s: %s/%s, %s, empty shared/.env\n", t.app, t.host, s.Home, t.app, portsText(port))
@@ -615,7 +621,7 @@ func deploy(ctx context.Context, t deployTarget, stdout, stderr io.Writer) (err 
 		return err
 	}
 	a := activation{App: t.app, ID: id, Commit: gitCommit(t.root), Port: s.Port, Action: "deploy",
-		Back: fallback(s), Prune: pruneReleases(s.Releases, s.Current, id, keepReleases), Tries: healthTries}
+		Back: fallback(s), Prune: pruneReleases(s.Releases, s.Current, id, keepReleases), Tries: t.healthTries()}
 	sum.Commit = a.Commit
 	if err := t.activate(ctx, a, health, stderr); err != nil {
 		return err
@@ -779,7 +785,7 @@ func deployRollback(ctx context.Context, t deployTarget, release string, stdout,
 	}
 	fmt.Fprintf(stdout, "rolling %s on %s %s from %s to %s (commit %s)\n", t.app, t.host, way, s.Current, target.ID, target.Commit)
 	a := activation{App: t.app, ID: target.ID, Commit: target.Commit, Port: s.Port, Action: "rollback",
-		Back: s.Current, Tries: healthTries}
+		Back: s.Current, Tries: t.healthTries()}
 	if err := t.activate(ctx, a, health, stderr); err != nil {
 		return err
 	}

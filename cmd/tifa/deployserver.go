@@ -41,8 +41,6 @@ const (
 	keepReleases = 5
 	// healthPath is what the server asks the new program for after a deploy.
 	healthPath = "/healthz"
-	// healthTries is how many times, a second apart, it asks before the release counts as failed.
-	healthTries = 30
 	// httpPort and httpsPort are the ports of an app that serves visitors itself, with
 	// deploy.front none: plain HTTP on 80, and with a domain HTTPS on 443 as well.
 	httpPort, httpsPort = 80, 443
@@ -751,12 +749,12 @@ exit 3
 `
 
 // appScript is appBody for app on port, with domain for HTTPS. move says its sockets listen
-// elsewhere than before, restart that its units changed.
-func appScript(app string, port int, domain string, move, restart bool) string {
+// elsewhere than before, restart that its units changed. It checks the restarted app for tries seconds.
+func appScript(app string, port int, domain string, move, restart bool, tries int) string {
 	u := unitsOf(app, port, domain)
 	flag := map[bool]string{true: "1"}
 	return script(appBody, "app", app, "port", strconv.Itoa(port), "domain", domain,
-		"move", flag[move], "restart", flag[restart], "health", healthPath, "tries", strconv.Itoa(healthTries),
+		"move", flag[move], "restart", flag[restart], "health", healthPath, "tries", strconv.Itoa(tries),
 		"socket_unit", u.socket, "http_unit", u.http, "service_unit", u.service)
 }
 
