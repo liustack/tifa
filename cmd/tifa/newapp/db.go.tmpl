@@ -105,7 +105,7 @@ func migrate(ctx context.Context, path string, files fs.FS) error {
 }
 
 // migrateCmd is the command migrate, which runs the migrations as OpenDB does. With
-// deploy.before_start: migrate in tifa.yaml, each deploy runs it with the new release before it
+// deploy.release_command: migrate in tifa.yaml, each deploy runs it with the new release before it
 // starts it. A database that is not there yet it leaves to OnStart, which makes it, or restores it
 // with db.backup.
 func migrateCmd() *cobra.Command {

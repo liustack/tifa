@@ -1037,10 +1037,10 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 ### When migrations run: at start, or before the switch
 
-**Settled (2026-11-27).** Migrations run in `OnStart` by default (A): `OpenDB` runs them in the new release, after `tifa deploy` stopped the old one, while requests wait on the socket. `deploy.before_start` in `tifa.yaml` is the other way (B): a command of the app, with its arguments, that `tifa deploy` runs once per deploy with the program of the new release, after the upload and before any switch, while the old release serves. `tifa new` writes the command `migrate` in `OnCommand`, which runs the same `migrate` of `db.go` as `OpenDB`, so B is one line, `before_start: migrate`, commented out in the `tifa.yaml` of a new app next to `start_timeout`.
+**Settled (2026-11-27).** Migrations run in `OnStart` by default (A): `OpenDB` runs them in the new release, after `tifa deploy` stopped the old one, while requests wait on the socket. `deploy.release_command` in `tifa.yaml` is the other way (B): a command of the app, with its arguments, that `tifa deploy` runs once per deploy with the program of the new release, after the upload and before any switch, while the old release serves. `tifa new` writes the command `migrate` in `OnCommand`, which runs the same `migrate` of `db.go` as `OpenDB`, so B is one line, `release_command: migrate`, commented out in the `tifa.yaml` of a new app next to `start_timeout`.
 
 - The command runs as `tifa deploy run` runs one: as `tifa`, in the folder of the service, with its `.env` and the HTTPS variables, with the program of the new release in place of `current`. Its output is part of the deploy's.
-- A status other than 0 stops the deploy: no switch, the old release untouched, and the release is written down as `failed-before-start` in `deploys.log`, so a rollback cannot go to it, as with `failed`. The command takes the lock of the deploys of the app.
+- A status other than 0 stops the deploy: no switch, the old release untouched, and the release is written down as `failed-release-command` in `deploys.log`, so a rollback cannot go to it, as with `failed`. The command takes the lock of the deploys of the app.
 - It has no time limit of its own. `start_timeout` covers only the start after the switch.
 - A rollback, by hand or after a failed check, never runs it.
 - It is a step of its own, apart from the steps of the server (upload, switch, health check, rollback), and is defined as "once per deploy, before any switch", not "on each server": a deploy to several servers would run it once.
@@ -1050,7 +1050,7 @@ What `migrate` adds around goose, each a few lines: goose gets a `*sql.DB` of it
 
 **What Tifa promises.** A short pause per deploy and no lost requests. No pause at all would need the old and the new program serving at the same time, which `tifa deploy` does not do.
 
-**The name.** `before_start` says when it runs in the words the deploy docs already use: the start of the new release, which `start_timeout` times. Fly's `release_command` and Heroku's release phase were not taken: in Tifa a release is a folder of the server. `pre_deploy` (Render, Railway) would say deploy twice under `deploy`, as `deploy_timeout` would have.
+**The name.** `release_command` is the name Fly.io (`release_command`) and Heroku (the release phase) use for it, so people and agents who know them read it right away. The command runs with the new release, and a release is what Tifa calls a folder of the server, so the name says what runs and with what. `before_start` was the first choice and was turned down the same day as ambiguous: "start" could mean `OnStart`, the start of the service, or the start of the deploy. `pre_deploy` (Render, Railway) would say deploy twice under `deploy`, as `deploy_timeout` would have.
 
 **Turned down.** Running B by default: A needs no setting and has no write gap on SQLite. Shell lines: see [Commands before and after a deploy in tifa.yaml](#commands-before-and-after-a-deploy-in-tifayaml).
 

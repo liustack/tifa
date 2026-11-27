@@ -6,7 +6,7 @@ read_when:
   - Adding a database to a Tifa app, or growing the one `tifa new` wrote
   - Changing a table of an app that is already running
   - Writing a file in `migrations/`, or the app does not start because of one
-  - Choosing whether migrations run when the app starts or before a deploy starts it (deploy.before_start), or running them with several copies of the app
+  - Choosing whether migrations run when the app starts or before a deploy starts it (deploy.release_command), or running them with several copies of the app
   - Deciding between SQLite and Postgres for a Tifa app, or using a migration library other than goose
   - Writing Go tests for code that reads or writes the database
   - A write fails with `database is locked` or `SQLITE_BUSY`
@@ -269,7 +269,7 @@ PRAGMA foreign_keys = ON;
 A deploy can run the migrations at one of two moments. Both run the same `migrate` of `db.go`.
 
 - **At start, the default.** `OnStart` of the new release runs them through `OpenDB`. `tifa deploy` has stopped the old program by then, so the site pauses while they run: requests wait on the socket and get their answer once the new release listens, none is lost. A short migration adds little to the pause of the restart itself.
-- **Before the switch, with `deploy.before_start: migrate` in `tifa.yaml`.** The deploy runs the command `migrate`, which `tifa new` writes into `hooks.go`, with the new release once, before it starts it, while the old release keeps serving (see [A command before the start](../build-and-deploy/deploy.md#a-command-before-the-start)). When it fails, nothing is switched. `OnStart` of the new release then finds nothing to run, so the pause is only the restart. On SQLite this keeps reads going during a long migration, but not writes: a migration holds the write lock until its file commits, so the writes of the old release wait `busy_timeout` (5 seconds) and then fail with `database is locked`. Split a long migration into short files, or run it at a quiet time.
+- **Before the switch, with `deploy.release_command: migrate` in `tifa.yaml`.** The deploy runs the command `migrate`, which `tifa new` writes into `hooks.go`, with the new release once, before it starts it, while the old release keeps serving (see [The release command](../build-and-deploy/deploy.md#the-release-command)). When it fails, nothing is switched. `OnStart` of the new release then finds nothing to run, so the pause is only the restart. On SQLite this keeps reads going during a long migration, but not writes: a migration holds the write lock until its file commits, so the writes of the old release wait `busy_timeout` (5 seconds) and then fail with `database is locked`. Split a long migration into short files, or run it at a quiet time.
 
 The rules are the same for both:
 
@@ -307,7 +307,7 @@ Before the switch fits several copies better: run `migrate` once, before the cop
 
 Any library works if it does three things `tifa deploy` counts on:
 
-- **It runs in `OnStart`**, before the app listens, and finishes within the start wait above, or in a command that `deploy.before_start` runs.
+- **It runs in `OnStart`**, before the app listens, and finishes within the start wait above, or in a command that `deploy.release_command` runs.
 - **It starts on a database that ran files it does not have.** After a rollback, the older release finds the versions of the newer one. goose skips them. golang-migrate does not: its `Up` stops with `no migration found for version 5` when the database is at a version it has no file for, and with `Dirty database version 5. Fix and force version.` after a file failed halfway. The release a rollback goes back to then does not start, and the site stays down until someone fixes the database by hand.
 - **A failed run leaves tables the running release can use**: each file in a transaction, or all of them in one, as on SQLite and Postgres.
 
