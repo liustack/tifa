@@ -2,7 +2,7 @@
 summary: '怎样用 SQLite 保存数据：迁移和让回滚一直能用的规则、`database is locked`、把 `db.backup` 备份到 R2 或 S3、Postgres'
 audience: app
 order: 2
-translatedFrom: 65dfd6bdb67f
+translatedFrom: 8d0a68ef726c
 read_when:
   - '给 Tifa 应用加数据库，或者扩充 `tifa new` 写出的那个'
   - '修改一个已经在运行的应用的表'
@@ -190,7 +190,7 @@ ALTER TABLE new_todos RENAME TO todos;
 
 ### 迁移能花多长时间 {#how-long-a-migration-may-take}
 
-`tifa deploy` 给新发布 30 秒来回答它的[健康检查](../build-and-deploy/deploy.zh-CN.md#deploy)。迁移、`db.backup` 为空时的数据库副本，以及 `OnStart` 的其余部分，都必须在这段时间里完成。做不完时，部署就把这个发布算作失败，启动之前那个：事务从没提交，所以数据库保持原样，下次部署同一个发布也会同样失败。
+`tifa deploy` 给新发布 30 秒（或者你用 `deploy.start_timeout` 设的时间）来回答它的[健康检查](../build-and-deploy/deploy.zh-CN.md#deploy)。迁移、`db.backup` 为空时的数据库副本，以及 `OnStart` 的其余部分，都必须在这段时间里完成。做不完时，部署就把这个发布算作失败，启动之前那个：事务从没提交，所以数据库保持原样，下次部署同一个发布也会同样失败。
 
 加一列不花时间，不管表有多大。在大表上建索引或重建表，可能会更久。这样的文件要写成能运行两次的样子，比如 `CREATE INDEX IF NOT EXISTS todos_by_done ON todos (done);`，找个空闲的时候在服务器上手动运行这条语句，然后再部署：文件运行时发现索引已经在了，马上就完成。数据库很大时保持 `db.backup` 开着，因为副本会把整个文件写一遍。
 

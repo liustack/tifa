@@ -163,7 +163,7 @@ func GET(c *tifa.Ctx) error {
 }
 ```
 
-- `tifa deploy` asks for `/healthz` after each deploy and goes back when it does not answer below 500 within 30 seconds (see [Deploy](deploy.md#deploy)).
+- `tifa deploy` asks for `/healthz` after each deploy and goes back when it does not answer below 500 within `deploy.start_timeout`, 30 seconds unless you set it (see [Deploy](deploy.md#deploy)).
 - Point the load balancer, the `HEALTHCHECK` of a container or a Kubernetes probe at `/healthz`. The program listens only once `OnStart` is done and the VMs are loaded, so the first 204 means it can render. When it is told to stop, new connections fail and the check goes red.
 - The route renders nothing, so a full render queue does not fail it, and a busy program is not restarted for being busy. Watch `tifa_renders_rejected_total` in the metrics below for that.
 

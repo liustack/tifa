@@ -2,11 +2,12 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: d3e3e178295a
+translatedFrom: 584f7ad9e700
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
   - '用 TIFA_DEPLOY_HOST 给 tifa deploy 指定服务器，或者在没有指定时想知道它用的是哪台服务器（~/.tifa/config.yaml、TIFA_HOME），或者在 tifa.yaml 里选择 deploy.front、deploy.connect 或 deploy.auto'
+  - '给慢启动更多时间（deploy.start_timeout），或者在部署前跑测试、部署后发一条消息'
   - '让第二台开发机有权部署'
 ---
 
@@ -26,6 +27,7 @@ site:
 deploy:
   front: none      # what visitors come through before the server: none (the app serves them itself on ports 80 and 443) | cloudflare | nginx
   connect: direct  # how deploys reach the server over ssh: direct | cloudflare | tailscale
+  start_timeout: 30s  # how long a new release may take to start and answer /healthz: 1s to 10m
   auto:            # deploy by itself from GitHub Actions. No block: you deploy by hand only
     branch: main   # the branch that deploys. Left out: the default branch of the repository on GitHub
     needs: ci.yml  # the workflow file in .github/workflows that must pass first. Left out: ci.yml. none: do not wait
@@ -45,6 +47,7 @@ deploy:
   这个值就是 `ssh` 接受的目标：可以是 `~/.ssh/config` 里的一个 Host（比如别名 `vps`，这样地址、端口、密钥和 `ProxyJump` 都由 `~/.ssh/config` 提供）、一个主机名，或者一个 `ssh://host[:port]` 的 URL。用户由 Tifa 自己选，改动系统的步骤用 root，其余用 `tifa`，所以除非 root 登录不了，否则不要写用户（见[root 登录不了时](#when-root-cannot-log-in)）。带路径、查询或别的协议的值会被拒绝。四种都没设置时，每个 `tifa deploy` 命令都会停下并说明。
 - `front` 是访客到达服务器之前经过的东西。选 `cloudflare` 时，就是 `site.url` 的主机上的一个 Cloudflare Tunnel，带它的 DNS 记录和规则，`deploy` 和 `rollback` 会清除那个主机名的 CDN 缓存。必须设置 `site.url`，并且不带端口。选 `none` 时，应用自己在 80 端口上接待访客，`site.url` 里有域名时还在 443 端口上用自己的 HTTPS，也不清缓存（见[应用自己接待访客](deploy-setup.zh-CN.md#the-app-serves-visitors-itself)）。选 `nginx` 时，setup 安装的一个 nginx 按 `site.url` 的主机把访客送到应用，并用 certbot 为它拿证书，这样几个应用不用 Cloudflare 也能共用一台服务器（见[在 nginx 后面](deploy-proxy.zh-CN.md#behind-nginx)）。
 - `connect` 是 ssh 连到服务器走的那一条路，从你的机器和从 GitHub Actions 的 runner 都一样。选 `direct` 时，ssh 用你给的地址。选 `cloudflare` 时，两边都经由 Cloudflare Tunnel，所以服务器不用开放 ssh 端口（见 [`connect: cloudflare`](deploy-cloudflare.zh-CN.md#connect-cloudflare)）。它需要 `front: cloudflare`，因为 ssh 的主机名是由域名生成的，有没有 `auto` 都行。选 `tailscale` 时，runner 加入你的 tailnet，它需要 `auto` 这个块（见 [`connect: tailscale`](deploy-github-actions.zh-CN.md#connect-tailscale)）。你自己的机器照常连到服务器，用 `TIFA_DEPLOY_HOST` 里的地址，tailnet 和服务器都由你自己设置。
+- `start_timeout` 是新发布启动并通过健康检查最多可以花多长时间，写成 Go 的时长，比如 `45s` 或 `2m`。它是整秒数，从 `1s` 到 `10m`，不写就是 `30s`。部署失败后回退到的那个发布的检查，以及 `deploy rollback` 启动的发布的检查，用同样的时间。见[慢启动](#a-slow-start)。
 - `auto` 只要写上就会开启从 GitHub Actions 的部署。没有这个块，就只能手动部署。`auto: {}` 用默认值，写成后面什么都没有的 `auto:` 是错误。它只有两个键，没有别的：
   - `branch` 是会部署的分支：往它 push，并且 `needs` 里的工作流通过之后就部署。不写时，它是 GitHub 上仓库的默认分支。
   - `needs` 是 `.github/workflows` 里必须先通过的那个文件，写成文件名，比如 `ci.yml`（不带文件夹）。不写时，它是 `tifa new` 写出的 `ci.yml`。写 `none` 就什么也不等：每次往这个分支 push 都会部署。见[从 GitHub Actions 部署](deploy-github-actions.zh-CN.md#deploy-from-github-actions)。
@@ -92,12 +95,67 @@ go tool tifa deploy
 1. 向服务器询问它的系统，并在你的机器上为它构建应用，做法和[为另一个系统构建](build.zh-CN.md#building-for-another-system)一样。服务器上什么也不构建。在 setup 已经准备好、但还没有这个应用的文件夹的服务器上，它先以 `tifa` 身份（不需要 root）创建文件夹、端口和单元。自己接待访客的应用，如果 `tifa` 还不能打开 80 端口，要先在那里运行 setup，部署会这样提示。在没有准备好的服务器上，它会停下，并说明要运行 `go tool tifa deploy setup`。
 2. 把程序压缩成 gzip，上传到 `/srv/tifa/<app>/releases/<id>/`，其中 `<id>` 是部署时的 UTC 时间，并在那里检查它的 SHA-256。
 3. 把 `/srv/tifa/<app>/current` 指向它，并重启服务。socket 保持打开，所以这期间到来的请求会等着，然后得到回答（见[重启而不丢请求](deploy-by-hand.zh-CN.md#restart-without-dropping-requests)）。
-4. 在服务器上检查新程序：每秒一次 `GET /healthz`，最长 30 秒，直到它以低于 500 的状态回答。它在回环地址上访问，有自己 HTTPS 的应用则像访客一样，用它的域名走 HTTPS。没有 `/healthz` 路由的应用，一有响应就带着它的 404 通过。写一个会看数据库的[健康检查](deploy-by-hand.zh-CN.md#health-check)，让这项检查更有意义。`OnStart`（包括迁移）必须在这 30 秒内完成（见[迁移能花多长时间](../guides/database.zh-CN.md#how-long-a-migration-may-take)）。
+4. 在服务器上检查新程序：每秒一次 `GET /healthz`，最长 `start_timeout`（不设置就是 30 秒），直到它以低于 500 的状态回答。它在回环地址上访问，有自己 HTTPS 的应用则像访客一样，用它的域名走 HTTPS。没有 `/healthz` 路由的应用，一有响应就带着它的 404 通过。写一个会看数据库的[健康检查](deploy-by-hand.zh-CN.md#health-check)，让这项检查更有意义。`OnStart`（包括迁移）必须在这段时间内完成（见[慢启动](#a-slow-start)和[迁移能花多长时间](../guides/database.zh-CN.md#how-long-a-migration-may-take)）。
 5. 检查通过后，把这次部署记下来，并保留最近 5 个发布。检查失败时，它会打印应用日志的最后几行，重新启动之前运行的那个发布，并以 1 退出。如果从来没有通过的发布，它会停掉应用。
 6. 用 `front: cloudflare` 时，会清除那个主机名的 CDN 缓存（见[清除 CDN 缓存](deploy-cloudflare.zh-CN.md#clearing-the-cdn-cache)）。
 7. 说明访客从哪里访问应用：`visitors: https://shop.example.com`，没有域名时是 `http://<服务器的地址>`。用 `front: none` 或 `front: nginx` 时，它接着从你的机器访问应用的端口，有端口没回答时，会提示你服务商的防火墙或安全组可能挡住了它，这些 Tifa 不改。
 
 每次部署和回滚都是 `/srv/tifa/<app>/deploys.log` 里的一行：时间、发布、git 提交（应用有未提交的改动时带 `-dirty`）、`deploy` 或 `rollback`，以及 `ok` 或 `failed`。上传从不包含 `.env`。一个应用同一时间只运行一次部署。
+
+## 慢启动 {#a-slow-start}
+
+`tifa deploy` 停掉旧程序，在 systemd 的 socket 后面启动新程序，所以站点从不拒绝请求。但新发布启动期间（包括 `OnStart` 和其中的迁移），访客的请求都在 socket 上等着。`start_timeout` 设得越长，允许的启动就越慢，而慢启动就是整个站点停住那么久：设成 `start_timeout: 5m` 后，一个要花四分钟的迁移会让每位访客等四分钟。
+
+新发布在 `start_timeout` 内没有回答 `/healthz`，就算失败。这时什么都不会改变：旧发布重新运行，没做完的如果是迁移，数据库也保持原样（它的事务从没提交）。要么把设置调大到够这项工作用，要么把慢的工作变小：拆分迁移，或者在安静的时候手动建一个很长的索引（见[迁移能花多长时间](../guides/database.zh-CN.md#how-long-a-migration-may-take)）。
+
+```yaml
+deploy:
+  start_timeout: 2m
+```
+
+## 部署前后的步骤 {#before-and-after-a-deploy}
+
+`tifa.yaml` 里没有放部署前后要运行的命令的地方。把它们串在你本来就运行命令的地方。
+
+在你的机器上，用 shell。发布没通过检查时 `tifa deploy` 以 1 退出，所以它后面的步骤能知道。用 `sh`：
+
+```sh
+go test ./... &&
+  go tool tifa deploy &&
+  curl -fsS -X POST -d 'shop deployed' "$NOTIFY_URL"
+```
+
+用 PowerShell 时，在每条命令之后检查退出状态，因为 Windows PowerShell 5.1 没有 `&&`（PowerShell 7 有，所以那里可以用 `sh` 的写法）：
+
+```powershell
+go test ./...
+if ($LASTEXITCODE -ne 0) { exit 1 }
+go tool tifa deploy
+if ($LASTEXITCODE -ne 0) { exit 1 }
+Invoke-RestMethod -Method Post -Uri $env:NOTIFY_URL -Body 'shop deployed'
+```
+
+在 GitHub Actions 里，`tifa new` 和 `tifa deploy setup` 写的两个工作流就是这两个地方（见[从 GitHub Actions 部署](deploy-github-actions.zh-CN.md#deploy-from-github-actions)）。部署前必须通过的步骤写进 `.github/workflows/ci.yml`：部署会等 `auto.needs` 指定的工作流，所以那里失败的步骤会拦下部署。
+
+```yaml
+      - run: go tool tifa check
+      - run: go test ./...
+```
+
+部署后运行的写进 `.github/workflows/tifa-deploy.yml`，放在 `Deploy` 这一步之后。编辑之前先删掉那个文件的第一行（以 `# Written by go tool tifa deploy setup.` 开头的注释），否则 setup 会把这个文件重新写一遍。`Deploy` 这一步失败时，后面的步骤会被跳过，除非它们写了 `if: always()`：
+
+```yaml
+      - name: Deploy
+        # ... as setup wrote it
+      - name: Tell the team
+        if: always()
+        env:
+          NOTIFY_URL: ${{ secrets.NOTIFY_URL }}
+          RESULT: ${{ job.status }}
+        run: curl -fsS -X POST -d "shop deploy $RESULT" "$NOTIFY_URL"
+```
+
+在仓库的 Settings、Secrets and variables、Actions 里加上 `NOTIFY_URL`。你的机器和 CI 的密钥是分开的，所以各自都要设一份。
 
 ## 回滚 {#roll-back}
 

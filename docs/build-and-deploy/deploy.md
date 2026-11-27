@@ -6,6 +6,7 @@ read_when:
   - Putting a Tifa app on a VPS or in a container for the first time
   - Running tifa deploy, tifa deploy setup or tifa deploy rollback, or a deploy failed its health check and went back
   - Naming the server of tifa deploy with TIFA_DEPLOY_HOST, or finding out which server it uses when you named none (~/.tifa/config.yaml, TIFA_HOME), or choosing deploy.front, deploy.connect or deploy.auto in tifa.yaml
+  - Giving a slow start more time with deploy.start_timeout, or running tests before a deploy and a message after it
   - Giving a second developer machine access to deploy
 ---
 
@@ -25,6 +26,7 @@ site:
 deploy:
   front: none      # what visitors come through before the server: none (the app serves them itself on ports 80 and 443) | cloudflare | nginx
   connect: direct  # how deploys reach the server over ssh: direct | cloudflare | tailscale
+  start_timeout: 30s  # how long a new release may take to start and answer /healthz: 1s to 10m
   auto:            # deploy by itself from GitHub Actions. No block: you deploy by hand only
     branch: main   # the branch that deploys. Left out: the default branch of the repository on GitHub
     needs: ci.yml  # the workflow file in .github/workflows that must pass first. Left out: ci.yml. none: do not wait
@@ -44,6 +46,7 @@ deploy:
   The value is what `ssh` takes as a destination: a Host of `~/.ssh/config` (an alias such as `vps`, so `~/.ssh/config` supplies the address, the port, the keys and a `ProxyJump`), a host name, or an `ssh://host[:port]` URL. Tifa picks the user itself, root for the steps that change the system and `tifa` for the rest, so leave the user out unless root cannot log in (see [When root cannot log in](#when-root-cannot-log-in)). A path, a query or another scheme is refused. With none of the four set, every `tifa deploy` command stops and says so.
 - `front` is what visitors come through before they reach the server. With `cloudflare`, that is a Cloudflare Tunnel at the host of `site.url`, with its DNS record and rules, and `deploy` and `rollback` clear the CDN cache of that host name. `site.url` must be set and have no port. With `none`, the app serves visitors itself on port 80, and with a domain in `site.url` also on 443 with its own HTTPS, and no cache is cleared (see [The app serves visitors itself](deploy-setup.md#the-app-serves-visitors-itself)). With `nginx`, an nginx that setup installs sends visitors to the app by the host of `site.url`, and gets the certificate for it with certbot, so several apps can share the server without Cloudflare (see [Behind nginx](deploy-proxy.md#behind-nginx)).
 - `connect` is the one path ssh takes to the server, from your machine and from the GitHub Actions runner. With `direct`, ssh uses the address you gave. With `cloudflare`, both go through the Cloudflare Tunnel, so the server needs no open ssh port (see [`connect: cloudflare`](deploy-cloudflare.md#connect-cloudflare)). It needs `front: cloudflare`, because the ssh host name is made from the domain, and works with or without `auto`. With `tailscale`, the runner joins your tailnet, and it needs the block `auto` (see [`connect: tailscale`](deploy-github-actions.md#connect-tailscale)). Your own machine reaches the server however it already does, with the address in `TIFA_DEPLOY_HOST`, and the tailnet and the server are yours to set up.
+- `start_timeout` is how long a new release may take to start and pass its health check, written as a Go duration such as `45s` or `2m`. It is whole seconds from `1s` to `10m`, and `30s` when left out. The check of the release that a failed deploy goes back to, and of the release `deploy rollback` starts, gets the same time. See [A slow start](#a-slow-start).
 - `auto` turns the deploys from GitHub Actions on, by being there. Without the block you deploy by hand only. `auto: {}` takes the defaults, and `auto:` with nothing after it is an error. It has two keys, and no others:
   - `branch` is the branch that deploys: a push to it, once the workflow in `needs` passed. Left out, it is the default branch of the repository on GitHub.
   - `needs` is the file in `.github/workflows` that must pass first, written as a file name such as `ci.yml` (no folder). Left out, it is `ci.yml`, which `tifa new` writes. `none` waits for nothing: the deploy runs on every push to the branch. See [Deploy from GitHub Actions](deploy-github-actions.md#deploy-from-github-actions).
@@ -91,12 +94,67 @@ go tool tifa deploy
 1. Asks the server for its system and builds the app for it on your machine, as [Building for another system](build.md#building-for-another-system) does. Nothing is built on the server. On a server that setup prepared but that has no folder for this app yet, it makes the folder, port and units first, as `tifa` and without root. An app that serves visitors itself needs setup there first when `tifa` may not open port 80 yet, and the deploy says so. On a server that is not prepared, it stops and says to run `go tool tifa deploy setup`.
 2. Uploads the program, gzipped, into `/srv/tifa/<app>/releases/<id>/`, where `<id>` is the time of the deploy in UTC, and checks its SHA-256 there.
 3. Points `/srv/tifa/<app>/current` at it and restarts the service. The socket stays open, so requests that come meanwhile wait and get answered (see [Restart without dropping requests](deploy-by-hand.md#restart-without-dropping-requests)).
-4. Checks the new program on the server: `GET /healthz` once a second, for up to 30 seconds, until it answers with a status below 500. It asks on the loopback, and an app with its own HTTPS over HTTPS for its domain, as a visitor would. An app without a `/healthz` route passes with its 404 as soon as it answers. Write [a health check](deploy-by-hand.md#health-check) that looks at the database to make the check mean more. `OnStart`, migrations included, must finish within those 30 seconds (see [How long a migration may take](../guides/database.md#how-long-a-migration-may-take)).
+4. Checks the new program on the server: `GET /healthz` once a second, for up to `start_timeout` (30 seconds unless you set it), until it answers with a status below 500. It asks on the loopback, and an app with its own HTTPS over HTTPS for its domain, as a visitor would. An app without a `/healthz` route passes with its 404 as soon as it answers. Write [a health check](deploy-by-hand.md#health-check) that looks at the database to make the check mean more. `OnStart`, migrations included, must finish within that time (see [A slow start](#a-slow-start) and [How long a migration may take](../guides/database.md#how-long-a-migration-may-take)).
 5. When the check passes, writes the deploy down and keeps the last 5 releases. When it fails, it prints the last lines of the log of the app, starts the release that ran before again, and exits with 1. If there is no release that ever passed, it stops the app.
 6. With `front: cloudflare`, clears the CDN cache of that host name (see [Clearing the CDN cache](deploy-cloudflare.md#clearing-the-cdn-cache)).
 7. Says where visitors reach the app: `visitors: https://shop.example.com`, or `http://<address of the server>` without a domain. With `front: none` or `front: nginx` it then asks the app on its ports from your machine, and when one does not answer it says that the firewall or a security group of your provider may block it, which Tifa does not change.
 
 Every deploy and rollback is a line of `/srv/tifa/<app>/deploys.log`: the time, the release, the git commit (with `-dirty` when the app had changes not committed), `deploy` or `rollback`, and `ok` or `failed`. The upload never includes `.env`. One deploy of an app runs at a time.
+
+## A slow start
+
+`tifa deploy` stops the old program and starts the new one behind the systemd socket, so the site is never refused. But while the new release starts, `OnStart` and its migrations included, the requests of visitors wait on the socket. A longer `start_timeout` allows a slower start, and a slow start is a stall of the whole site for that long: with `start_timeout: 5m`, a migration that takes four minutes holds every visitor for four minutes.
+
+A release that does not answer `/healthz` within `start_timeout` counts as failed. Nothing changes then: the old release runs again, and the database is as it was when the work that did not finish was a migration (its transaction never committed). Either raise the setting to fit the work, or make the slow work smaller: split a migration, or run a long index build by hand at a quiet time (see [How long a migration may take](../guides/database.md#how-long-a-migration-may-take)).
+
+```yaml
+deploy:
+  start_timeout: 2m
+```
+
+## Before and after a deploy
+
+`tifa.yaml` has no place for commands to run before or after a deploy. Chain them where you already run commands.
+
+On your machine, in a shell. `tifa deploy` exits with 1 when the release failed its check, so the step after it can tell. In `sh`:
+
+```sh
+go test ./... &&
+  go tool tifa deploy &&
+  curl -fsS -X POST -d 'shop deployed' "$NOTIFY_URL"
+```
+
+In PowerShell, check the exit status after each command, since Windows PowerShell 5.1 has no `&&` (PowerShell 7 has it, so the `sh` form works there):
+
+```powershell
+go test ./...
+if ($LASTEXITCODE -ne 0) { exit 1 }
+go tool tifa deploy
+if ($LASTEXITCODE -ne 0) { exit 1 }
+Invoke-RestMethod -Method Post -Uri $env:NOTIFY_URL -Body 'shop deployed'
+```
+
+In GitHub Actions, the two workflows that `tifa new` and `tifa deploy setup` write (see [Deploy from GitHub Actions](deploy-github-actions.md#deploy-from-github-actions)) are the two places. What must pass before a deploy goes in `.github/workflows/ci.yml`: the deploy waits for the workflow named by `auto.needs`, so a step that fails there stops the deploy.
+
+```yaml
+      - run: go tool tifa check
+      - run: go test ./...
+```
+
+What runs after goes in `.github/workflows/tifa-deploy.yml`, after the step `Deploy`. Delete the first line of that file (the comment that starts `# Written by go tool tifa deploy setup.`) before you edit it, or setup writes the file again. A failed `Deploy` step skips the steps after it unless they say `if: always()`:
+
+```yaml
+      - name: Deploy
+        # ... as setup wrote it
+      - name: Tell the team
+        if: always()
+        env:
+          NOTIFY_URL: ${{ secrets.NOTIFY_URL }}
+          RESULT: ${{ job.status }}
+        run: curl -fsS -X POST -d "shop deploy $RESULT" "$NOTIFY_URL"
+```
+
+Add `NOTIFY_URL` under Settings, Secrets and variables, Actions of the repository. The secrets of your machine and of CI are separate, so each one gets its own.
 
 ## Roll back
 
