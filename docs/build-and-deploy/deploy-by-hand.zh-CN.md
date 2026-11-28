@@ -2,7 +2,7 @@
 summary: '不用 `tifa deploy` 部署：为服务器构建、运行程序、不丢请求地重启、健康检查和指标'
 audience: app
 order: 16
-translatedFrom: 1ef70a6260b0
+translatedFrom: 1e7700df1e9f
 read_when:
   - '部署之后页面显示旧内容或缺少脚本'
   - '决定 Tifa 应用的 systemd 单元或 Dockerfile 需要什么'
@@ -150,7 +150,7 @@ Tifa 自己没有健康检查路由或指标路由。把你需要的作为 API �
 
 ### 健康检查 {#health-check}
 
-一个 `GET`，程序能提供服务时回答 204。检查它离了就没法工作的东西，比如[数据库指南](../guides/database.zh-CN.md)里的数据库，它挂了就回答 503：
+一个 `GET`，程序能提供服务时回答 204。`tifa new` 会把它写成 `app/healthz/route.go`，默认应用和 `--empty` 都有。在这之前建的应用可以自己加上同样的文件。检查它离了就没法工作的东西，比如[数据库指南](../guides/database.zh-CN.md)里的数据库，它挂了就回答 503：
 
 ```go
 // app/healthz/route.go

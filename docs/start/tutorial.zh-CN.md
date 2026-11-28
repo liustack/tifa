@@ -2,7 +2,7 @@
 summary: '入门教程：`tifa new`、`tifa dev`、页面、表单、测试、一个可执行文件'
 audience: app
 order: 1
-translatedFrom: f6746dec36ac
+translatedFrom: 6c0b6b42d3c5
 read_when:
   - '第一次用 Tifa，想从头跟着做一个应用'
   - '编写或检查新用户从 `tifa new` 到跑起可执行文件的步骤'
@@ -68,6 +68,7 @@ tifa dev: 19:57:44 ready in 804ms
 | `app/todos/todo.go` | 待办业务域：类型和 SQLite 查询，放在用到它的页面旁边 |
 | `app/todos/todo+/` | `/todos/{todo}`。以 `+` 结尾的文件夹是 URL 参数，用 `c.Param("todo")` 读取 |
 | `app/about/page.tsx` | 不需要数据的页面：只有 `page.tsx` |
+| `app/healthz/route.go` | `/healthz`，`tifa deploy` 和负载均衡器用它确认应用和数据库都正常 |
 | `db.go`、`sessions.go`、`hooks.go`、`options.go` | 在根目录：整个应用共享的东西，比如数据库，以及把会话存在数据库里的存储 |
 
 见[编写应用](app.zh-CN.md#folders)和[应用的结构](structure.zh-CN.md)。

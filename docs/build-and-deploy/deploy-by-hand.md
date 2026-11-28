@@ -145,11 +145,11 @@ A page whose HTML is old and whose entry script is gone cannot be fixed by the p
 
 ## Health checks and metrics
 
-Tifa has no health route or metrics route of its own. Add the ones you need as API routes.
+Tifa has no health route or metrics route of its own. `tifa new` writes the health check into a new app, and you add the others you need as API routes.
 
 ### Health check
 
-A `GET` that answers 204 while the program can serve. Check what it cannot work without, such as the database of [the database guide](../guides/database.md), and answer 503 when that is down:
+A `GET` that answers 204 while the program can serve. `tifa new` writes it as `app/healthz/route.go`, for the default app and for `--empty`. An app made before that can add the same file. Check what it cannot work without, such as the database of [the database guide](../guides/database.md), and answer 503 when that is down:
 
 ```go
 // app/healthz/route.go

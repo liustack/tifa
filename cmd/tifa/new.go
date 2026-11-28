@@ -215,6 +215,7 @@ var rootNameClashes = map[string]string{
 	"string": "the predeclared name string",
 	"true":   "the predeclared name true",
 	// parameters and variables in whose scope the root package is used
+	"c":     "the parameter of GET in app/healthz/route.go",
 	"ctx":   "a parameter of the functions in app/todos/todo.go",
 	"id":    "a parameter of the functions in app/todos/todo.go",
 	"title": "a parameter of the functions in app/todos/todo.go",

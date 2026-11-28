@@ -90,7 +90,7 @@ func TestNewWritesAnApp(t *testing.T) {
 		".claude/skills/tifa/references/rendering.md", ".claude/skills/tifa/references/routing-and-data.md", ".claude/skills/tifa/references/structure.md",
 		".claude/skills/tifa/references/testing.md",
 		".gitattributes", ".github/workflows/ci.yml", ".gitignore", ".vscode/settings.json", "AGENTS.md", "CLAUDE.md", "README.md",
-		"app/about/page.tsx", "app/layout.tsx", "app/page.tsx", "app/route.go", "app/route_test.go", "app/styles.css",
+		"app/about/page.tsx", "app/healthz/route.go", "app/healthz/route_test.go", "app/layout.tsx", "app/page.tsx", "app/route.go", "app/route_test.go", "app/styles.css",
 		"app/todos/todo+/page.tsx", "app/todos/todo+/route.go", "app/todos/todo+/route_test.go",
 		"app/todos/todo.go", "app/todos/todo_test.go",
 		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "migrate_test.go", "migrations/001_init.sql", "options.go", "package.json",
@@ -253,8 +253,8 @@ func TestNewAppImportsTheRootPackageByItsName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Only the todos domain needs DB. The pages import the domain, and tests open a database.
-	want := []string{"app/route_test.go", "app/todos/todo+/route_test.go", "app/todos/todo.go", "app/todos/todo_test.go"}
+	// Only the todos domain and the health check need DB. The pages import the domain, and tests open a database.
+	want := []string{"app/healthz/route.go", "app/healthz/route_test.go", "app/route_test.go", "app/todos/todo+/route_test.go", "app/todos/todo.go", "app/todos/todo_test.go"}
 	if !reflect.DeepEqual(checked, want) {
 		t.Fatalf("the root package is imported by %q, want %q", checked, want)
 	}
@@ -748,7 +748,7 @@ func TestNewEmptyWritesTheSkeleton(t *testing.T) {
 	})
 	want := []string{
 		".gitattributes", ".github/workflows/ci.yml", ".gitignore", ".vscode/settings.json", "AGENTS.md", "CLAUDE.md", "README.md",
-		"app/layout.tsx", "app/page.tsx", "app/styles.css",
+		"app/healthz/route.go", "app/healthz/route_test.go", "app/layout.tsx", "app/page.tsx", "app/styles.css",
 		"db.go", "db_test.go", "go.mod", "hooks.go", "hooks_test.go", "migrate_test.go", "migrations/001_init.sql", "options.go", "package.json",
 		"pnpm-workspace.yaml", "schema.sql",
 		"sessions.go", "sessions_test.go", "tifa.yaml", "tsconfig.json", "vite.config.ts",

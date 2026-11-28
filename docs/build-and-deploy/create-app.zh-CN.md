@@ -2,7 +2,7 @@
 summary: '用 `tifa new` 创建应用：它写出哪些文件，模块路径和包名的规则，以及怎样安装 `tifa` 命令'
 audience: app
 order: 1
-translatedFrom: 1cf986e865ac
+translatedFrom: 40d6ee5703c0
 read_when:
   - '新建 Tifa 应用，或者往 test/apps 里加一个应用'
   - '安装 `tifa` 命令，这样可以直接写 `tifa dev`，不用写 `go tool tifa dev`'
@@ -33,7 +33,8 @@ tifa new <dir> [--module module-path] [--empty]
 | `app/todos/todo.go` | 待办领域，`package todos`：`ListTodos`、`GetTodo`、`AddTodo`、`SetDone`。它导入根包来使用 `DB`，两个页面都导入它 |
 | `app/todos/todo+/` | `/todos/{todo}`：一个对不存在的待办返回 `tifa.ErrNotFound` 的 `Load`，一个把它标为完成的 `POST`，以及一个显示 404 的 `ErrorBoundary` |
 | `app/about/page.tsx` | 一个没有 `route.go` 的页面 |
-| `*_test.go` | 放在被测代码旁边的测试：待办领域、数据库和它的迁移、hook 和会话存储，以及路由代码的 `tifatest` 测试，每个测试都在临时目录里的全新数据库上运行 |
+| `app/healthz/route.go` | `GET /healthz`：数据库有回应就回答 204，没有就回答 503，所以第一次 `tifa deploy` 就能真正检查这个发布（见[健康检查](deploy-by-hand.zh-CN.md#health-check)）。加了 `--empty` 也会保留 |
+| `*_test.go` | 放在被测代码旁边的测试：待办领域、数据库和它的迁移、hook 和会话存储、健康检查，以及路由代码的 `tifatest` 测试，每个测试都在临时目录里的全新数据库上运行 |
 | `tifa.yaml` | [设置](../reference/settings.zh-CN.md)里的每个设置，都注释掉并保持默认值。`ssr.vms` 默认是 GOMAXPROCS，最多 4，所以这里写了一个示例值 |
 | `AGENTS.md`, `CLAUDE.md` | 写给编码 agent 的说明，讲 Tifa 应用如何工作，附有所用 Tifa 版本的文档索引，并把 `go tool tifa check` 作为唯一的检查命令，其中由 Tifa 管理的部分放在标记行之间（见 [AGENTS.md 里由 Tifa 管理的部分](upgrade.zh-CN.md#the-managed-block-of-agentsmd)，`tifa agents` 会刷新它）。`CLAUDE.md` 只是指向 `AGENTS.md` |
 | `.claude/skills/tifa/` | 给编码 agent 用的 Tifa skill，包括 `SKILL.md` 和它的参考文件，由和 `tifa agents` 相同的代码写出（见 [`tifa agents`](upgrade.zh-CN.md#tifa-agents)） |
@@ -43,7 +44,7 @@ tifa new <dir> [--module module-path] [--empty]
 | `.github/workflows/ci.yml` | 一个 GitHub Actions 工作流，在拉取请求和推送到 `main` 时运行 `go tool tifa check`：它的令牌只能读仓库。它按 `go.mod` 安装 Go，安装 Node 24，并用 `pnpm install --frozen-lockfile --ignore-scripts` 安装包（没有用 pnpm 创建的应用用 `npm ci`），所以请提交锁文件。`package.json` 里没有 `packageManager`，所以工作流给 pnpm 指定版本 10。这个文件归你编辑：Tifa 只写一次，之后不会再改。在 GitHub Actions 里，`tifa check`、`tifa build` 和 `tifa gen` 会把发现的问题打印成工作流命令，于是运行记录和拉取请求会标出每个问题所在的文件和行，并区分错误和警告。`--ignore-scripts` 把检查留给 `tifa check`：pnpm 会给 `prepare` 脚本的输出加前缀，而 GitHub 读不了带前缀的命令。setup-go 和 setup-node 会标记 `go` 和 `tsc` 的输出 |
 | `.vscode/settings.json` | 通过 `workbench.editor.customLabels.patterns`，让 VS Code 的编辑器标签页用文件夹名来区分每个文件夹里都重复出现的文件名，比如 `orders/page.tsx` 和 `orders/route.go`（`app/` 下的 `page.tsx`、`layout.tsx`、`route.go`、`route_test.go` 和 `route.gen.ts`）。其他编辑器会忽略它 |
 
-- `--empty` 写出一个骨架，代替待办清单：同样的根目录文件（`go.mod`、`tifa.yaml`、`package.json`、Vite 和 TypeScript 配置、`.gitignore`、`.gitattributes`、`.github/workflows/ci.yml`、`AGENTS.md`、`CLAUDE.md`、`hooks.go`、`db.go`、`migrate_test.go`、`sessions.go`、`options.go`），只有会话表的 `migrations/001_init.sql` 和 `schema.sql`，一个带错误组件的根 `layout.tsx`，一行的 `page.tsx` 和 `styles.css`。它没有 `app/todos/`、关于页、路由或路由测试。它能构建，能通过 `go test` 和 `go vet`，也能启动。不带这个参数就得到待办清单。
+- `--empty` 写出一个骨架，代替待办清单：同样的根目录文件（`go.mod`、`tifa.yaml`、`package.json`、Vite 和 TypeScript 配置、`.gitignore`、`.gitattributes`、`.github/workflows/ci.yml`、`AGENTS.md`、`CLAUDE.md`、`hooks.go`、`db.go`、`migrate_test.go`、`sessions.go`、`options.go`），只有会话表的 `migrations/001_init.sql` 和 `schema.sql`，一个带错误组件的根 `layout.tsx`，一行的 `page.tsx` 和 `styles.css`。它没有 `app/todos/`、关于页、首页路由和它的测试。它保留 `app/healthz/`。它能构建，能通过 `go test` 和 `go vet`，也能启动。不带这个参数就得到待办清单。
 - 模块路径默认是文件夹名，除非用 `--module` 指定。应用导入它根目录的包，所以这个路径必须是 go 命令能导入的路径。`tifa new` 会拒绝带 `vendor` 元素的路径，也会拒绝这样的路径：第一个元素不含点，并且无论如何都是标准库某个包或 go 命令某个模式的第一个元素（比如 `fmt`、`net` 或 `all`），即使并不存在这样的包。请改用 `example.com/fmt`。
 - 根包以模块路径的最后一个元素命名（不算 `/v2` 这样的主版本后缀），转成小写，只保留字母和数字。它必须是一个 Go 标识符，且不能是关键字、`main` 或 `init`（Go 不接受把 `init` 作为被导入包的名字）。`app/` 下的 Go 文件用这个名字导入它，所以这个名字不能在它们使用的地方另有含义：不能是它们导入的某个包（比如领域包 `todos` 或 `tifa`），不能是它们用到的预声明名字（比如 `error`），也不能是它们在使用根包的作用域里的某个参数或变量（比如 `db` 或 `ctx`）。`tifa new` 保存了一份这类名字的清单并拒绝它们，所以 `tifa new todos` 会失败，并要求换一个文件夹名或用 `--module`，`--module example.com/todos` 也会失败，并要求为 `--module` 换一个最后的元素。它们用到的其他名字，比如 `c` 或 `rows`，没有问题。`package.json` 里的名字与此相同，只是截到 214 个字符，这是 npm 的上限。
 - `go.mod` 要求的 Tifa 版本，就是 go 命令下载时运行的那个 Tifa 命令的版本：`go run github.com/liustack/tifa/cmd/tifa@<version> new myapp`，或在应用里运行 `go tool tifa new`。在 Tifa 检出目录里构建的命令，或被替换成这样的命令，会写下 `v0.0.0`，并多加一步，用 `go mod edit -replace` 把 `go.mod` 指向这个检出目录。

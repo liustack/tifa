@@ -1,0 +1,18 @@
+// Package healthz is the health check at /healthz: the deploy, the load balancer and the
+// container platform ask it whether this release can serve.
+package healthz
+
+import (
+	"github.com/liustack/tifa"
+
+	"{{.Module}}"
+)
+
+// GET answers 204 while the database answers, and 503 when it does not. `tifa deploy` asks for it
+// after each deploy and goes back to the old release when it fails.
+func GET(c *tifa.Ctx) error {
+	if err := {{.Package}}.DB.PingContext(c.Context()); err != nil {
+		return tifa.Error{Status: 503, Message: "database unreachable"}
+	}
+	return c.NoContent(204)
+}
