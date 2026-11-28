@@ -4,6 +4,8 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-28
+
 ### Changed
 
 - Server rendering runs on beastjs v0.33.4. Starting the program compiles the bundle faster, 12% less time for the shop's bundle on an M4 Mac. The pages and their HTML are the same, and loading a VM and rendering take the same time.
