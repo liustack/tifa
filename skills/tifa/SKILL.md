@@ -44,6 +44,7 @@ myapp/
   vite.config.ts  tsconfig.json  package.json
   app/
     route.go  layout.tsx  page.tsx      root Layout, and the page at /
+    healthz/route.go                    GET /healthz, the health check that tifa deploy asks
     todos/
       todo.go                           the todos domain (package todos), next to its pages
       todo+/                            URL segment {todo}, read with c.Param("todo")

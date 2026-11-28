@@ -76,7 +76,7 @@ The platform ends HTTPS and sends plain HTTP to the container, so leave the prog
 
 ## Health check and stop
 
-- **Health check.** Add the `/healthz` route of [Health check](deploy-by-hand.md#health-check), which a new app does not have yet, and point the platform's check at it. The program listens only once `OnStart` is done, so a 204 means it can serve.
+- **Health check.** A new app has the `/healthz` route of [Health check](deploy-by-hand.md#health-check). An older app adds it. Point the platform's check at it. The program listens only once `OnStart` is done, so a 204 means it can serve.
 - **Stop.** On SIGTERM (and SIGINT) the program stops listening, gives requests in flight `server.shutdown_timeout` (10 seconds by default), cancels the ones left and waits as long again, then runs `OnShutdown` for as long once more. That is up to 30 seconds with the default. Give the platform a stop time at least as long, or lower `SERVER_SHUTDOWN_TIMEOUT`.
 - **Logs.** The program writes its logs to stdout and stderr, which is where platforms collect them. Nothing is written to a log file.
 - **Settings and secrets.** Settings are environment variables: the key with dots turned into underscores, in upper case (see [Names](config.md#names)). Put them and the secrets in the platform's variables, not in the image.

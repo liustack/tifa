@@ -2,7 +2,7 @@
 summary: '在 Fly.io、Railway、Render、Kubernetes 等平台上把 Tifa 应用当容器运行：镜像、端口、健康检查、发布前迁移、SQLite 还是 Postgres，以及哪些平台跑不了'
 audience: app
 order: 24
-translatedFrom: 097d970bd310
+translatedFrom: 57c5af2ca85c
 read_when:
   - '把 Tifa 应用打进容器镜像，或者用 Fly.io、Railway、Render 等容器平台自己的工具部署它'
   - '平台说没有东西在监听它的端口，或者部署后上线的端口不对'
@@ -77,7 +77,7 @@ node_modules
 
 ## 健康检查和停止 {#health-check-and-stop}
 
-- **健康检查。** 加上[健康检查](deploy-by-hand.zh-CN.md#health-check)里的 `/healthz` 路由（新应用还没有它），再让平台的检查指向它。程序在 `OnStart` 完成之后才开始监听，所以收到 204 就说明它能提供服务。
+- **健康检查。** 新应用自带[健康检查](deploy-by-hand.zh-CN.md#health-check)里的 `/healthz` 路由，旧应用要自己加上。让平台的检查指向它。程序在 `OnStart` 完成之后才开始监听，所以收到 204 就说明它能提供服务。
 - **停止。** 收到 SIGTERM（和 SIGINT）后，程序停止监听，给处理中的请求 `server.shutdown_timeout`（默认 10 秒），取消剩下的并再等同样长的时间，然后运行 `OnShutdown`，同样最多这么久。默认设置下最多 30 秒。请给平台设一个至少一样长的停止时间，或者调低 `SERVER_SHUTDOWN_TIMEOUT`。
 - **日志。** 程序把日志写到 stdout 和 stderr，平台正是从那里收集。不会写日志文件。
 - **设置和密钥。** 设置是环境变量：键里的点换成下划线，用大写（见[名字](config.zh-CN.md#names)）。把它们和密钥放在平台的变量里，不要放进镜像。

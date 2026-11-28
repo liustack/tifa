@@ -4,6 +4,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 ## [Unreleased]
 
+### Added
+
+- `tifa new` now writes `app/healthz/route.go` into the app, with its test, for the default app and for `--empty`. `GET /healthz` pings the database and answers 204, or 503 when the ping fails, so the first `tifa deploy` really checks the release. Before, a new app had no such route, and `tifa deploy` counted the 404 as a pass. An existing app can add the same file: the code is in [Health check](docs/build-and-deploy/deploy-by-hand.md#health-check).
+
 ## [0.8.2] - 2026-11-28
 
 ### Changed

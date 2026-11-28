@@ -2,7 +2,7 @@
 summary: '把 Tifa 应用放到服务器上：`tifa deploy`、tifa.yaml 的 `deploy` 块、指定服务器、部署、回滚、更多开发者'
 audience: app
 order: 10
-translatedFrom: 06e0f0e66a37
+translatedFrom: 0a5d090807c2
 read_when:
   - '第一次把 Tifa 应用放到 VPS 或容器里'
   - '运行 tifa deploy、tifa deploy setup 或 tifa deploy rollback，或者某次部署没通过健康检查而回退了'
@@ -146,7 +146,7 @@ go tool tifa deploy
 2. 把程序压缩成 gzip，上传到 `/srv/tifa/<app>/releases/<id>/`，其中 `<id>` 是部署时的 UTC 时间，并在那里检查它的 SHA-256。
 3. 设置了 `release_command` 时，用新程序运行这条命令，旧发布照常服务（见[发布命令](#the-release-command)）。命令失败时，部署在这里停下。
 4. 把 `/srv/tifa/<app>/current` 指向它，并重启服务。socket 保持打开，所以这期间到来的请求会等着，然后得到回答（见[重启而不丢请求](deploy-by-hand.zh-CN.md#restart-without-dropping-requests)）。
-5. 在服务器上检查新程序：每秒一次 `GET /healthz`，最长 `start_timeout`（不设置就是 30 秒），直到它以低于 500 的状态回答。它在回环地址上访问，有自己 HTTPS 的应用则像访客一样，用它的域名走 HTTPS。没有 `/healthz` 路由的应用，一有响应就带着它的 404 通过。写一个会看数据库的[健康检查](deploy-by-hand.zh-CN.md#health-check)，让这项检查更有意义。`OnStart`（包括迁移）必须在这段时间内完成（见[慢启动](#a-slow-start)和[迁移能花多长时间](../guides/database.zh-CN.md#how-long-a-migration-may-take)）。
+5. 在服务器上检查新程序：每秒一次 `GET /healthz`，最长 `start_timeout`（不设置就是 30 秒），直到它以低于 500 的状态回答。它在回环地址上访问，有自己 HTTPS 的应用则像访客一样，用它的域名走 HTTPS。`tifa new` 会写好这个路由，它会去 ping 数据库（见[健康检查](deploy-by-hand.zh-CN.md#health-check)）。没有 `/healthz` 路由的应用，比如在这之前建的，一有响应就带着它的 404 通过：加上这个路由，检查才有意义。`OnStart`（包括迁移）必须在这段时间内完成（见[慢启动](#a-slow-start)和[迁移能花多长时间](../guides/database.zh-CN.md#how-long-a-migration-may-take)）。
 6. 检查通过后，把这次部署记下来，并保留最近 5 个发布。检查失败时，它会打印应用日志的最后几行，重新启动之前运行的那个发布，并以 1 退出。如果从来没有通过的发布，它会停掉应用。
 7. 用 `front: cloudflare` 时，会清除那个主机名的 CDN 缓存（见[清除 CDN 缓存](deploy-cloudflare.zh-CN.md#clearing-the-cdn-cache)）。
 8. 说明访客从哪里访问应用：`visitors: https://shop.example.com`，没有域名时是 `http://<服务器的地址>`。用 `front: none` 或 `front: nginx` 时，它接着从你的机器访问应用的端口，有端口没回答时，会提示你服务商的防火墙或安全组可能挡住了它，这些 Tifa 不改。用 `front: external` 时，它改为列出要填进负载均衡器的目标和健康检查，并在应用的端口能从你的机器访问到时说出来（见[在你的负载均衡器后面](deploy-proxy.zh-CN.md#behind-your-load-balancer)）。
