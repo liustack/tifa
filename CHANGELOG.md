@@ -8,6 +8,10 @@ What changed in Tifa that apps and their users can see. From v0.0.1 on, changes 
 
 - `tifa new` now writes `app/healthz/route.go` into the app, with its test, for the default app and for `--empty`. `GET /healthz` pings the database and answers 204, or 503 when the ping fails, so the first `tifa deploy` really checks the release. Before, a new app had no such route, and `tifa deploy` counted the 404 as a pass. An existing app can add the same file: the code is in [Health check](docs/build-and-deploy/deploy-by-hand.md#health-check).
 
+### Changed
+
+- Server rendering runs on beastjs v0.33.5. `toLocaleUpperCase` and `toLocaleLowerCase` for Turkish, Azerbaijani and Lithuanian, and `toLocaleUpperCase` for Greek, keep one copy of the text and of the result, where they used to take up to 38 times the memory, stop quickly when a render times out, and work on long texts under the memory limit. A false `SyntaxError` is gone for code in an async or generator function where `let` is followed by an escaped `await` or `yield` and a regular expression in brackets on the next line (a bug of v0.33.3 and v0.33.4). Compiling the bundle at start-up did not get measurably faster on an M4 Mac, for the shop's or the MUI app's bundle, and loading a VM and rendering take the same time. The pages and their HTML are the same. Some `SyntaxError` messages and positions for code that is not valid JavaScript change.
+
 ## [0.8.2] - 2026-11-28
 
 ### Changed
