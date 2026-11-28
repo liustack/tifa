@@ -37,7 +37,9 @@ fi
 // until it ends by itself. So the program runs in the background with the input of the script, and
 // a watcher asks /proc every second whether the nearest sshd process above the script is still
 // there. When it is gone, the watcher sends the program SIGTERM, which ends the context of a
-// command of the app, and SIGKILL 10 seconds later. With a terminal, the terminal sends SIGHUP
+// command of the app, and SIGKILL 10 seconds later. When the program ends, the script stops the
+// watcher, which ends the sleep it waits in, and waits for it, so the session leaves no process
+// behind. With a terminal, the terminal sends SIGHUP
 // itself, and the program takes the place of the script as before. A server without /proc, which
 // only the tests have, runs it so too.
 const runBody = `d="$HOME/$app"
@@ -54,21 +56,31 @@ exec 3<&0
 program=$!
 exec 3<&-
 (
+	stop= s=
+	trap 'stop=1; kill "$s" 2>/dev/null' TERM
+	pause() {
+		[ -z "$stop" ] || exit 0
+		sleep 1 &
+		s=$!
+		wait "$s" || wait "$s"
+		[ -z "$stop" ] || exit 0
+	}
 	while kill -0 "$program" 2>/dev/null; do
 		if [ ! -d "/proc/$session" ]; then
 			kill -TERM "$program" 2>/dev/null
 			i=0
-			while [ "$i" -lt 10 ] && kill -0 "$program" 2>/dev/null; do sleep 1; i=$((i + 1)); done
+			while [ "$i" -lt 10 ] && kill -0 "$program" 2>/dev/null; do pause; i=$((i + 1)); done
 			kill -KILL "$program" 2>/dev/null
 			exit 0
 		fi
-		sleep 1
+		pause
 	done
 ) </dev/null >/dev/null 2>&1 &
 watcher=$!
 wait "$program"
 status=$?
 kill "$watcher" 2>/dev/null
+wait "$watcher"
 exit "$status"
 `
 

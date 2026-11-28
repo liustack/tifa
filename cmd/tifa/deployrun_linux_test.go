@@ -86,6 +86,40 @@ while :; do sleep 0.1; done
 	waitFor(t, fileAt(mark))
 }
 
+// When the program ends, the script ends its watcher with the sleep the watcher waits in, so the
+// session leaves no process behind.
+func TestDeployRunLeavesNoProcess(t *testing.T) {
+	bin := t.TempDir()
+	pids := filepath.Join(t.TempDir(), "pids")
+	writeFile(t, filepath.Join(bin, "sleep"), "#!/bin/sh\necho $$ >> "+shellQuote(pids)+"\nexec /bin/sleep \"$@\"\n")
+	if err := os.Chmod(filepath.Join(bin, "sleep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The program ends once the watcher sleeps.
+	c := sshdRun(t, `#!/bin/sh
+while [ ! -s `+shellQuote(pids)+` ]; do /bin/sleep 0.01; done
+`, nil, nil)
+	c.Env = append(c.Env, "PATH="+bin+":"+os.Getenv("PATH"))
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	data, err := os.ReadFile(pids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pid := range strings.Fields(string(data)) {
+		stat, err := os.ReadFile("/proc/" + pid + "/stat")
+		if err != nil {
+			continue
+		}
+		// The state follows the name in parentheses. A zombie has ended.
+		if f := strings.Fields(string(stat[strings.LastIndexByte(string(stat), ')')+1:])); len(f) > 0 && f[0] != "Z" {
+			_ = exec.Command("kill", "-KILL", pid).Run()
+			t.Errorf("sleep %s of the watcher still runs after the script ended", pid)
+		}
+	}
+}
+
 // fileAt says a file is at path.
 func fileAt(path string) func() bool {
 	return func() bool { _, err := os.Stat(path); return err == nil }
